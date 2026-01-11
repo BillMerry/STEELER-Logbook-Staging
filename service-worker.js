@@ -1,10 +1,11 @@
-const CACHE_NAME = "steeler-logbook-v4-25";
+// Bump this whenever assets change, to avoid stale PWA caches.
+const CACHE_NAME = "steeler-logbook-v0.5.3c";
 
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
-  "./app.js",
+  "./app.v0.5.3c.js",
   "./manifest.json",
   "./favicon.ico",
   "./icons/steeler-192.png",
@@ -32,12 +33,19 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   const isSameOrigin = url.origin === self.location.origin;
 
+  // Allow a deterministic cache-bypass reset: /?reset=1
+  if (isSameOrigin && url.searchParams.get("reset") === "1") {
+    event.respondWith(fetch(req));
+    return;
+  }
+
   // For navigation & core assets, prefer network to avoid stale JS after an update.
   const isCore =
     isSameOrigin && (
       url.pathname.endsWith("/") ||
       url.pathname.endsWith("/index.html") ||
       url.pathname.endsWith("/app.js") ||
+      /^\/app\.v.*\.js$/.test(url.pathname) ||
       url.pathname.endsWith("/styles.css") ||
       url.pathname.endsWith("/manifest.json")
     );

@@ -211,11 +211,11 @@
         </div>
 
         <div class="settings-card">
-          <h3>Diagnostics</h3>
+          <h3>App cache</h3>
           <div class="settings-row">
-            <button id="resetCacheBtn" class="btn btn-secondary">Reset PWA Cache</button>
+            <button id="resetPwaCacheBtn" class="btn btn-secondary">Reset PWA Cache</button>
           </div>
-          <p class="hint">If buttons stop responding after an update, use this to clear cached files (does not delete your logbook data).</p>
+          <p class="hint">If buttons stop responding after an update, use this to clear cached files (does not delete your logbook data). If the UI is completely stuck, add <code>?reset=1</code> to the URL and reload.</p>
         </div>
       </section>
     </section>
@@ -240,7 +240,32 @@
 
 
   <!-- Ports Manager Modal -->
-  <div id="portsModal" class="modal hidden" aria-hidden="true">
+  
+  <div id="tidePasteModal" class="modal hidden" aria-hidden="true">
+    <div id="tidePasteModalOverlay" class="modal-overlay hidden"></div>
+    <div class="modal-panel" role="dialog" aria-modal="true" aria-label="Paste tide times">
+      <div class="modal-header">
+        <div class="modal-title">Paste tide times (EasyTide / Imray / Navionics)</div>
+        <button type="button" id="tidePasteModalClose" class="modal-close" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-help">
+          Paste any text that includes <b>HW</b>/<b>LW</b> and times (e.g. “HW 06:12 … LW 12:34 …”).
+          We’ll pull out up to two HW and two LW times for the plan date.
+        </div>
+        <textarea id="tidePasteText" rows="10" placeholder="Paste tide table / export text here"></textarea>
+        <div class="modal-actions">
+          <button type="button" id="tidePasteApplyBtn" class="btn btn-primary">Apply to this station</button>
+          <button type="button" id="tidePasteCancelBtn" class="btn btn-secondary">Cancel</button>
+        </div>
+        <p class="hint" style="margin-top:0.5rem">
+          Note: always sanity-check against local sources. Stored as “planned” notes, not for navigation.
+        </p>
+      </div>
+    </div>
+  </div>
+
+<div id="portsModal" class="modal hidden" aria-hidden="true">
     <div id="portsModalOverlay" class="modal-overlay hidden"></div>
     <div class="modal-panel" role="dialog" aria-modal="true" aria-label="Manage Ports">
       <div class="modal-header">
@@ -254,6 +279,6 @@
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.v0.5.3c.js"></script>
 </body>
 </html>

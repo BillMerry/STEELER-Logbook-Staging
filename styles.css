@@ -8,6 +8,13 @@
   --soft:#f4f4f4;
 }
 
+/*
+  Utility: many parts of the UI (modals, overlays, suggestions) rely on a
+  generic `.hidden` class. A recent refactor accidentally removed it, which
+  caused modal panels to render permanently.
+*/
+.hidden{ display:none !important; }
+
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;height:100%}
 
@@ -442,11 +449,9 @@ body.night .port-suggest-item {
 }
 
 /* --- Modal -------------------------------------------------------------- */
-.modal.hidden { display: none; }
-.modal { position: fixed; inset: 0; z-index: 200; }
-.modal-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.35); }
 .modal-panel {
   position: relative;
+  z-index: 1;
   width: min(720px, calc(100% - 24px));
   margin: 60px auto;
   background: #fff;
@@ -519,6 +524,21 @@ body.night .ports-delete { border-color: rgba(255,255,255,0.18); color: #fff; }
 .ports-coord-input{max-width:10ch;padding:0.25rem 0.35rem;border:1px solid var(--border);border-radius:0.35rem;background:var(--panel);color:var(--fg)}
 .ports-mini{border-radius:999px;padding:0.25rem 0.55rem;border:1px solid #d0d0d0;background:var(--soft);color:var(--fg);font-size:0.78rem;cursor:pointer}
 
+.ports-name-wrap{display:flex;gap:0.45rem;align-items:center;margin-bottom:0.25rem}
+.ports-name-input{font-weight:700;border:1px solid var(--border);border-radius:0.45rem;padding:0.25rem 0.35rem;background:var(--panel);color:var(--fg);min-width:0;flex:1 1 auto}
+
+/* Tide paste + display */
+.time-height{display:flex;gap:0.45rem;align-items:center}
+.tide-height{width:6.5rem}
+
+.tide-station-block{margin:0.6rem 0 0.9rem;display:block;}
+
+.tide-station-name{font-weight:700;margin-bottom:0.35rem}
+.tide-table{width:auto;max-width:100%;border-collapse:collapse;font-size:inherit}
+.tide-table th,.tide-table td{border:1px solid var(--border);padding:0.25rem 0.35rem;text-align:left}
+.tide-table th{background:var(--soft)}
+.tide-sym{width:1.6rem;text-align:center}
+
 
 /* --- Ports modal layering fix --- */
 #portsModalOverlay.modal-overlay{
@@ -537,3 +557,31 @@ body.night .ports-delete { border-color: rgba(255,255,255,0.18); color: #fff; }
 /* Manage Ports modal scrolling */
 #portsManagerList{max-height:60vh;overflow:auto;-webkit-overflow-scrolling:touch}
 .modal .modal-content{max-height:80vh;overflow:auto;-webkit-overflow-scrolling:touch}
+
+/* Tide stations in log plan summary */
+.tide-stations-grid{display:flex;flex-wrap:wrap;gap:0.6rem;align-items:flex-start}
+.tide-stations-grid .tide-station-block{margin:0;}
+
+
+/* Log notes/actions inline editor */
+/* Notes/actions editor inside the log table */
+.log-notes{
+  width:100%;
+  min-width:140px;
+  font-size:0.82rem;
+  line-height:1.25;
+  padding:0.25rem 0.35rem;
+  border:1px solid var(--border);
+  border-radius:8px;
+  background:var(--panel);
+  color:var(--fg);
+  font-family:inherit;
+  resize:vertical;
+}
+
+
+/* Modal notes should match body typography */
+.modal-notes{
+  font-size:0.85rem;
+  font-family:inherit;
+}

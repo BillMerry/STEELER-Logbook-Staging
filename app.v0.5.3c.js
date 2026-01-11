@@ -4,7 +4,47 @@ const STORAGE_KEY = "steeler_logbook_passages_v5";
 const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 
-const APP_VERSION = "0.4.25";
+const APP_VERSION = "0.5.3c";
+
+// ---------------------------------------------------------------------------
+// Emergency reset hook
+// ---------------------------------------------------------------------------
+// Use: http://localhost:8001/?reset=1
+// This runs *before* any UI init so it works even if buttons/modals are broken.
+(function earlyResetHook(){
+  try{
+    const qs = new URLSearchParams(window.location.search);
+    if (!qs.has("reset")) return;
+
+    // Clear local app data
+    try{ localStorage.removeItem(STORAGE_KEY); }catch(e){}
+    try{ localStorage.removeItem(THEME_KEY); }catch(e){}
+    try{ localStorage.removeItem(PORTS_KEY); }catch(e){}
+
+    // Nuke SW + cache storage
+    const doReload = () => {
+      // Remove the query param so we don't loop
+      const cleanUrl = window.location.origin + window.location.pathname;
+      window.location.replace(cleanUrl);
+    };
+
+    if ("serviceWorker" in navigator){
+      navigator.serviceWorker.getRegistrations()
+        .then(regs => Promise.all(regs.map(r => r.unregister())).catch(()=>[]))
+        .then(() => ("caches" in window) ? caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k)))) : null)
+        .then(doReload)
+        .catch(doReload);
+    } else {
+      if ("caches" in window){
+        caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k)))).then(doReload).catch(doReload);
+      } else {
+        doReload();
+      }
+    }
+  }catch(e){
+    // Last resort: keep app running
+  }
+})();
 
 function setAppVersionBadge(){
   const el = document.getElementById("appVersion");
@@ -34,21 +74,55 @@ function findPortItemByName(name){
   return knownPorts.find(p => portName(p) === n) || null;
 }
 function upsertPortItem(name, lat=null, lon=null){
+  // Backwards-compatible wrapper (coords only)
+  upsertPortItemExtended(name, lat, lon, null);
+}
+
+function upsertPortItemExtended(name, lat=null, lon=null, tideId=null){
   const n = (name || "").trim();
   if (!n) return;
+
   const existingIdx = knownPorts.findIndex(p => portName(p) === n);
+
+  const merge = (existingObj) => {
+    const out = { name: n };
+    if (existingObj && typeof existingObj === "object"){
+      if (existingObj.lat != null) out.lat = Number(existingObj.lat);
+      if (existingObj.lon != null) out.lon = Number(existingObj.lon);
+      if (existingObj.tideId) out.tideId = String(existingObj.tideId);
+    }
+    if (lat != null && lon != null){
+      out.lat = Number(lat);
+      out.lon = Number(lon);
+    }
+    if (tideId !== null){
+      // tideId == "" means clear; otherwise set
+      if (String(tideId).trim() === "") {
+        delete out.tideId;
+      } else {
+        out.tideId = String(tideId).trim();
+      }
+    }
+    // if only name present, store as string (keeps storage tidy)
+    const keys = Object.keys(out);
+    if (keys.length === 1) return n;
+    return out;
+  };
+
   if (existingIdx >= 0){
     const existing = knownPorts[existingIdx];
-    if (lat != null && lon != null){
-      knownPorts[existingIdx] = { name: n, lat: Number(lat), lon: Number(lon) };
+    if (typeof existing === "object"){
+      knownPorts[existingIdx] = merge(existing);
     } else {
-      knownPorts[existingIdx] = existing;
+      knownPorts[existingIdx] = merge({ name: n });
     }
   } else {
-    knownPorts.push((lat != null && lon != null) ? { name: n, lat: Number(lat), lon: Number(lon) } : n);
+    knownPorts.push(merge({ name: n }));
   }
+
   knownPorts.sort((a,b) => portName(a).localeCompare(portName(b)));
 }
+
 
 // --- Port autocomplete + management --------------------------------
 
@@ -168,6 +242,45 @@ function deletePort(name) {
   refreshPortUI();
 }
 
+function renamePort(oldName, newName){
+  const oldN = (oldName || "").trim();
+  const newN = (newName || "").trim();
+  if (!oldN || !newN || oldN === newN) return { ok:false, message:"No change." };
+  if (knownPorts.some(p => portName(p) === newN)) return { ok:false, message:"That name already exists." };
+
+  // Update knownPorts
+  knownPorts = knownPorts.map(p => {
+    if (portName(p) !== oldN) return p;
+    if (typeof p === "object" && p) return { ...p, name: newN };
+    return newN;
+  });
+
+  // Update MRU
+  recentPorts = recentPorts.map(n => n === oldN ? newN : n);
+
+  // Update any saved passages that reference the port name
+  try {
+    for (const pass of passages || []){
+      if (pass?.plan){
+        if (pass.plan.from === oldN) pass.plan.from = newN;
+        if (pass.plan.to === oldN) pass.plan.to = newN;
+        if (Array.isArray(pass.plan.tideStations)){
+          pass.plan.tideStations.forEach(ts => {
+            if (ts && typeof ts === "object" && ts.name === oldN) ts.name = newN;
+          });
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("renamePort: passage update failed", e);
+  }
+
+  savePorts();
+  savePassages();
+  refreshPortUI();
+  return { ok:true };
+}
+
 
 function renderPortsManagerList() {
   const list = document.getElementById("portsManagerList");
@@ -192,9 +305,31 @@ function renderPortsManagerList() {
     const left = document.createElement("div");
     left.className = "ports-left";
 
-    const label = document.createElement("div");
-    label.className = "ports-name";
-    label.textContent = name;
+    const nameWrap = document.createElement("div");
+    nameWrap.className = "ports-name-wrap";
+
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.className = "ports-name-input";
+    nameInput.value = name;
+
+    const renameBtn = document.createElement("button");
+    renameBtn.type = "button";
+    renameBtn.className = "ports-mini";
+    renameBtn.textContent = "Rename";
+    renameBtn.addEventListener("click", () => {
+      const target = (nameInput.value || "").trim();
+      const res = renamePort(name, target);
+      if (!res.ok){
+        alert(res.message || "Could not rename port.");
+        nameInput.value = name;
+        return;
+      }
+      renderPortsManagerList();
+    });
+
+    nameWrap.appendChild(nameInput);
+    nameWrap.appendChild(renameBtn);
 
     const coords = document.createElement("div");
     coords.className = "ports-coords";
@@ -219,19 +354,24 @@ function renderPortsManagerList() {
     saveBtn.type = "button";
     saveBtn.className = "ports-mini";
     saveBtn.textContent = "Save coords";
+
     saveBtn.addEventListener("click", () => {
-      const parsed = parseLatLon(latInput.value, lonInput.value);
-      if (!parsed) {
-        alert("Please enter valid decimal lat and lon (e.g. 50.757, -1.545).");
+      const la = parseFloat(latInput.value);
+      const lo = parseFloat(lonInput.value);
+      if (isNaN(la) || isNaN(lo)){
+        alert("Please enter both latitude and longitude.");
         return;
       }
-      upsertPortItem(name, parsed.lat, parsed.lon);
+      if (!saneForSteeler(la, lo)){
+        alert("Those coordinates look a bit daft for UK/Channel waters. Please double-check.");
+        return;
+      }
+      upsertPortItemExtended(name, la, lo, null);
       savePorts();
       renderPortsManagerList();
-      autoComputeSunriseSetForCurrent();
     });
 
-    const lookupBtn = document.createElement("button");
+const lookupBtn = document.createElement("button");
     lookupBtn.type = "button";
     lookupBtn.className = "ports-mini";
     lookupBtn.textContent = "Lookup";
@@ -239,7 +379,7 @@ function renderPortsManagerList() {
       try {
         const q = encodeURIComponent(normalisePortQuery(name) + " harbour");
         const viewbox = "-6.8,53.5,3.5,45.5"; // UK + Channel + N France (down to La Rochelle)
-        const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=3&countrycodes=gb,fr&viewbox=${viewbox}&bounded=1&q=${q}`;
+        const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=3&countrycodes=gb,fr,gg,je&viewbox=${viewbox}&bounded=1&q=${q}`;
         const res = await fetch(url, { headers: { "Accept": "application/json", "Accept-Language":"en" } });
         if (!res.ok) throw new Error("Lookup failed");
         const data = await res.json();
@@ -278,7 +418,7 @@ function renderPortsManagerList() {
     coords.appendChild(saveBtn);
     coords.appendChild(lookupBtn);
 
-    left.appendChild(label);
+    left.appendChild(nameWrap);
     left.appendChild(coords);
 
     const right = document.createElement("div");
@@ -317,6 +457,156 @@ function setupPortsManagerModal() {
   if (closeBtn) closeBtn.addEventListener("click", close);
   if (overlay) overlay.addEventListener("click", close);
 }
+
+function setupTidePasteModal(){
+  const modal = document.getElementById("tidePasteModal");
+  const overlay = document.getElementById("tidePasteModalOverlay");
+  const closeBtn = document.getElementById("tidePasteModalClose");
+  const cancelBtn = document.getElementById("tidePasteCancelBtn");
+  const applyBtn = document.getElementById("tidePasteApplyBtn");
+  const ta = document.getElementById("tidePasteText");
+
+  if (!modal) return;
+
+  const open = () => {
+    const p = getCurrentPassage();
+    const idx = window.__tidePasteTargetIndex;
+    // Prefill with previously stored raw paste for this station (so you can edit / re-apply)
+    if (ta) {
+      let prefill = "";
+      try {
+        const stations = readTideStationsFromForm();
+        if (stations && idx != null && stations[idx] && typeof stations[idx].raw === "string") {
+          prefill = stations[idx].raw;
+        } else if (p && p.plan && Array.isArray(p.plan.tideStations) && idx != null && p.plan.tideStations[idx] && typeof p.plan.tideStations[idx].raw === "string") {
+          prefill = p.plan.tideStations[idx].raw;
+        }
+      } catch (e) {}
+      ta.value = prefill || "";
+      setTimeout(() => { try { ta.focus(); ta.select(); } catch(e){} }, 0);
+    }
+    modal.classList.remove("hidden");
+    if (overlay) overlay.classList.remove("hidden");
+  };
+  const close = () => {
+    modal.classList.add("hidden");
+    if (overlay) overlay.classList.add("hidden");
+  };
+
+  // store on window so renderTideStations can call open without circulars
+  window.__openTidePasteModal = open;
+  window.__closeTidePasteModal = close;
+
+  if (overlay) overlay.addEventListener("click", close);
+  if (closeBtn) closeBtn.addEventListener("click", close);
+  if (cancelBtn) cancelBtn.addEventListener("click", close);
+
+  if (applyBtn) {
+    applyBtn.addEventListener("click", () => {
+      const p = getCurrentPassage();
+      if (!p) return;
+      const idx = window.__tidePasteTargetIndex;
+      if (idx == null) return;
+
+      const stations = readTideStationsFromForm();
+      if (!stations[idx]) return;
+
+      const text = (ta ? ta.value : "") || "";
+      const dateStr = (planDate && planDate.value) ? planDate.value : "";
+      const parsed = parseTidePaste(text, dateStr);
+
+      if (!parsed.ok){
+        alert(parsed.message || "Couldn't find HW/LW times in that text. Try pasting a different export.");
+        return;
+      }
+
+      stations[idx].hw1 = parsed.hw[0] || "";
+      stations[idx].hw2 = parsed.hw[1] || "";
+      stations[idx].lw1 = parsed.lw[0] || "";
+      stations[idx].lw2 = parsed.lw[1] || "";
+      stations[idx].hw1h = (parsed.hwH && parsed.hwH[0]) ? parsed.hwH[0] : "";
+      stations[idx].hw2h = (parsed.hwH && parsed.hwH[1]) ? parsed.hwH[1] : "";
+      stations[idx].lw1h = (parsed.lwH && parsed.lwH[0]) ? parsed.lwH[0] : "";
+      stations[idx].lw2h = (parsed.lwH && parsed.lwH[1]) ? parsed.lwH[1] : "";
+      stations[idx].events = parsed.events || [];
+
+      // If the paste contains a French Coef and the plan field is empty, populate it.
+      try {
+        const coeffField = document.getElementById("planTidalCoeff");
+        if (coeffField && parsed.coeff && !(coeffField.value || "").trim()) {
+          coeffField.value = parsed.coeff;
+        }
+      } catch (e) {}
+      stations[idx].source = parsed.source || "paste";
+      stations[idx].raw = parsed.raw || text;
+
+      p.plan.tideStations = stations;
+      savePassages();
+      renderTideStations(p);
+      close();
+    });
+  }
+}
+
+function parseTidePaste(text, isoDate){
+  // Parses Imray Tide Planner "Day Table" copy/paste.
+  // Example lines:
+  // ▲  03:20 3.2m
+  // ▼  06:50 0.9m
+  // Coef 87, 82  (8.0m)
+  const raw = (text || "").replace(/\r/g, "");
+  if (!raw.trim()) return { ok:false, message:"Nothing pasted." };
+
+  // Optional: try to isolate the block for the plan date (best effort)
+  let block = raw;
+  if (isoDate){
+    const d = new Date(isoDate + "T00:00:00Z");
+    if (!isNaN(d)){
+      const day2 = String(d.getUTCDate()).padStart(2,"0");
+      const monShort = d.toLocaleString("en-GB",{month:"short", timeZone:"UTC"});
+      const monLong  = d.toLocaleString("en-GB",{month:"long", timeZone:"UTC"});
+      const yr = String(d.getUTCFullYear());
+      const re = new RegExp(`(?:^|\\n).*\\b${day2}\\s+(?:${monShort}|${monLong})\\s+${yr}\\b[\\s\\S]*?(?=\\n\\s*\\w+\\,\\s*\\d{2}\\s+(?:${monShort}|${monLong})\\s+\\d{4}\b|$)`, "i");
+      const m = raw.match(re);
+      if (m && m[0]) block = m[0];
+    }
+  }
+
+  const events = [];
+  const lineRe = /([▲▼])\s*([0-2]?\d:[0-5]\d)\s*([0-9]+(?:[\.,][0-9]+)?)\s*m/gi;
+  let mm;
+  while((mm = lineRe.exec(block)) !== null){
+    const sym = mm[1];
+    const time = mm[2];
+    const height = parseFloat(String(mm[3]).replace(',', '.'));
+    events.push({ type: sym === "▲" ? "HW" : "LW", time, height, symbol: sym });
+  }
+
+  if (!events.length){
+    return { ok:false, message:"Couldn't find ▲/▼ tide lines with time + height. Make sure you copied the Day Table." };
+  }
+
+  // Coefficient (French)
+  let coeff = "";
+  const cm = block.match(/\bCoef\s+([0-9]{1,3}(?:\s*,\s*[0-9]{1,3})*)/i);
+  if (cm && cm[1]) coeff = cm[1].replace(/\s+/g," ").trim();
+
+  // Normalise + sort by time
+  events.sort((a,b) => (a.time > b.time ? 1 : (a.time < b.time ? -1 : 0)));
+
+  // Also provide first two HW + first two LW times/heights for convenience fields
+  const hwEv = events.filter(e => e.type==="HW").slice(0,2);
+  const lwEv = events.filter(e => e.type==="LW").slice(0,2);
+  const hw = hwEv.map(e => e.time);
+  const lw = lwEv.map(e => e.time);
+  const hwH = hwEv.map(e => (typeof e.height === "number" ? String(e.height) : ""));
+  const lwH = lwEv.map(e => (typeof e.height === "number" ? String(e.height) : ""));
+
+  return { ok:true, events, hw, lw, hwH, lwH, coeff, source:"imray", raw };
+}
+
+
+
 
 // --- Storage helpers -----------------------------------------------
 
@@ -393,6 +683,11 @@ function isLikelyRealPortName(name){
   const hasSep = /[\s\-’'\.]/.test(n);
   const isSt = /^st\b/i.test(n);
   if (n.length < 4 && !hasSep && !isSt) return false;
+
+  // Reject obvious road/address fragments that sometimes appear in geocoder results.
+  const roadish = /\b(road|street|drive|lane|avenue|close|way|place|court|terrace)\b/i;
+  const maritime = /\b(port|harbour|harbor|marina|quay|dock|pier)\b/i;
+  if (roadish.test(n) && !maritime.test(n)) return false;
 
   return true;
 }
@@ -495,6 +790,32 @@ function normalisePortQuery(name){
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
+}
+
+function getEasyTidePortIdForName(name){
+  const n = (name || "").trim();
+  if (!n) return "";
+  const item = knownPorts.find(p => portName(p) === n);
+  if (item && typeof item === "object" && item.tideId) return String(item.tideId);
+  return "";
+}
+
+function setEasyTidePortIdForName(name, tideId){
+  const n = (name || "").trim();
+  if (!n) return;
+  upsertPortItemExtended(n, null, null, tideId);
+  savePorts();
+}
+
+function getOrPromptEasyTidePortId(name){
+  const existing = getEasyTidePortIdForName(name);
+  if (existing) return existing;
+  const n = (name || "").trim();
+  if (!n) return "";
+  const entered = prompt("EasyTide PortID for \"" + n + "\" (from the EasyTide URL, e.g. PortID=0062). Leave blank to cancel.");
+  if (!entered) return "";
+  setEasyTidePortIdForName(n, entered.trim());
+  return entered.trim();
 }
 
 function getPortCoords(name){
@@ -847,7 +1168,7 @@ async function ensurePortCoords(name, opts = {}){
     const q = encodeURIComponent(normalisePortQuery(n) + " harbour");
     const viewbox = "-6.8,53.5,3.5,45.5"; // left,top,right,bottom
     const base = "https://nominatim.openstreetmap.org/search";
-    const url = `${base}?format=jsonv2&limit=3&countrycodes=gb,fr&viewbox=${viewbox}&bounded=1&q=${q}`;
+    const url = `${base}?format=jsonv2&limit=3&countrycodes=gb,fr,gg,je&viewbox=${viewbox}&bounded=1&q=${q}`;
     const res = await fetch(url, {
       headers: {
         "Accept":"application/json",
@@ -861,7 +1182,8 @@ async function ensurePortCoords(name, opts = {}){
     // pick first sane result
     let lat = NaN, lon = NaN;
     for (const item of data){
-      const la = parseFloat(item.lat);
+        if (!isMarineSaneNominatimResult(item)) continue;
+        const la = parseFloat(item.lat);
       const lo = parseFloat(item.lon);
       if (!isNaN(la) && !isNaN(lo) && saneForSteeler(la, lo)){
         lat = la; lon = lo;
@@ -906,6 +1228,37 @@ function normalisePortDisplay(name){
   return (name || "").toString().trim().replace(/\s+/g, " ");
 }
 
+
+function isMarineSaneNominatimResult(item){
+  if (!item) return false;
+
+  const cls = String(item.class || item.category || "").toLowerCase();
+  const typ = String(item.type || "").toLowerCase();
+  const addrt = String(item.addresstype || "").toLowerCase();
+  const dn = String(item.display_name || "").toLowerCase();
+
+  // Hard reject obvious roads/addresses unless explicitly maritime.
+  const roadish = /(\broad\b|\bstreet\b|\bdrive\b|\blane\b|\bavenue\b|\bclose\b|\bway\b|\bplace\b|\bcourt\b|\bterrace\b)/i;
+  const maritimeWord = /(harbour|harbor|marina|port|quay|dock|pier|jetty|mole|haven|anchorage|baie|anse|rade)/i;
+
+  if ((cls === "highway" || addrt === "road" || addrt === "house" || addrt === "building") && !maritimeWord.test(dn)) {
+    return false;
+  }
+  if (roadish.test(dn) && !maritimeWord.test(dn) && cls !== "place") {
+    return false;
+  }
+
+  // Accept waterway/harbour/marina/port features.
+  if (cls === "waterway") return true;
+  if (maritimeWord.test(typ) || maritimeWord.test(dn)) return true;
+
+  // Accept place results (town/village/hamlet) as a fallback for smaller ports,
+  // but reject very generic address-y results.
+  if (cls === "place" && /^(city|town|village|hamlet|suburb|island|locality)$/.test(typ || addrt)) return true;
+
+  return false;
+}
+
 async function lookupPortCoordsOnline(name){
   const n = normalisePortDisplay(name);
   if (!n || !navigator.onLine) return null;
@@ -921,12 +1274,14 @@ async function lookupPortCoordsOnline(name){
     `port de ${q0}`,
     `${q0} marina`,
     `${q0}, france`,
-    `${q0}, uk`
+    `${q0}, uk`,
+    `${q0}, guernsey`,
+    `${q0}, jersey`
   ].map(q => q.trim()).filter(Boolean);
 
   for (const q of queries){
     try{
-      const url = `${base}?format=jsonv2&limit=5&countrycodes=gb,fr&viewbox=${viewbox}&bounded=1&q=${encodeURIComponent(q)}`;
+      const url = `${base}?format=jsonv2&limit=5&countrycodes=gb,fr,gg,je&viewbox=${viewbox}&bounded=1&q=${encodeURIComponent(q)}`;
       const res = await fetch(url, {
         headers: { "Accept":"application/json", "Accept-Language":"en,fr" }
       });
@@ -1175,7 +1530,7 @@ function refreshPortUI() {
 
 // --- Modal ---------------------------------------------------------
 
-function showModal({ title, bodyHtml, onOk, okText = "OK", cancelText = "Cancel", hideButtons = false }) {
+function showModal({ title, bodyHtml, onOk, onCancel, okText = "OK", cancelText = "Cancel", hideButtons = false }) {
   modalTitle.textContent = title;
   modalBody.innerHTML = bodyHtml;
   modalOverlay.classList.remove("hidden");
@@ -1195,7 +1550,10 @@ function showModal({ title, bodyHtml, onOk, okText = "OK", cancelText = "Cancel"
     if (modalCancelBtn) modalCancelBtn.style.display = "";
   };
 
-  modalCancelBtn.onclick = () => cleanup();
+  modalCancelBtn.onclick = () => {
+    onCancel?.();
+    cleanup();
+  };
   modalOkBtn.onclick = () => {
     const res = onOk?.();
     if (res !== false) cleanup();
@@ -1283,36 +1641,7 @@ function importBackupFile(file) {
 }
 
 
-async function resetPwaCache(){
-  const ok = confirm(
-    "Reset the PWA cache?\n\n" +
-    "This clears cached files (HTML/JS/CSS) and unregisters the service worker.\n" +
-    "It does NOT delete your saved logbook data.\n\n" +
-    "After this, the app will reload."
-  );
-  if (!ok) return;
-
-  try{
-    if ("serviceWorker" in navigator){
-      const regs = await navigator.serviceWorker.getRegistrations();
-      for (const reg of regs) {
-        try { await reg.unregister(); } catch(e) {}
-      }
-    }
-    if (window.caches){
-      const keys = await caches.keys();
-      await Promise.all(keys.map(k => caches.delete(k)));
-    }
-  }catch(e){
-    console.warn("Reset cache failed", e);
-  }
-
-  // Reload (network-first once SW is gone)
-  window.location.reload();
-}
-
 exportBackupBtn?.addEventListener("click", exportBackup);
-resetCacheBtn?.addEventListener("click", resetPwaCache);
 importBackupBtn?.addEventListener("click", () => importFileInput?.click());
 importFileInput?.addEventListener("change", (e) => {
   const file = e.target.files?.[0];
@@ -1427,6 +1756,26 @@ function ensureFlags(p) {
   if (typeof p.flags.dock !== "boolean") p.flags.dock = false;
 }
 
+function ensureEntries(p){
+  if(!p) return;
+  if(!Array.isArray(p.entries)) p.entries = [];
+}
+
+// Simple unique id generator (used for log entries, etc.)
+function newId(prefix = 'e') {
+  return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+}
+
+
+
+
+// Some features (e.g. Shutdown / end-of-passage) store state in p.finish.
+// Manual log entries shouldn't fail just because finish hasn't been initialised.
+function ensureFinish(p) {
+  if (!p.finish) p.finish = {};
+  if (typeof p.finish.shutdownLogged !== "boolean") p.finish.shutdownLogged = false;
+}
+
 function ensureAutoTideStations(p) {
   if (!p) return;
   if (!p.plan.tideStations) p.plan.tideStations = [];
@@ -1436,43 +1785,63 @@ function ensureAutoTideStations(p) {
 
   const want = [];
   if (origin) want.push(origin);
-  if (!isLocalDestination(dest) && dest && dest !== origin) want.push(dest);
+  if (dest && dest !== origin) want.push(dest);
 
-  // If nothing to prepopulate, do nothing
   if (want.length === 0) return;
 
-  // If no stations at all -> create auto stations for want
-  if (p.plan.tideStations.length === 0) {
-    p.plan.tideStations = want.map((name, i) => ({
-      id: `ts_${Date.now()}_${i}`,
-      name,
-      hw1: "", hw2: "", lw1: "", lw2: "",
-      auto: true
-    }));
-    return;
-  }
+  const stations = Array.isArray(p.plan.tideStations) ? p.plan.tideStations : [];
+  const now = Date.now();
 
-  // Update only existing auto stations; never clobber manual stations
-  const autos = p.plan.tideStations.filter(ts => ts.auto);
-  const manuals = p.plan.tideStations.filter(ts => !ts.auto);
-
-  // If there are no autos, assume user fully manual; do nothing
-  if (autos.length === 0) return;
-
-  const newAutos = want.map((name, i) => {
-    const prev = autos[i] || {};
-    return {
-      id: prev.id || `ts_${Date.now()}_${i}`,
-      name,
-      hw1: prev.hw1 || "",
-      hw2: prev.hw2 || "",
-      lw1: prev.lw1 || "",
-      lw2: prev.lw2 || "",
-      auto: true
-    };
+  const makeBlank = (name, role, i) => ({
+    id: `ts_${now}_${role}_${i}`,
+    name,
+    role,
+    hw1: "", hw2: "", lw1: "", lw2: "",
+    hw1h: "", hw2h: "", lw1h: "", lw2h: "",
+    events: [],
+    raw: "",
+    source: "",
+    auto: true
   });
 
-  p.plan.tideStations = [...newAutos, ...manuals];
+  // Keep the user's extra (manual) stations exactly as-is and in order.
+  // IMPORTANT: do not promote old "auto" stations into extras; otherwise typing in Origin/Dest
+  // would accumulate partial-name stations ("L", "Ly", "Lym"...).
+  const extras = stations.filter(st => st && st.auto !== true);
+
+  // Reuse existing auto stations by ROLE (origin/dest), not by name.
+  let originSt = stations.find(st => st && st.auto === true && st.role === "origin");
+  let destSt   = stations.find(st => st && st.auto === true && st.role === "dest");
+
+  // Backward-compat: if role wasn't stored, treat the first two auto stations as origin/dest.
+  if (!originSt || !destSt) {
+    const legacyAutos = stations.filter(st => st && st.auto === true);
+    if (!originSt && legacyAutos[0]) originSt = { ...legacyAutos[0], role: "origin" };
+    if (!destSt && legacyAutos[1])   destSt   = { ...legacyAutos[1], role: "dest" };
+  }
+
+  if (!originSt) originSt = makeBlank(origin, "origin", 0);
+  if (!destSt)   destSt   = makeBlank(dest, "dest", 1);
+
+  // Update names to match current Plan fields.
+  originSt = { ...originSt, name: origin, role: "origin", auto: true };
+  destSt   = { ...destSt,   name: dest,   role: "dest",   auto: true };
+
+  // Ensure expected fields exist
+  [originSt, destSt].forEach(st => {
+    st.id = st.id || `ts_${now}_${st.role}`;
+    st.hw1 = st.hw1 || ""; st.hw2 = st.hw2 || "";
+    st.lw1 = st.lw1 || ""; st.lw2 = st.lw2 || "";
+    st.hw1h = st.hw1h || ""; st.hw2h = st.hw2h || "";
+    st.lw1h = st.lw1h || ""; st.lw2h = st.lw2h || "";
+    st.events = Array.isArray(st.events) ? st.events : [];
+    st.raw = typeof st.raw === "string" ? st.raw : "";
+    st.source = st.source || "";
+  });
+
+  // If origin/dest are same, keep only one auto station (origin)
+  const same = dest && origin && dest.toLowerCase() === origin.toLowerCase();
+  p.plan.tideStations = same ? [originSt, ...extras] : [originSt, destSt, ...extras];
 }
 
 function createPassage() {
@@ -1545,6 +1914,8 @@ function renderTideStations(p) {
     row.dataset.auto = st.auto ? "true" : "false";
     row.dataset.id = st.id || "";
 
+    // keep events around for backwards compatibility, but Plan inputs are the editable truth
+    row.dataset.events = JSON.stringify(st.events || []);
     row.innerHTML = `
       <div class="row">
         <label>
@@ -1554,17 +1925,39 @@ function renderTideStations(p) {
         <button type="button" class="btn btn-secondary btn-small remove-tide-station">Remove</button>
       </div>
       <div class="row">
-        <label>HW 1 <input type="time" class="ts-hw1" value="${st.hw1 || ""}"></label>
-        <label>HW 2 <input type="time" class="ts-hw2" value="${st.hw2 || ""}"></label>
+        <label>HW 1
+          <div class="time-height">
+            <input type="time" class="ts-hw1" value="${st.hw1 || ""}">
+            <input type="number" step="0.1" inputmode="decimal" class="ts-hw1h" placeholder="m" value="${st.hw1h || ""}">
+          </div>
+        </label>
+        <label>HW 2
+          <div class="time-height">
+            <input type="time" class="ts-hw2" value="${st.hw2 || ""}">
+            <input type="number" step="0.1" inputmode="decimal" class="ts-hw2h" placeholder="m" value="${st.hw2h || ""}">
+          </div>
+        </label>
       </div>
       <div class="row">
-        <label>LW 1 <input type="time" class="ts-lw1" value="${st.lw1 || ""}"></label>
-        <label>LW 2 <input type="time" class="ts-lw2" value="${st.lw2 || ""}"></label>
+        <label>LW 1
+          <div class="time-height">
+            <input type="time" class="ts-lw1" value="${st.lw1 || ""}">
+            <input type="number" step="0.1" inputmode="decimal" class="ts-lw1h" placeholder="m" value="${st.lw1h || ""}">
+          </div>
+        </label>
+        <label>LW 2
+          <div class="time-height">
+            <input type="time" class="ts-lw2" value="${st.lw2 || ""}">
+            <input type="number" step="0.1" inputmode="decimal" class="ts-lw2h" placeholder="m" value="${st.lw2h || ""}">
+          </div>
+        </label>
       </div>
       <div class="row">
         <button type="button" class="btn btn-secondary btn-small move-up">↑</button>
         <button type="button" class="btn btn-secondary btn-small move-down">↓</button>
+        <button type="button" class="btn btn-secondary btn-small ts-paste">Paste Imray</button>
       </div>
+      <div class="hint ts-hint" style="margin-top:-0.25rem">Tip: in Imray Tide Planner, copy the Day Table then tap “Paste Imray”. We’ll extract tide times/heights (and Coef if present).</div>
     `;
 
     const nameInput = row.querySelector(".ts-name");
@@ -1579,6 +1972,13 @@ function renderTideStations(p) {
     row.querySelector(".move-up").addEventListener("click", () => moveTideStation(index, -1));
     row.querySelector(".move-down").addEventListener("click", () => moveTideStation(index, 1));
 
+    const pasteBtn = row.querySelector(".ts-paste");
+    if (pasteBtn){
+      pasteBtn.addEventListener("click", () => {
+        window.__tidePasteTargetIndex = index;
+        if (window.__openTidePasteModal) window.__openTidePasteModal();
+      });
+    }
     tideStationsContainer.appendChild(row);
   });
 }
@@ -1587,13 +1987,36 @@ function readTideStationsFromForm() {
   const stations = [];
   const rows = tideStationsContainer.querySelectorAll(".tide-station-row");
   rows.forEach(row => {
+    const name = row.querySelector(".ts-name").value.trim();
+    const hw1 = row.querySelector(".ts-hw1").value;
+    const hw2 = row.querySelector(".ts-hw2").value;
+    const lw1 = row.querySelector(".ts-lw1").value;
+    const lw2 = row.querySelector(".ts-lw2").value;
+
+    const hw1h = row.querySelector(".ts-hw1h").value;
+    const hw2h = row.querySelector(".ts-hw2h").value;
+    const lw1h = row.querySelector(".ts-lw1h").value;
+    const lw2h = row.querySelector(".ts-lw2h").value;
+
+    // Build a canonical list of events from the editable fields.
+    const events = [];
+    const pushEv = (type, time, heightStr) => {
+      if (!time) return;
+      const h = parseFloat(String(heightStr || "").replace(",", "."));
+      events.push({ type, time, height: isNaN(h) ? null : h });
+    };
+    pushEv("HW", hw1, hw1h);
+    pushEv("HW", hw2, hw2h);
+    pushEv("LW", lw1, lw1h);
+    pushEv("LW", lw2, lw2h);
+    events.sort((a,b) => (a.time||"").localeCompare(b.time||""));
+
     stations.push({
       id: row.dataset.id || ("ts_" + Date.now() + "_" + Math.random().toString(36).slice(2)),
-      name: row.querySelector(".ts-name").value.trim(),
-      hw1: row.querySelector(".ts-hw1").value,
-      hw2: row.querySelector(".ts-hw2").value,
-      lw1: row.querySelector(".ts-lw1").value,
-      lw2: row.querySelector(".ts-lw2").value,
+      name,
+      hw1, hw2, lw1, lw2,
+      hw1h, hw2h, lw1h, lw2h,
+      events,
       auto: row.dataset.auto === "true"
     });
   });
@@ -1620,6 +2043,7 @@ addTideStationBtn.addEventListener("click", () => {
     id: "ts_" + Date.now(),
     name: "",
     hw1: "", hw2: "", lw1: "", lw2: "",
+    hw1h: "", hw2h: "", lw1h: "", lw2h: "",
     auto: false
   });
   renderTideStations(p);
@@ -2245,7 +2669,7 @@ async function fetchInshoreWeatherForCurrent(){
 
     applyWeatherSection(
       "Met Office",
-      `Met Office Inshore Waters: ${areasWanted.join(" • ")}`,
+      "",
       ukText,
       { areas: areasWanted, fetched_at: new Date().toISOString() }
     );
@@ -2337,13 +2761,44 @@ function updatePlanSummaryPanel() {
 
   const tideStationsHtml = tideStations.length
     ? tideStations.map(ts => {
-        const parts = [];
-        if (ts.hw1 || ts.hw2) parts.push(`HW: ${[ts.hw1, ts.hw2].filter(Boolean).join(", ")}`);
-        if (ts.lw1 || ts.lw2) parts.push(`LW: ${[ts.lw1, ts.lw2].filter(Boolean).join(", ")}`);
-        const detail = parts.length ? " – " + parts.join(" | ") : "";
-        return `<div class="tide-row">${escapeHtml(ts.name || "Station")}${detail}</div>`;
+        const name = escapeHtml(ts.name || "Station");
+        // Build events list (prefer stored events; otherwise build from fields)
+        let ev = Array.isArray(ts.events) ? ts.events.slice() : [];
+        if (!ev.length){
+          const pushEv = (type, time, heightStr) => {
+            if (!time) return;
+            const h = parseFloat(String(heightStr || "").replace(",", "."));
+            ev.push({ type, time, height: isNaN(h) ? null : h });
+          };
+          pushEv("HW", ts.hw1, ts.hw1h);
+          pushEv("LW", ts.lw1, ts.lw1h);
+          pushEv("HW", ts.hw2, ts.hw2h);
+          pushEv("LW", ts.lw2, ts.lw2h);
+        }
+        ev.sort((a,b) => (a.time||"").localeCompare(b.time||""));
+
+        if (!ev.length) return `<div class="tide-row">${name} – <em>–</em></div>`;
+
+        const rowsHtml = ev.map(e => {
+          const sym = (e.type === "HW") ? "▲" : "▼";
+          const hRaw = (e && (e.height ?? e.ht ?? e.h ?? e.Ht ?? e.height_m ?? e.heightM));
+          const hh = (typeof hRaw === "number") ? hRaw : parseFloat(String(hRaw ?? "").replace(",", "."));
+          const h = (!isNaN(hh)) ? `${hh.toFixed(1)}m` : "";
+          return `<tr><td class="tide-sym">${sym}</td><td>${escapeHtml(e.time || "")}</td><td>${escapeHtml(h)}</td></tr>`;
+        }).join("");
+
+        return `
+          <div class="tide-station-block">
+            <div class="tide-station-name">${name}</div>
+            <table class="tide-table">
+              <thead><tr><th></th><th>Time</th><th>Ht</th></tr></thead>
+              <tbody>${rowsHtml}</tbody>
+            </table>
+          </div>
+        `;
       }).join("")
     : "<p><em>–</em></p>";
+
 
   const dailySummaryHtml = dailySummaries.length
     ? dailySummaries.map(ds => {
@@ -2361,7 +2816,7 @@ function updatePlanSummaryPanel() {
           <p class="section-title">TIDES</p>
           <p>${tidalCoeff ? `<strong>Coeff:</strong> ${escapeHtml(tidalCoeff)}` : "<strong>Coeff:</strong> –"}</p>
           <p><strong>Tide stations:</strong></p>
-          ${tideStationsHtml}
+          <div class="tide-stations-grid">${tideStationsHtml}</div>
         </div>
 
         <div class="block plan-link" data-goto="planCurrents">
@@ -2407,37 +2862,63 @@ function passageIsShutdown(p) {
   return p?.finish?.shutdownLogged === true;
 }
 
-function addLogEntry() {
-  const p = getCurrentPassage();
-  if (!p) return alert("No passage selected.");
-  ensureFlags(p);
-  if (passageIsShutdown(p)) return alert("Shutdown already recorded – no further log entries allowed.");
 
-  const now = new Date();
-  const timeStr = now.toISOString().slice(0, 16);
-  const previous = p.entries[0] || null;
 
-  const entry = {
-    id: "e_" + Date.now(),
-    time: timeStr,
-    lat: "",
-    lon: "",
-    course: previous ? previous.course : "",
-    speed: previous ? previous.speed : "",
-    rpm: previous ? previous.rpm : "",
-    engTP: previous ? previous.engTP : "",
-    waterLog: previous ? (previous.waterLog || "") : "",
-    groundLog: previous ? previous.groundLog : "",
-    fuelUsed: previous ? previous.fuelUsed : "",
-    notes: ""
-  };
 
-  p.entries.unshift(entry);
-  savePassages();
-  renderLogEntries();
-  refreshHomePassageList();
+async function maybeCapturePositionForEntry(entry) {
+  // Only offer for freeform/custom log entries. (Predefined buttons do not need position.)
+  // We deliberately show the entry immediately, then (optionally) enrich it with position.
+  return await new Promise((resolve) => {
+    showModal({
+      title: "Log position (lat/lon) for this entry?",
+      bodyHtml: `
+        <div style="line-height:1.35">
+          <p style="margin:0 0 10px 0;">
+            Do you want to record your current GPS position for this log entry?
+          </p>
+          <p style="margin:0; opacity:0.85; font-size:0.95em">
+            Tip: choose <b>Yes</b> for notable events. If you’re indoors or GPS is unavailable, it may fail harmlessly.
+          </p>
+        </div>
+      `,
+      okText: "Yes",
+      cancelText: "No",
+      onOk: async () => {
+        // If the browser doesn't support geo, just carry on.
+        if (!navigator.geolocation) {
+          resolve(false);
+          return;
+        }
+
+        const opts = { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 };
+
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            try {
+              const lat = pos.coords.latitude;
+              const lon = pos.coords.longitude;
+              const acc = pos.coords.accuracy;
+
+        entry.lat = formatLatFromDecimal(lat);
+        entry.lon = formatLonFromDecimal(lon);
+              entry.posAccM = acc;
+              entry.posAt = new Date().toISOString(); // when the fix was taken (UTC)
+            } catch (e) {
+              // ignore enrichment errors
+            }
+            resolve(true);
+          },
+          (_err) => {
+            // Don't block the entry if GPS fails; just record nothing.
+            resolve(false);
+          },
+          opts
+        );
+      },
+      onCancel: () => resolve(false),
+    });
+  });
 }
-
 function addSpecialEntry(noteText, notesOverride = null) {
   const p = getCurrentPassage();
   if (!p) return alert("No passage selected.");
@@ -2446,20 +2927,20 @@ function addSpecialEntry(noteText, notesOverride = null) {
 
   const now = new Date();
   const timeStr = now.toISOString().slice(0, 16);
-  const previous = p.entries[0] || null;
 
   const entry = {
     id: "e_" + Date.now(),
     time: timeStr,
     lat: "",
     lon: "",
-    course: previous ? previous.course : "",
-    speed: previous ? previous.speed : "",
-    rpm: previous ? previous.rpm : "",
-    engTP: previous ? previous.engTP : "",
-    waterLog: previous ? (previous.waterLog || "") : "",
-    groundLog: previous ? previous.groundLog : "",
-    fuelUsed: previous ? previous.fuelUsed : "",
+    // No prefill from previous entries (CL-076-8)
+    course: "",
+    speed: "",
+    rpm: "",
+    engTP: "",
+    waterLog: "",
+    groundLog: "",
+    fuelUsed: "",
     notes: (notesOverride !== null ? notesOverride : (noteText || ""))
   };
 
@@ -2469,6 +2950,40 @@ function addSpecialEntry(noteText, notesOverride = null) {
   refreshHomePassageList();
 }
 
+async function addLogEntry(){
+  const p = getCurrentPassage();
+  if (!p) return;
+
+  ensureEntries(p);
+  ensureFinish(p);
+  ensureFlags(p);
+
+  // Always allow ad-hoc log entries, even after Shutdown (CL-076-1)
+  const entry = {
+    id: newId('e'),
+    time: new Date().toISOString().slice(0,16),
+    cog: "",
+    speed: "",
+    rpm: "",
+    engTP: "",
+    waterLog: "",
+    groundLog: "",
+    fuelUsed: "",
+    notes: "",
+    lat: "",
+    lon: ""
+  };
+
+  // Ask whether to capture position for this ad-hoc entry (CL-076-6)
+  await maybeCapturePositionForEntry(entry, p);
+
+  p.entries.unshift(entry);
+  savePassages();
+  renderLogEntries();
+  refreshHomePassageList();
+}
+
+
 function addDockEntry() {
   const p = getCurrentPassage();
   if (!p) return alert("No passage selected.");
@@ -2477,7 +2992,6 @@ function addDockEntry() {
 
   const now = new Date();
   const timeStr = now.toISOString().slice(0, 16);
-  const previous = p.entries[0] || null;
 
   const entry = {
     id: "e_" + Date.now(),
@@ -2488,9 +3002,10 @@ function addDockEntry() {
     speed: "0",
     rpm: "",
     engTP: "",
-    waterLog: previous ? (previous.waterLog || "") : "",
-    groundLog: previous ? previous.groundLog : "",
-    fuelUsed: previous ? previous.fuelUsed : "",
+    // No prefill from previous entries
+    waterLog: '',
+    groundLog: '',
+    fuelUsed: '',
     notes: "Alongside / docked"
   };
 
@@ -2535,6 +3050,16 @@ function deleteLogEntryById(entryId) {
     p.finish.engineHoursEnd = null;
     p.finish.fuelEndPercent = null;
   }
+
+  // Recompute special-entry flags so deleted items can be re-added (CL-076-2)
+  if (!p.flags) p.flags = {};
+  const entries = p.entries || [];
+  const hasEngineStart = entries.some(e => typeof e.notes === 'string' && e.notes.toLowerCase().startsWith('engine start'));
+  const hasSlip = entries.some(e => typeof e.notes === 'string' && e.notes.toLowerCase().startsWith('slipped lines'));
+  const hasDock = entries.some(e => typeof e.notes === 'string' && (e.notes.toLowerCase().startsWith('alongside') || e.notes.toLowerCase().startsWith('docked')));
+  p.flags.engineStart = !!hasEngineStart;
+  p.flags.slip = !!hasSlip;
+  p.flags.dock = !!hasDock;
 
   // Keep shutdown flag consistent even if something odd happens
   if (p.finish) {
@@ -2583,27 +3108,105 @@ engineStartBtn.addEventListener("click", () => {
   if (passageIsShutdown(p)) return alert("Shutdown already recorded – no further log entries allowed.");
   if (p.flags.engineStart) return alert("Engine Start already recorded for this passage.");
 
+  // Persisted per-passage (not carried across passages)
+  const prevEnv = (p.plan && p.plan.engineStartEnv) ? p.plan.engineStartEnv : {};
+
   showModal({
     title: "Engine Start",
     bodyHtml: `
-      <label style="display:flex;flex-direction:column;gap:0.25rem;margin-bottom:0.5rem;">
-        Engine hours at start
-        <input id="ehStart" type="number" inputmode="decimal" step="0.1" value="${escapeHtml(p.plan.engineHoursStart || "")}">
-      </label>
       <label style="display:flex;flex-direction:column;gap:0.25rem;">
         Fuel % at start
         <input id="fuelStart" type="number" inputmode="numeric" step="1" value="${escapeHtml(p.plan.fuelStartPercent || "")}">
       </label>
+
+      <label style="display:flex;flex-direction:column;gap:0.25rem;margin-bottom:0.5rem;">
+        Engine hours at start
+        <input id="ehStart" type="number" inputmode="decimal" step="0.1" value="${escapeHtml(p.plan.engineHoursStart || "")}">
+      </label>
+<div style="margin-top:0.75rem;border-top:1px solid #e6e6e6;padding-top:0.75rem;">
+        <div style="font-weight:600;margin-bottom:0.5rem;">Environment (optional)</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;">
+          <label style="display:flex;flex-direction:column;gap:0.25rem;">
+            Air pressure (mb)
+            <input id="airPress" type="number" inputmode="numeric" step="1" value="${escapeHtml(prevEnv.airPressureMb || "")}">
+          </label>
+          <label style="display:flex;flex-direction:column;gap:0.25rem;">
+            Humidity (%)
+            <input id="humidity" type="number" inputmode="numeric" step="1" value="${escapeHtml(prevEnv.humidityPct || "")}">
+          </label>
+          <label style="display:flex;flex-direction:column;gap:0.25rem;">
+            Air temp (°C)
+            <input id="airTemp" type="number" inputmode="decimal" step="0.1" value="${escapeHtml(prevEnv.airTempC || "")}">
+          </label>
+          <label style="display:flex;flex-direction:column;gap:0.25rem;">
+            Sea temp (°C)
+            <input id="seaTemp" type="number" inputmode="decimal" step="0.1" value="${escapeHtml(prevEnv.seaTempC || "")}">
+          </label>
+          <label style="display:flex;flex-direction:column;gap:0.25rem;grid-column:1 / span 1;">
+            Wind dir
+            <select id="windDir">
+              <option value="" ${!prevEnv.windDir ? "selected" : ""}></option>
+              <option value="N"  ${(prevEnv.windDir=="N")?"selected":""}>N</option>
+              <option value="NE" ${(prevEnv.windDir=="NE")?"selected":""}>NE</option>
+              <option value="E"  ${(prevEnv.windDir=="E")?"selected":""}>E</option>
+              <option value="SE" ${(prevEnv.windDir=="SE")?"selected":""}>SE</option>
+              <option value="S"  ${(prevEnv.windDir=="S")?"selected":""}>S</option>
+              <option value="SW" ${(prevEnv.windDir=="SW")?"selected":""}>SW</option>
+              <option value="W"  ${(prevEnv.windDir=="W")?"selected":""}>W</option>
+              <option value="NW" ${(prevEnv.windDir=="NW")?"selected":""}>NW</option>
+            </select>
+          </label>
+
+          <label style="display:flex;flex-direction:column;gap:0.25rem;grid-column:1 / span 1;">
+            Wind (Bft)
+            <input id="windBft" type="number" inputmode="numeric" step="1" min="0" max="12" value="${escapeHtml(prevEnv.windBft || "")}">
+          </label>
+        </div>
+        <label style="display:flex;flex-direction:column;gap:0.25rem;margin-top:0.75rem;">
+          Notes (optional)
+          <textarea id="esNotes" class="modal-notes" rows="3" style="resize:vertical;" placeholder="Anything notable at engine start…">${escapeHtml(prevEnv.notes || "")}</textarea>
+        </label>
+      </div>
     `,
     onOk: () => {
       const eh = document.getElementById("ehStart").value.trim();
       const fu = document.getElementById("fuelStart").value.trim();
+
+      const airPressureMb = document.getElementById("airPress").value.trim();
+      const humidityPct   = document.getElementById("humidity").value.trim();
+      const airTempC      = document.getElementById("airTemp").value.trim();
+      const seaTempC      = document.getElementById("seaTemp").value.trim();
+      const windDir       = document.getElementById("windDir").value.trim();
+      const windBft       = document.getElementById("windBft").value.trim();
+      const notesText     = document.getElementById("esNotes").value.trim();
+
       p.plan.engineHoursStart = eh;
       p.plan.fuelStartPercent = fu;
+
+      // Persist the optional snapshot per-passage so it can be amended/reopened.
+      p.plan.engineStartEnv = {
+        airPressureMb,
+        humidityPct,
+        airTempC,
+        seaTempC,
+        windDir,
+        windBft,
+        notes: notesText,
+      };
 
       const startBits = [];
       if (eh) startBits.push(`EH ${eh}`);
       if (fu) startBits.push(`Fuel ${fu}%`);
+
+      const envParts = [];
+      if (airPressureMb) envParts.push(`${airPressureMb}mb`);
+      if (humidityPct)   envParts.push(`${humidityPct}%RH`);
+      if (airTempC)      envParts.push(`Air ${airTempC}°C`);
+      if (seaTempC)      envParts.push(`Sea ${seaTempC}°C`);
+      if (windDir || windBft) envParts.push(`Wind ${windDir}${windBft}`.trim());
+      if (envParts.length) startBits.push(`Env ${envParts.join(", ")}`);
+      if (notesText) startBits.push(`Notes: ${notesText}`);
+
       const startNotes = startBits.length ? `Engine start — ${startBits.join(" | ")}` : "Engine start";
       addSpecialEntry("Engine start", startNotes);
       p.flags.engineStart = true;
@@ -2649,12 +3252,12 @@ shutdownBtn.addEventListener("click", () => {
     title: "Shutdown",
     bodyHtml: `
       <label style="display:flex;flex-direction:column;gap:0.25rem;margin-bottom:0.5rem;">
-        Engine hours (end)
-        <input id="ehEnd" type="number" inputmode="decimal" step="0.1" value="${escapeHtml(p.finish.engineHoursEnd || "")}">
-      </label>
-      <label style="display:flex;flex-direction:column;gap:0.25rem;margin-bottom:0.5rem;">
         Fuel % at end
         <input id="fuelEnd" type="number" inputmode="numeric" step="1" value="${escapeHtml(p.finish.fuelEndPercent || "")}">
+      </label>
+<label style="display:flex;flex-direction:column;gap:0.25rem;margin-bottom:0.5rem;">
+        Engine hours (end)
+        <input id="ehEnd" type="number" inputmode="decimal" step="0.1" value="${escapeHtml(p.finish.engineHoursEnd || "")}">
       </label>
       <label style="display:flex;flex-direction:column;gap:0.25rem;">
         Notes / defects
@@ -2758,32 +3361,27 @@ function renderLogEntries() {
 
     const tdNotes = document.createElement("td");
 
-    const notesText = document.createElement("div");
-    notesText.textContent = entry.notes || "";
-    notesText.classList.add("editable-cell");
-    notesText.addEventListener("click", () => {
-      const val = prompt("Notes:", entry.notes || "");
-      if (val === null) return;
-      entry.notes = val.trim();
+    const notesArea = document.createElement("textarea");
+    notesArea.className = "log-notes";
+    notesArea.rows = 2;
+    notesArea.placeholder = "Notes / actions";
+    notesArea.value = entry.notes || "";
+    notesArea.addEventListener("input", () => {
+      entry.notes = notesArea.value;
       savePassages();
-      renderLogEntries();
     });
-    tdNotes.appendChild(notesText);
+    tdNotes.appendChild(notesArea);
 
     const actions = document.createElement("div");
     actions.className = "entry-actions";
-
-    const hasPos = (entry.lat && entry.lat.trim()) || (entry.lon && entry.lon.trim());
-    if (!hasPos) {
-      const posBtn = document.createElement("button");
-      posBtn.className = "btn btn-secondary btn-small";
-      posBtn.textContent = "Position";
-      posBtn.addEventListener("click", () => handlePositionEdit(entry));
-      actions.appendChild(posBtn);
-    } else {
+    const latStr = (entry.lat == null) ? "" : String(entry.lat);
+    const lonStr = (entry.lon == null) ? "" : String(entry.lon);
+    const hasPos = (latStr.trim() !== "") || (lonStr.trim() !== "");
+    if (hasPos) {
       const posSpan = document.createElement("span");
       posSpan.className = "pos-field";
-      posSpan.textContent = entry.lat && entry.lon ? `${entry.lat}, ${entry.lon}` : (entry.lat || entry.lon);
+      posSpan.textContent = (latStr.trim() && lonStr.trim()) ? `${latStr.trim()}, ${lonStr.trim()}` : (latStr.trim() || lonStr.trim());
+      posSpan.title = "Position (tap to edit)";
       posSpan.addEventListener("click", () => handlePositionEdit(entry));
       actions.appendChild(posSpan);
     }
@@ -2827,15 +3425,36 @@ function updateLogSummary() {
     if (sorted[i].groundLog) { gLog = sorted[i].groundLog; break; }
   }
 
+
   let durationText = "–";
-  const times = sorted.map(e => e.time).filter(Boolean).map(t => new Date(t));
-  if (times.length >= 2) {
-    const min = times.reduce((a, b) => (a < b ? a : b));
-    const max = times.reduce((a, b) => (a > b ? a : b));
-    const ms = max - min;
+
+  // Prefer Slip → Dock times when present (CL-076-7)
+  const slipEntry = sorted.find(e => typeof e.notes === 'string' && e.notes.toLowerCase().startsWith('slipped lines'));
+  let dockEntry = null;
+  if (slipEntry && slipEntry.time) {
+    dockEntry = sorted.find(e => e.time && e.time > slipEntry.time && typeof e.notes === 'string' && e.notes.toLowerCase().startsWith('alongside'));
+  }
+
+  const tStart = slipEntry && slipEntry.time ? new Date(slipEntry.time) : null;
+  const tEnd = dockEntry && dockEntry.time ? new Date(dockEntry.time) : null;
+
+  if (tStart && tEnd && !isNaN(tStart) && !isNaN(tEnd)) {
+    const ms = tEnd - tStart;
     if (!isNaN(ms) && ms > 0) {
       const minutes = Math.round(ms / 60000);
       durationText = `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+    }
+  } else {
+    // Fallback: earliest to latest entry
+    const times = sorted.map(e => e.time).filter(Boolean).map(t => new Date(t));
+    if (times.length >= 2) {
+      const min = times.reduce((a, b) => (a < b ? a : b));
+      const max = times.reduce((a, b) => (a > b ? a : b));
+      const ms = max - min;
+      if (!isNaN(ms) && ms > 0) {
+        const minutes = Math.round(ms / 60000);
+        durationText = `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+      }
     }
   }
 
@@ -2970,22 +3589,53 @@ homeNewPassageBtn.addEventListener("click", () => {
   switchToTab("planTab");
 });
 
+// --- Cache / service-worker reset ----------------------------------------
+async function resetPwaCache({ silent=false } = {}) {
+  try {
+    if ("serviceWorker" in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+    if (window.caches && caches.keys) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+  } catch (err) {
+    console.warn("resetPwaCache failed:", err);
+  }
+  if (!silent) {
+    alert("App cache cleared. The page will now reload (your log data is kept)." );
+  }
+  const cleanUrl = location.origin + location.pathname + location.hash;
+  location.replace(cleanUrl);
+}
+
 // --- Initial load --------------------------------------------------
 
-loadPassages();
-loadPorts();
-setupPortAutocomplete();
-setupPortCoordConfirmation();
-setupPortsManagerModal();
-refreshPortUI();
-applyTheme(localStorage.getItem(THEME_KEY) || "day");
+if (new URLSearchParams(location.search).has("reset")) {
+  // Emergency recovery: add ?reset=1 to the URL and reload
+  resetPwaCache({ silent:true });
+} else {
+  loadPassages();
+  loadPorts();
+  setupPortAutocomplete();
+  setupPortCoordConfirmation();
+  setupPortsManagerModal();
+  setupTidePasteModal();
+  refreshPortUI();
+  applyTheme(localStorage.getItem(THEME_KEY) || "day");
 
-refreshHomePassageList();
+  // Settings: Reset PWA Cache button (keeps log data)
+  const resetBtn = document.getElementById("resetPwaCacheBtn");
+  if (resetBtn) resetBtn.addEventListener("click", () => resetPwaCache());
 
-if (!currentPassageId && passages.length > 0) currentPassageId = passages[0].id;
+  refreshHomePassageList();
 
-loadPassageIntoUI();
-setLogLayoutMode("split", splitViewBtn);
+  if (!currentPassageId && passages.length > 0) currentPassageId = passages[0].id;
+
+  loadPassageIntoUI();
+  setLogLayoutMode("split", splitViewBtn);
+}
 
 // Service worker registration (PWA/offline)
 if ("serviceWorker" in navigator) {
@@ -3000,9 +3650,12 @@ if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
       const isLocalhost = (location.hostname === "localhost" || location.hostname === "127.0.0.1");
+      const isStandalone = ((window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || (window.navigator && window.navigator.standalone === true));
+      const ua = navigator.userAgent || "";
+      const isSafari = /Safari/.test(ua) && !/Chrome|Chromium|Edg|OPR/.test(ua);
       // During development on localhost, don't register the service worker.
       // This prevents stale/broken cached JS from disabling the UI.
-      if (!isLocalhost && "serviceWorker" in navigator) {
+      if (!isLocalhost && "serviceWorker" in navigator && (!isSafari || isStandalone)) {
         const reg = await navigator.serviceWorker.register("service-worker.js");
         // Nudge update checks (helps when hopping between versions)
         if (reg.update) reg.update();
