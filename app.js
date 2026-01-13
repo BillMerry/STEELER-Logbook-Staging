@@ -4,7 +4,7 @@ const STORAGE_KEY = "steeler_logbook_passages_v5";
 const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 
-const APP_VERSION = "0.5.3c";
+const APP_VERSION = "0.6.1j";
 
 // ---------------------------------------------------------------------------
 // Emergency reset hook
@@ -65,6 +65,23 @@ const PORTS_RECENT_LIMIT = 20;
 function portName(p){
   return (typeof p === "string") ? p : (p && typeof p === "object" ? (p.name || "") : "");
 }
+
+function ensurePortId(p){
+  if (!p || typeof p !== "object") return p;
+  if (!p.id){
+    p.id = "p_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,8);
+  }
+  return p;
+}
+
+function findPortItemById(id){
+  if (!id) return null;
+  const s = String(id);
+  for (const p of knownPorts){
+    if (p && typeof p === "object" && String(p.id || "") === s) return p;
+  }
+  return null;
+}
 function portHasCoords(p){
   return p && typeof p === "object" && !isNaN(p.lat) && !isNaN(p.lon);
 }
@@ -73,12 +90,18 @@ function findPortItemByName(name){
   if (!n) return null;
   return knownPorts.find(p => portName(p) === n) || null;
 }
-function upsertPortItem(name, lat=null, lon=null){
-  // Backwards-compatible wrapper (coords only)
-  upsertPortItemExtended(name, lat, lon, null);
+
+// Backwards-compatible helper (some newer code expects this name)
+function getPortByName(name){
+  return findPortItemByName(name);
 }
 
-function upsertPortItemExtended(name, lat=null, lon=null, tideId=null){
+function upsertPortItem(name, lat=null, lon=null, commsPilotage=null){
+  // Backwards-compatible wrapper (coords only)
+  upsertPortItemExtended(name, lat, lon, null, commsPilotage);
+}
+
+function upsertPortItemExtended(name, lat=null, lon=null, tideId=null, commsPilotage=null){
   const n = (name || "").trim();
   if (!n) return;
 
@@ -90,6 +113,8 @@ function upsertPortItemExtended(name, lat=null, lon=null, tideId=null){
       if (existingObj.lat != null) out.lat = Number(existingObj.lat);
       if (existingObj.lon != null) out.lon = Number(existingObj.lon);
       if (existingObj.tideId) out.tideId = String(existingObj.tideId);
+            if (existingObj.commsPilotage) out.commsPilotage = String(existingObj.commsPilotage);
+      else if (existingObj.comments) out.commsPilotage = String(existingObj.comments);
     }
     if (lat != null && lon != null){
       out.lat = Number(lat);
@@ -103,6 +128,15 @@ function upsertPortItemExtended(name, lat=null, lon=null, tideId=null){
         out.tideId = String(tideId).trim();
       }
     }
+
+    if (commsPilotage !== null && commsPilotage !== undefined){
+      // commsPilotage == "" means clear; otherwise set
+      if (String(commsPilotage).trim() === "") {
+        delete out.commsPilotage;
+      } else {
+        out.commsPilotage = String(commsPilotage).trim();
+      }
+    }
     // if only name present, store as string (keeps storage tidy)
     const keys = Object.keys(out);
     if (keys.length === 1) return n;
@@ -112,12 +146,12 @@ function upsertPortItemExtended(name, lat=null, lon=null, tideId=null){
   if (existingIdx >= 0){
     const existing = knownPorts[existingIdx];
     if (typeof existing === "object"){
-      knownPorts[existingIdx] = merge(existing);
+      knownPorts[existingIdx] = ensurePortId(merge(existing));
     } else {
-      knownPorts[existingIdx] = merge({ name: n });
+      knownPorts[existingIdx] = ensurePortId(merge({ name: n }));
     }
   } else {
-    knownPorts.push(merge({ name: n }));
+    knownPorts.push(ensurePortId(merge({ name: n })));
   }
 
   knownPorts.sort((a,b) => portName(a).localeCompare(portName(b)));
@@ -180,6 +214,12 @@ function renderPortSuggestBox(inputEl, boxEl) {
       // mousedown so we beat blur
       e.preventDefault();
       inputEl.value = name;
+      // stash coords directly from Manage Ports for later use (no name re-resolution)
+      try {
+        const pi = findPortItemByName(name);
+        if (pi && pi.lat != null && pi.lon != null) { inputEl.dataset.lat = String(pi.lat); inputEl.dataset.lon = String(pi.lon); }
+        if (pi && pi.id) { inputEl.dataset.portId = String(pi.id); }
+      } catch(e) {}
       rememberPort(name);
       boxEl.classList.add("hidden");
       // trigger any bound input handler
@@ -197,7 +237,7 @@ function setupSinglePortAutocomplete(inputId, boxId) {
   if (!inputEl || !boxEl) return;
 
   const show = () => renderPortSuggestBox(inputEl, boxEl);
-  inputEl.addEventListener("input", show);
+  inputEl.addEventListener("input", (e) => { delete inputEl.dataset.lat; delete inputEl.dataset.lon; show(); });
   inputEl.addEventListener("focus", show);
   inputEl.addEventListener("blur", () => {
     // allow click selection
@@ -420,6 +460,37 @@ const lookupBtn = document.createElement("button");
 
     left.appendChild(nameWrap);
     left.appendChild(coords);
+
+    // Group D (CL-076-11): per-port comments
+    const commentsWrap = document.createElement("div");
+    commentsWrap.className = "ports-comments";
+
+    const commentsLabel = document.createElement("div");
+    commentsLabel.className = "ports-comments-label";
+    commentsLabel.textContent = "Comms / Pilotage";
+
+    const commentsInput = document.createElement("textarea");
+    commentsInput.className = "ports-comment-input";
+    commentsInput.rows = 2;
+    commentsInput.placeholder = "VHF channels, phone numbers, pilotage notes...";
+        commentsInput.value = (item && typeof item === "object")
+      ? (typeof item.commsPilotage === "string" ? item.commsPilotage : (typeof item.comments === "string" ? item.comments : ""))
+      : "";
+
+    const commentsSaveBtn = document.createElement("button");
+    commentsSaveBtn.type = "button";
+    commentsSaveBtn.className = "ports-mini";
+    commentsSaveBtn.textContent = "Save Comms / Pilotage";
+    commentsSaveBtn.addEventListener("click", () => {
+      upsertPortItemExtended(name, null, null, null, commentsInput.value);
+      savePorts();
+      renderPortsManagerList();
+    });
+
+    commentsWrap.appendChild(commentsLabel);
+    commentsWrap.appendChild(commentsInput);
+    commentsWrap.appendChild(commentsSaveBtn);
+    left.appendChild(commentsWrap);
 
     const right = document.createElement("div");
     right.className = "ports-right";
@@ -654,12 +725,17 @@ function loadPorts() {
 
   // defensive cleanup (prevents single-letter junk entries)
   try{ cleanPortsInPlace(); }catch{}
+
+  // ensure every port has a stable id
+  try{ for (const p of knownPorts){ ensurePortId(p); } }catch{}
 }
 
 function savePorts() {
   try {
     const payload = { all: knownPorts, recent: recentPorts };
     localStorage.setItem(PORTS_KEY, JSON.stringify(payload));
+    // If Plan comms is empty, auto-fill from updated port data
+    try { updatePlanCommsFromPorts(); } catch(e) {}
   } catch (e) {
     console.warn("Failed to save ports", e);
   }
@@ -819,17 +895,56 @@ function getOrPromptEasyTidePortId(name){
 }
 
 function getPortCoords(name){
-  const q = normalisePortQuery(name);
+  // Coords lookups need to be tolerant: users may have odd whitespace, punctuation,
+  // abbreviations, or accents in saved port names.
+  const normalisePortQueryLoose = (val) => {
+    return (val || "")
+      .toString()
+      .replace(/\u00A0/g, " ") // NBSP → space
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "") // strip accents
+      .trim()
+      .replace(/[,]/g, "")
+      .replace(/\b(harbour|harbor|marina|port)\b/ig, "")
+      .replace(/[^a-z0-9\s]/ig, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+  };
+
+  const qStrict = normalisePortQuery(name);
+  const q = normalisePortQueryLoose(name);
   if (!q) return null;
 
   // 1) exact match against stored knownPorts (objects only)
   for (const p of (knownPorts || [])){
     if (p && typeof p === "object" && p.lat != null && p.lon != null){
-      const pn = normalisePortQuery(p.name || "");
-      if (pn && pn === q){
+      const pnStrict = normalisePortQuery(p.name || "");
+      const pn = normalisePortQueryLoose(p.name || "");
+      if ((pnStrict && qStrict && pnStrict === qStrict) || (pn && pn === q)){
         return { name: p.name || name, lat: Number(p.lat), lon: Number(p.lon) };
       }
     }
+  }
+
+  // 1b) tolerant match: if the user types a longer/shorter variant (e.g. "St Cast Le Guildo" vs saved "St Cast"),
+  // pick the best (longest) normalised name that is contained within the query (or vice-versa).
+  // This is only used for coords lookups; we keep it conservative to avoid accidental wrong matches.
+  let best = null;
+  let bestLen = 0;
+  for (const p of (knownPorts || [])){
+    if (p && typeof p === "object" && p.lat != null && p.lon != null){
+      const pn = normalisePortQueryLoose(p.name || "");
+      if (!pn) continue;
+      const match = (q.includes(pn) || pn.includes(q));
+      if (match && pn.length > bestLen){
+        best = p;
+        bestLen = pn.length;
+      }
+    }
+  }
+  if (best){
+    return { name: best.name || name, lat: Number(best.lat), lon: Number(best.lon) };
   }
 
   // 2) offline baked-in UK/Channel micro-database (marine-sane only)
@@ -991,6 +1106,58 @@ function escapeHtml(str) {
     .replace(/'/g, "&#039;");
 }
 
+
+function getPortCommsPilotageText(portNameStr){
+  const name = (portNameStr || "").trim();
+  if (!name) return "";
+  const item = findPortItemByName(name);
+  if (!item || typeof item !== "object") return "";
+  const v = (typeof item.commsPilotage === "string" ? item.commsPilotage : (typeof item.comments === "string" ? item.comments : ""));
+  return (v || "").trim();
+}
+
+function buildPortCommsPilotageText(fromName, toName){
+  const parts = [];
+  function add(name){
+    if (!name) return;
+    const p = getPortByName(name);
+    if (!p) return;
+    const txt = (p.commsPilotage || p.comments || "").toString().trim(); // legacy support
+    if (!txt) return;
+    parts.push(`${name}:\n${txt}`);
+  }
+  add((fromName || "").trim());
+  const t = (toName || "").trim();
+  if (t && t !== (fromName || "").trim()) add(t);
+  return parts.join("\n\n");
+}
+
+/**
+ * Auto-populate the Plan "Comms / Pilotage Notes" field from per-port Comms/Pilotage,
+ * but only if the user hasn't already entered anything.
+ */
+function updatePlanCommsFromPorts(){
+  const ta = document.getElementById("planComms");
+  if (!ta) return;
+
+  const existing = (ta.value || "").trim();
+  // Overwrite only if blank OR previously auto-filled (so changing From/To can refresh).
+  const canOverwrite = !existing || ta.dataset.autofilled === "1";
+  if (!canOverwrite) return;
+
+  const from = (document.getElementById("planFrom")?.value || "").trim();
+  const to   = (document.getElementById("planTo")?.value || "").trim();
+  const txt = buildPortCommsPilotageText(from, to);
+  if (!txt) return;
+
+  ta.value = txt;
+  ta.dataset.autofilled = "1";
+  // Persist into the current passage draft if applicable
+  try {
+    if (typeof updateCurrentPlan === "function") updateCurrentPlan("comms", txt);
+  } catch (e) {}
+}
+
 function quote(value) {
   if (value == null) return '""';
   const s = String(value).replace(/"/g, '""');
@@ -1007,6 +1174,11 @@ function switchToTab(tabId) {
 
   tabButtons.forEach(b => b.classList.toggle("active", b.dataset.tab === tabId));
   tabs.forEach(t => t.classList.toggle("active", t.id === tabId));
+
+  // Keep Home passage highlight in sync with the currently selected passage
+  if (tabId === "homeTab") {
+    try { refreshHomePassageList(); } catch {}
+  }
 }
 
 // Position formatting helpers: decimal degrees -> dºmm.mmm'H
@@ -1049,6 +1221,151 @@ function isLocalDestination(val) {
   return !s || s === "local";
 }
 
+// --- Moon phase helper (Group C: CL-076-10) ------------------------
+// Lightweight approximation (good enough for a planning header). No rise/set calc.
+function getMoonPhaseLabel(dateStr){
+  try{
+    // dateStr expected YYYY-MM-DD
+    const d = new Date(dateStr + "T12:00:00Z"); // midday to avoid DST edge
+    if (isNaN(d.getTime())) return "";
+
+    // Based on a known new moon epoch (2000-01-06 18:14 UTC) and synodic month
+    const epoch = Date.UTC(2000, 0, 6, 18, 14, 0);
+    const synodic = 29.53058867; // days
+    const daysSince = (d.getTime() - epoch) / 86400000;
+    const lunations = daysSince / synodic;
+    const phase = (lunations - Math.floor(lunations)); // 0..1
+    const idx = Math.floor((phase * 8) + 0.5) % 8;
+
+    const phases = [
+      { e: "🌑", t: "New" },
+      { e: "🌒", t: "Wax cres" },
+      { e: "🌓", t: "1st qtr" },
+      { e: "🌔", t: "Wax gib" },
+      { e: "🌕", t: "Full" },
+      { e: "🌖", t: "Wan gib" },
+      { e: "🌗", t: "Last qtr" },
+      { e: "🌘", t: "Wan cres" },
+    ];
+    const p = phases[idx] || phases[0];
+    return `${p.e} ${p.t}`;
+  }catch(e){
+    return "";
+  }
+}
+
+
+// --- Moonrise / moonset calculation (SunCalc-based approximation, offline) ---
+// Returns { rise: Date|null, set: Date|null, alwaysUp: bool, alwaysDown: bool }
+(function(){ /* scope wrapper for shared helpers */ })();
+
+const _RAD = Math.PI / 180;
+function _toJulian(date){ return date.valueOf() / 86400000 - 0.5 + 2440588; }
+function _fromJulian(j){ return new Date((j + 0.5 - 2440588) * 86400000); }
+function _toDays(date){ return _toJulian(date) - 2451545; }
+
+function _rightAscension(l, b){ return Math.atan2(Math.sin(l) * Math.cos(degToRad(23.4397)) - Math.tan(b) * Math.sin(degToRad(23.4397)), Math.cos(l)); }
+function _declination(l, b){ return Math.asin(Math.sin(b) * Math.cos(degToRad(23.4397)) + Math.cos(b) * Math.sin(degToRad(23.4397)) * Math.sin(l)); }
+function _azimuth(H, phi, dec){ return Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(phi) - Math.tan(dec) * Math.cos(phi)); }
+function _altitude(H, phi, dec){ return Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(H)); }
+function _siderealTime(d, lw){ return _RAD * (280.16 + 360.9856235 * d) - lw; }
+
+function _moonCoords(d){
+  // geocentric ecliptic coords of the moon
+  const L = _RAD * (218.316 + 13.176396 * d);
+  const M = _RAD * (134.963 + 13.064993 * d);
+  const F = _RAD * (93.272  + 13.229350 * d);
+
+  const l  = L + _RAD * 6.289 * Math.sin(M);
+  const b  = _RAD * 5.128 * Math.sin(F);
+  const dt = 385001 - 20905 * Math.cos(M);
+
+  return { ra: _rightAscension(l, b), dec: _declination(l, b), dist: dt };
+}
+
+function _getMoonPosition(date, lat, lon){
+  const lw  = _RAD * -lon;
+  const phi = _RAD * lat;
+  const d   = _toDays(date);
+
+  const c = _moonCoords(d);
+  const H = _siderealTime(d, lw) - c.ra;
+
+  // altitude correction for refraction not strictly needed for rise/set solver; keep basic
+  const h = _altitude(H, phi, c.dec);
+
+  return { azimuth: _azimuth(H, phi, c.dec), altitude: h, distance: c.dist };
+}
+
+function calcMoonTimes(isoDate, lat, lon){
+  // Ported from SunCalc.getMoonTimes (MIT). Uses 2-hour steps & quadratic interpolation.
+  const p = parseISODate(isoDate);
+  if (!p) return null;
+
+  // Start at 00:00 UTC for the date, then walk the day.
+  const t0 = new Date(Date.UTC(p.y, p.mo-1, p.d, 0, 0, 0));
+  const hc = 0.133 * _RAD; // moon's apparent radius (approx) + refraction in SunCalc approach
+
+  let h0 = _getMoonPosition(t0, lat, lon).altitude - hc;
+  let rise = null, set = null;
+
+  // helper: quadratic interpolation for root
+  function _quadRoots(y1, y2, y3){
+    const a = (y1 + y3) / 2 - y2;
+    const b = (y3 - y1) / 2;
+    const c = y2;
+    const xe = (a !== 0) ? -b / (2 * a) : 0;
+    const ye = (a * xe + b) * xe + c;
+    const d = b*b - 4*a*c;
+    let x1 = null, x2 = null, n = 0;
+    if (d >= 0 && a !== 0){
+      const dx = Math.sqrt(d) / (2 * Math.abs(a));
+      x1 = xe - dx; x2 = xe + dx;
+      if (Math.abs(x1) <= 1) n++;
+      if (Math.abs(x2) <= 1) n++;
+      if (x1 != null && x2 != null && x1 < -1) x1 = x2; // choose root in range if only one
+    }else if (d >= 0 && a === 0 && b !== 0){
+      x1 = -c / b;
+      if (Math.abs(x1) <= 1) n = 1;
+    }
+    return { xe, ye, x1, x2, n };
+  }
+
+  for (let i = 1; i <= 24; i += 2){
+    const t1 = new Date(t0.getTime() + (i - 1) * 3600000);
+    const t2 = new Date(t0.getTime() + i * 3600000);
+    const t3 = new Date(t0.getTime() + (i + 1) * 3600000);
+
+    const h1 = _getMoonPosition(t1, lat, lon).altitude - hc;
+    const h2 = _getMoonPosition(t2, lat, lon).altitude - hc;
+    const h3 = _getMoonPosition(t3, lat, lon).altitude - hc;
+
+    const q = _quadRoots(h1, h2, h3);
+
+    if (q.n === 1){
+      if (h0 < 0) rise = new Date(t2.getTime() + q.x1 * 3600000);
+      else        set  = new Date(t2.getTime() + q.x1 * 3600000);
+    }else if (q.n === 2){
+      const xRise = (q.ye < 0) ? q.x2 : q.x1;
+      const xSet  = (q.ye < 0) ? q.x1 : q.x2;
+      rise = new Date(t2.getTime() + xRise * 3600000);
+      set  = new Date(t2.getTime() + xSet  * 3600000);
+    }
+
+    if (rise && set) break;
+    h0 = h2;
+  }
+
+  if (!rise && !set){
+    // Determine if always above/below horizon
+    const alwaysUp = h0 > 0;
+    return { rise: null, set: null, alwaysUp, alwaysDown: !alwaysUp };
+  }
+
+  return { rise, set, alwaysUp: false, alwaysDown: false };
+}
+
+
 // --- DOM references ------------------------------------------------
 
 const headerPassageMain = document.getElementById("headerPassageMain");
@@ -1074,6 +1391,8 @@ const planVessel = document.getElementById("planVessel");
 const planSkipper = document.getElementById("planSkipper");
 const planCrew = document.getElementById("planCrew");
 const planSunriseSet = document.getElementById("planSunriseSet");
+const planMoonPhase = document.getElementById("planMoonPhase");
+const planMoonRiseSet = document.getElementById("planMoonRiseSet");
 const planTidalCoeff = document.getElementById("planTidalCoeff");
 const planCurrents = document.getElementById("planCurrents");
 const planWeather = document.getElementById("planWeather");
@@ -1099,7 +1418,14 @@ const slipLinesBtn = document.getElementById("slipLinesBtn");
 const dockLinesBtn = document.getElementById("dockLinesBtn");
 const shutdownBtn = document.getElementById("shutdownBtn");
 const exportCsvBtn = document.getElementById("exportCsvBtn");
+const exportPdfBtn = document.getElementById("exportPdfBtn");
+const printArea = document.getElementById("printArea");
 const logSummaryPanel = document.getElementById("logSummaryPanel");
+
+// If the user types into Comms/Pilotage notes, treat it as manual and stop auto-refresh.
+planComms?.addEventListener("input", () => {
+  planComms.dataset.autofilled = "0";
+});
 
 const modalOverlay = document.getElementById("modalOverlay");
 const modalTitle   = document.getElementById("modalTitle");
@@ -1142,7 +1468,8 @@ function updatePassageHeader() {
   const to   = p.plan.to   || "?";
 
   headerPassageMain.textContent = `${date} – ${from} → ${to}`;
-  headerSunrise.textContent = p.plan.sunriseSet ? `Sunrise–Set: ${p.plan.sunriseSet}` : "";
+  // Group C: CL-076-10 — Sunrise/Moon moved into Log > Plan panel
+  headerSunrise.textContent = "";
 
   const crewParts = [];
   if (p.plan.skipper) crewParts.push(`Skipper: ${p.plan.skipper}`);
@@ -1318,6 +1645,10 @@ function showPortConfirmModal({ name, lat, lon, displayName }){
         <div style="margin-top:4px">${escapeHtml(dmm)}</div>
       </div>
       <p style="margin-top:10px" class="muted">Save this as a port for future lookups?</p>
+      <div style="margin-top:10px">
+        <label class="muted" for="pcCommsPilotage" style="display:block; margin-bottom:4px">Comms / Pilotage (optional)</label>
+        <textarea id="pcCommsPilotage" rows="2" style="width:100%; border:1px solid var(--line); border-radius:12px; padding:8px; background:var(--panel); color:var(--fg);"></textarea>
+      </div>
       <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px">
         <button id="pcSave" class="btn">Save port</button>
         <button id="pcManual" class="btn">Enter manually</button>
@@ -1360,7 +1691,10 @@ function showPortConfirmModal({ name, lat, lon, displayName }){
     const manualSave = document.getElementById("pcManualSave");
     const manualCancel = document.getElementById("pcManualCancel");
 
-    btnSave?.addEventListener("click", () => finish({ action: "save", lat, lon }));
+    btnSave?.addEventListener("click", () => {
+      const c = (document.getElementById("pcCommsPilotage")?.value || "").trim();
+      finish({ action: "save", lat, lon, commsPilotage: c });
+    });
     btnSkip?.addEventListener("click", () => finish({ action: "skip" }));
     btnManual?.addEventListener("click", () => {
       manualWrap?.classList.remove("hidden");
@@ -1380,7 +1714,8 @@ function showPortConfirmModal({ name, lat, lon, displayName }){
         alert("Those coordinates look outside your normal UK/Channel/N France range.");
         return;
       }
-      finish({ action: "save", lat: parsed.lat, lon: parsed.lon });
+      const c = (document.getElementById("pcCommsPilotage")?.value || "").trim();
+      finish({ action: "save", lat: parsed.lat, lon: parsed.lon, commsPilotage: c });
     });
 
     // Clicking outside should behave like skip.
@@ -1400,6 +1735,10 @@ function showPortNoMatchModal(name){
         <div style="display:flex; gap:8px; flex-wrap:wrap">
           <input id="pnmLat" type="number" step="0.0001" inputmode="decimal" placeholder="Lat" style="flex:1; min-width:120px">
           <input id="pnmLon" type="number" step="0.0001" inputmode="decimal" placeholder="Lon" style="flex:1; min-width:120px">
+        </div>
+        <div style="margin-top:10px">
+          <label class="muted" for="pnmComments" style="display:block; margin-bottom:4px">Comms / Pilotage (optional)</label>
+          <textarea id="pnmComments" rows="2" style="width:100%; border:1px solid var(--line); border-radius:12px; padding:8px; background:var(--panel); color:var(--fg);"></textarea>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px">
           <button id="pnmSave" class="btn">Save coords</button>
@@ -1432,7 +1771,8 @@ function showPortNoMatchModal(name){
         alert("Those coordinates look outside your normal UK/Channel/N France range.");
         return;
       }
-      finish({ action: "save", lat: parsed.lat, lon: parsed.lon });
+      const c = (document.getElementById("pnmComments")?.value || "").trim();
+      finish({ action: "save", lat: parsed.lat, lon: parsed.lon, commsPilotage: c });
     });
 
     document.getElementById("modalOverlay")?.addEventListener("click", (e) => {
@@ -1456,7 +1796,7 @@ async function maybeSaveNewPort(name){
   if (!hit) {
     const manual = await showPortNoMatchModal(n);
     if (manual && manual.action === "save"){
-      upsertPortItem(n, manual.lat, manual.lon);
+      upsertPortItem(n, manual.lat, manual.lon, (manual.commsPilotage ?? manual.comments) ?? null);
       cleanPortsInPlace();
       savePorts();
       rememberPort(n);
@@ -1468,7 +1808,7 @@ async function maybeSaveNewPort(name){
 
   const decision = await showPortConfirmModal({ name: n, lat: hit.lat, lon: hit.lon, displayName: hit.displayName });
   if (decision && decision.action === "save"){
-    upsertPortItem(n, decision.lat, decision.lon);
+    upsertPortItem(n, decision.lat, decision.lon, (decision.commsPilotage ?? decision.comments) ?? null);
     cleanPortsInPlace();
     savePorts();
     rememberPort(n);
@@ -1514,7 +1854,30 @@ async function autoComputeSunriseSetForCurrent(){
 
   if (planSunriseSet) planSunriseSet.value = val;
 
+  // Group C: moonrise / moonset auto-fill (requested) — uses same origin/dest logic as sun
+  try{
+    const moonOrigin = calcMoonTimes(date, origin.lat, origin.lon);
+    let moonRise = moonOrigin?.rise || null;
+    let moonSet  = moonOrigin?.set  || null;
+
+    if (dest && dest !== origin){
+      const moonDest = calcMoonTimes(date, dest.lat, dest.lon);
+      if (moonDest?.set) moonSet = moonDest.set;
+    }
+
+    const riseStr = moonRise ? formatTimeEuropeLondon(moonRise)
+      : (moonOrigin?.alwaysUp ? "Always up" : (moonOrigin?.alwaysDown ? "Always down" : ""));
+    const setStr  = moonSet ? formatTimeEuropeLondon(moonSet) : "";
+
+    const moonVal = (riseStr || setStr) ? `${riseStr || "—"} / ${setStr || "—"}` : "";
+    p.plan.moonRiseSet = moonVal;
+    if (planMoonRiseSet) planMoonRiseSet.value = moonVal;
+  }catch(e){
+    // fail silently; do not block existing logic
+  }
+
   savePassages();
+
   updatePassageHeader();
   updatePlanSummaryPanel();
 }
@@ -1692,7 +2055,7 @@ function refreshHomePassageList() {
 
   passages.forEach(passage => {
     const card = document.createElement("div");
-    card.className = "passage-card";
+    card.className = "passage-card" + (passage.id === currentPassageId ? " selected" : "");
 
     const date = passage.plan.date || passage.createdAt.slice(0, 10);
     const from = passage.plan.from || "?";
@@ -1707,6 +2070,25 @@ function refreshHomePassageList() {
       <div class="passage-card-meta"><span>${entriesCount} entries</span><span>${status}</span></div>
     `;
 
+
+    // Only show the passage summary once a Shutdown entry has been recorded.
+    const hasShutdown = !!passage.finish?.shutdownLogged;
+    const s = hasShutdown ? computePassageLogSummary(passage) : null;
+    const summaryBits = [];
+    if (s?.durationText && s.durationText !== "–") summaryBits.push(`Dur ${s.durationText}`);
+    if (s?.ehText && s.ehText !== "–") summaryBits.push(`EH ${s.ehText}`);
+    if (s?.fuelUsed && s.fuelUsed !== "–") summaryBits.push(`Used ${s.fuelUsed}`);
+    if (s?.gLog && s.gLog !== "–") summaryBits.push(`GLog ${s.gLog}`);
+
+    const summary = document.createElement("div");
+    summary.className = "passage-card-summary" + (hasShutdown ? "" : " empty");
+    summary.textContent = hasShutdown ? (summaryBits.join(" • ") || "—") : "";
+
+    const main = document.createElement("div");
+    main.className = "passage-card-main";
+    main.appendChild(left);
+    main.appendChild(summary);
+
     const actions = document.createElement("div");
     actions.className = "passage-card-actions";
 
@@ -1716,12 +2098,14 @@ function refreshHomePassageList() {
     del.addEventListener("click", (e) => { e.stopPropagation(); deletePassageById(passage.id); });
 
     actions.appendChild(del);
-    card.appendChild(left);
+    card.appendChild(main);
     card.appendChild(actions);
 
     card.addEventListener("click", () => {
       currentPassageId = passage.id;
       loadPassageIntoUI();
+      // Keep Home selection highlight in sync (even if we immediately jump tabs)
+      refreshHomePassageList();
       switchToTab("logTab");
     });
 
@@ -1859,6 +2243,8 @@ function createPassage() {
       skipper: "",
       crew: "",
       sunriseSet: "",
+      moonPhase: "",
+      moonRiseSet: "",
       tidalCoeff: "",
       tideStations: [],
       currents: "",
@@ -1891,16 +2277,35 @@ function loadPlanIntoForm(p) {
   planDate.value = p.plan.date || "";
   planFrom.value = p.plan.from || "";
   planTo.value   = p.plan.to   || "";
-  planVessel.value = p.plan.vessel || "STEELER";
+  try{ setWeatherStatus(""); }catch{}
+  // hydrate selected port bindings (stable ids) for reliable downstream fetches
+  if (planFrom){
+    if (p.plan.fromPortId){ planFrom.dataset.portId = String(p.plan.fromPortId); }
+    const pi = p.plan.fromPortId ? findPortItemById(p.plan.fromPortId) : null;
+    if (pi && pi.lat != null && pi.lon != null){ planFrom.dataset.lat = String(pi.lat); planFrom.dataset.lon = String(pi.lon); }
+  }
+  if (planTo){
+    if (p.plan.toPortId){ planTo.dataset.portId = String(p.plan.toPortId); }
+    const pi = p.plan.toPortId ? findPortItemById(p.plan.toPortId) : null;
+    if (pi && pi.lat != null && pi.lon != null){ planTo.dataset.lat = String(pi.lat); planTo.dataset.lon = String(pi.lon); }
+  }
+
+planVessel.value = p.plan.vessel || "STEELER";
   planSkipper.value = p.plan.skipper || "";
   planCrew.value = p.plan.crew || "";
   planSunriseSet.value = p.plan.sunriseSet || "";
+  if (planMoonPhase) {
+    const d = p.plan.date || p.createdAt?.slice(0,10) || "";
+    planMoonPhase.value = p.plan.moonPhase || (d ? getMoonPhaseLabel(d) : "");
+  }
+  if (planMoonRiseSet) planMoonRiseSet.value = p.plan.moonRiseSet || "";
   planTidalCoeff.value = p.plan.tidalCoeff || "";
   planCurrents.value = p.plan.currents || "";
   planWeather.value = p.plan.weather || "";
   planComms.value = p.plan.comms || "";
-
-  renderTideStations(p);
+  if (planComms) planComms.dataset.autofilled = "0";
+  updatePlanCommsFromPorts();
+renderTideStations(p);
   renderDailySummaries(p);
 }
 
@@ -2125,6 +2530,8 @@ function scheduleAutoTideSync() {
   }, 120);
 }
 
+planFrom.addEventListener("input", () => { try{ delete planFrom.dataset.portId; delete planFrom.dataset.lat; delete planFrom.dataset.lon; }catch{} });
+planTo.addEventListener("input", () => { try{ delete planTo.dataset.portId; delete planTo.dataset.lat; delete planTo.dataset.lon; }catch{} });
 planFrom.addEventListener("input", scheduleAutoTideSync);
 planTo.addEventListener("input", scheduleAutoTideSync);
 
@@ -2139,13 +2546,22 @@ function scheduleAutoSunSync(){
     p.plan.from = planFrom.value.trim();
     p.plan.to   = planTo.value.trim();
     autoComputeSunriseSetForCurrent();
+
+    // Group C: CL-076-10 — auto-fill moon phase (does not overwrite manual edits)
+    if (planMoonPhase && !planMoonPhase.value.trim() && planDate.value) {
+      planMoonPhase.value = getMoonPhaseLabel(planDate.value);
+    }
   }, 180);
 }
 planDate.addEventListener("input", scheduleAutoSunSync);
 planFrom.addEventListener("input", scheduleAutoSunSync);
+planFrom.addEventListener("input", updatePlanCommsFromPorts);
+planTo.addEventListener("input", updatePlanCommsFromPorts);
 planTo.addEventListener("input", scheduleAutoSunSync);
 
 // --- CL-074: Fetch Met Office Inshore Waters forecast (with manual edit) ---
+const MF_INSHORE_URL = "https://steeler-mf-inshore.bill-merry-52f.workers.dev/inshore";
+
 const METOFFICE_INSHORE_URL = "https://weather.metoffice.gov.uk/specialist-forecasts/coast-and-sea/print/inshore-waters-forecast";
 const METOFFICE_INSHORE_URL_PROXY = "https://r.jina.ai/" + METOFFICE_INSHORE_URL; // CORS-friendly fallback
 
@@ -2181,35 +2597,62 @@ const METEOFRANCE_ZONE_BBOX = {
   "Penmarc'h / Anse de l'Aiguillon": { minLat: 45.5, maxLat: 48.2, minLon: -3.8, maxLon: -0.6 }
 };
 
-function getMeteoFranceZonesForCurrentPassage(){
+function getMeteoFranceSamplePointsForCurrentPassage(){
+  // Returns an ordered list of lat/lon points to query for Météo-France zones:
+  // Origin, (route samples), Destination. We de-dupe later by returned zoneId/zoneName.
   const p = getCurrentPassage();
   if (!p) return [];
-  const from = (p.plan?.from || "").trim();
-  const to   = (p.plan?.to || "").trim();
-  const cFrom = from ? getPortCoords(from) : null;
-  const cTo   = to ? getPortCoords(to)   : null;
+
+  const fromName = (planFrom?.value || p.plan?.from || "").trim();
+  const toName   = (planTo?.value   || p.plan?.to   || "").trim();
+
+  // Prefer coords captured from Manage Ports selection (dataset),
+  // then coords stored on the passage (plan.fromLat/fromLon etc),
+  // then fall back to looking up the port by name.
+  const readPlanCoords = (tag) => {
+    const lat = Number(p?.plan?.[tag+"Lat"]);
+    const lon = Number(p?.plan?.[tag+"Lon"]);
+    return (Number.isFinite(lat) && Number.isFinite(lon)) ? { lat, lon } : null;
+  };
+  const readInputCoords = (el) => {
+    if (!el) return null;
+    const lat = Number(el.dataset.lat);
+    const lon = Number(el.dataset.lon);
+    return (Number.isFinite(lat) && Number.isFinite(lon)) ? { lat, lon } : null;
+  };
+
+  const fromFinal =
+    readInputCoords(planFrom) ||
+    readPlanCoords("from") ||
+    (fromName ? getPortCoords(fromName) : null);
+
+  const toFinal =
+    readInputCoords(planTo) ||
+    readPlanCoords("to") ||
+    (toName ? getPortCoords(toName) : null);
 
   const pts = [];
-  if (cFrom && typeof cFrom.lat === "number" && typeof cFrom.lon === "number") pts.push(cFrom);
-  if (cTo   && typeof cTo.lat   === "number" && typeof cTo.lon   === "number") pts.push(cTo);
+  const okFrom = fromFinal && Number.isFinite(fromFinal.lat) && Number.isFinite(fromFinal.lon);
+  const okTo   = toFinal   && Number.isFinite(toFinal.lat)   && Number.isFinite(toFinal.lon);
 
-  const zones = [];
-  for (const z of METEOFRANCE_COAST_ZONES){
-    const bb = METEOFRANCE_ZONE_BBOX[z.label];
-    if (!bb) continue;
-    const hit = pts.some(pt => pt.lat >= bb.minLat && pt.lat <= bb.maxLat && pt.lon >= bb.minLon && pt.lon <= bb.maxLon);
-    if (hit) zones.push(z);
+  if (okFrom) pts.push({ lat: fromFinal.lat, lon: fromFinal.lon, tag: "Origin" });
+
+  // If we have both ends, sample along the straight line to catch zone transitions en-route.
+  if (okFrom && okTo){
+    const steps = 5; // includes endpoints; light-touch to avoid too many calls
+    for (let i=1; i<steps-1; i++){
+      const t = i/(steps-1);
+      const lat = fromFinal.lat + (toFinal.lat - fromFinal.lat)*t;
+      const lon = fromFinal.lon + (toFinal.lon - fromFinal.lon)*t;
+      pts.push({ lat, lon, tag: `En-route ${Math.round(t*100)}%` });
+    }
   }
 
-  // If we look like a French coast trip but didn't hit a bbox (edge cases),
-  // default to the central zone as a sensible starting point.
-  if (!zones.length && cFrom && cTo && looksLikeFrenchCoastTrip(cFrom.lat, cFrom.lon, cTo.lat, cTo.lon)){
-    zones.push(METEOFRANCE_COAST_ZONES[1]); // Cap de la Hague / Penmarc'h
+  if (okTo && (!okFrom || (fromFinal.lat !== toFinal.lat || fromFinal.lon !== toFinal.lon))){
+    pts.push({ lat: toFinal.lat, lon: toFinal.lon, tag: "Destination" });
   }
 
-  // de-dupe (in case both points hit same zone)
-  const seen = new Set();
-  return zones.filter(z => (seen.has(z.label) ? false : (seen.add(z.label), true)));
+  return pts;
 }
 
 function looksLikeFrenchCoastTrip(latA, lonA, latB, lonB){
@@ -2295,6 +2738,9 @@ function getInshoreAreasForCurrentPassage(){
 
   const fromC = getPortCoords(fromName);
   const toC   = getPortCoords(toName);
+
+  const haveDest = !!(toC && Number.isFinite(toC.lat) && Number.isFinite(toC.lon));
+  const destDifferent = haveDest && (Math.abs(fromC.lat - toC.lat) > 1e-9 || Math.abs(fromC.lon - toC.lon) > 1e-9);
 
   const areas = [];
   const a1 = fromC ? pickInshoreAreaForLatLon(fromC.lat, fromC.lon) : null;
@@ -2577,36 +3023,279 @@ function formatMeteoFranceSummary(zoneLabel, parsed){
 async function fetchMeteoFranceWeatherForCurrent(){
   if (!btnFetchWeatherFR || !planWeather) return;
 
-  const zones = getMeteoFranceZonesForCurrentPassage();
-  if (!zones.length){
-    setWeatherStatus("No French coast zone matched (need Origin/Destination coords).");
+  const pCur = getCurrentPassage();
+
+  // Prefer stable port binding (id) over free-text names.
+  const fromId = (planFrom?.dataset?.portId || pCur?.plan?.fromPortId || "").toString().trim();
+  const toId   = (planTo?.dataset?.portId   || pCur?.plan?.toPortId   || "").toString().trim();
+
+  let fromPort = fromId ? findPortItemById(fromId) : null;
+  let toPort   = toId   ? findPortItemById(toId)   : null;
+
+  // Legacy fallback: resolve once by name (does not guess; must be an actual saved port).
+  const fromName = (planFrom?.value || pCur?.plan?.from || "").toString().trim();
+  const toName   = (planTo?.value   || pCur?.plan?.to   || "").toString().trim();
+  if (!fromPort && fromName) { fromPort = findPortItemByName(fromName); if (fromPort?.id) { planFrom.dataset.portId = String(fromPort.id); pCur.plan.fromPortId = String(fromPort.id); } }
+  if (!toPort && toName)     { toPort   = findPortItemByName(toName);   if (toPort?.id)   { planTo.dataset.portId   = String(toPort.id);   pCur.plan.toPortId   = String(toPort.id); } }
+
+  const fromC = (fromPort && fromPort.lat != null && fromPort.lon != null) ? { lat: Number(fromPort.lat), lon: Number(fromPort.lon) } : null;
+  const toC   = (toPort   && toPort.lat   != null && toPort.lon   != null) ? { lat: Number(toPort.lat),   lon: Number(toPort.lon)   } : null;
+
+  const haveDest = !!(toC && Number.isFinite(toC.lat) && Number.isFinite(toC.lon));
+  const destDifferent = haveDest && (Math.abs(fromC.lat - toC.lat) > 1e-9 || Math.abs(fromC.lon - toC.lon) > 1e-9);
+
+  if (!fromC || !Number.isFinite(fromC.lat) || !Number.isFinite(fromC.lon)){
+    setWeatherStatus("Météo-France: select an Origin port from the list (or save it in Manage Ports with lat/lon).");
+    return;
+  }
+  if (toName && (!toC || !Number.isFinite(toC.lat) || !Number.isFinite(toC.lon))){
+    setWeatherStatus("Météo-France: select an Intended Destination from the list (or save it in Manage Ports with lat/lon).");
     return;
   }
 
-  btnFetchWeatherFR.disabled = true;
-  setWeatherStatus(`Fetching: ${zones.map(z=>z.label).join(" • ")} ...`);
+  const tidy = (s) => (s || "").replace(/\r/g, "").trim();
+  const formatBlock = (j) => {
+    const issued = tidy(j.issued_en || j.issued_fr);
+    const head = issued ? `${j.zoneName}\n${issued}` : `${j.zoneName}`;
+    const f24 = tidy(j.forecast_24h);
+    const o24 = tidy(j.outlook_24h);
+    const parts = [head];
+    if (f24) parts.push("", f24);
+    if (o24) parts.push("", o24);
+    return parts.join("\n");
+  };
 
-  try{
-    const summaries = [];
-    for (const z of zones){
-      const raw = await fetchTextWithFallback(z.url, z.proxy);
-      const parsed = parseMeteoFranceMarine(raw);
-      summaries.push(formatMeteoFranceSummary(z.label, parsed));
+  
+  try {
+  // Bulk endpoint supports up to 4 points in one call and de-dupes zones server-side.
+  const MF_BULK_URL = MF_INSHORE_URL + "/bulk";
+
+  // Build up to 4 points: origin, (optional midpoints), destination.
+  const bulkPts = [];
+  bulkPts.push({ id: "origin", tag: "Origin", lat: fromC.lat, lon: fromC.lon });
+
+  if (haveDest){
+    const destPt = { id: "dest", tag: "Destination", lat: toC.lat, lon: toC.lon };
+
+    if (destDifferent){
+      const mid1 = {
+        id: "mid1",
+        tag: "En-route 33%",
+        lat: fromC.lat + (toC.lat - fromC.lat) * (1/3),
+        lon: fromC.lon + (toC.lon - fromC.lon) * (1/3)
+      };
+      const mid2 = {
+        id: "mid2",
+        tag: "En-route 67%",
+        lat: fromC.lat + (toC.lat - fromC.lat) * (2/3),
+        lon: fromC.lon + (toC.lon - fromC.lon) * (2/3)
+      };
+      bulkPts.push(mid1, mid2, destPt);
+    } else {
+      // Same area/coords: still include destination so we can confirm the worker agrees.
+      bulkPts.push(destPt);
+    }
+  }
+
+  // Hard cap to worker limit
+  while (bulkPts.length > 4) bulkPts.splice(bulkPts.length - 2, 1); // drop midpoints first if ever needed
+
+  const coordSummary = bulkPts
+    .filter(p => p.id === "origin" || p.id === "dest")
+    .map(p => `${p.lat.toFixed(6)},${p.lon.toFixed(6)}`)
+    .join(" → ");
+
+  setWeatherStatus(`Fetching Météo-France (${coordSummary})…`);
+  btnFetchWeatherFR.disabled = true;
+
+  // --- Bulk fetch ---
+  const fetchBulk = async () => {
+    const payload = {
+      lang: "en",
+      points: bulkPts.map(p => ({ id: p.id, lat: p.lat, lon: p.lon }))
+    };
+    const r = await fetch(MF_BULK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    // Even on non-200, try to parse JSON for a helpful message.
+    let j = null;
+    try { j = await r.json(); } catch(e) {}
+    return { ok: r.ok && j && j.ok, json: j, httpOk: r.ok, status: r.status };
+  };
+
+  const res = await fetchBulk();
+
+  // --- Parse / normalise response ---
+  const debugHits = bulkPts.map(p => ({ tag: p.tag, id: p.id, lat: p.lat, lon: p.lon, ok: false }));
+
+  const safeGet = (o, path) => {
+    try{
+      return path.split(".").reduce((a,k)=> (a && a[k] != null) ? a[k] : null, o);
+    }catch(e){ return null; }
+  };
+
+  const extractZoneCandidate = (obj) => {
+    if (!obj || typeof obj !== "object") return null;
+
+    // Allow a few common nested shapes (bulk endpoint may wrap).
+    const z = obj.zone || obj.forecast || obj.data || obj.result || obj;
+
+    const zoneId =
+      z.zoneId || z.id ||
+      safeGet(obj,"zoneId") || safeGet(obj,"zone.zoneId") || safeGet(obj,"zone.id") ||
+      safeGet(obj,"result.zoneId") || safeGet(obj,"result.id");
+
+    const zoneName =
+      z.zoneName || z.name ||
+      safeGet(obj,"zoneName") || safeGet(obj,"zone.zoneName") || safeGet(obj,"zone.name") ||
+      safeGet(obj,"result.zoneName") || safeGet(obj,"result.name");
+
+    const issued_en =
+      z.issued_en || z.issued || z.issuedEn ||
+      safeGet(obj,"issued_en") || safeGet(obj,"issued") || safeGet(obj,"issuedEn") ||
+      safeGet(obj,"zone.issued_en") || safeGet(obj,"result.issued_en");
+
+    const url =
+      z.url || safeGet(obj,"url") || safeGet(obj,"zone.url") || safeGet(obj,"result.url");
+
+    // Forecast text keys vary between implementations.
+    const forecast_24h =
+      z.forecast_24h || z.forecast24h || z.forecast_24 || z.forecast24 || z.forecastText ||
+      safeGet(obj,"forecast_24h") || safeGet(obj,"forecast24h") || safeGet(obj,"forecast_24") || safeGet(obj,"forecast24") ||
+      safeGet(obj,"text.forecast_24h") || safeGet(obj,"text.forecast24h") || safeGet(obj,"zone.forecast_24h") || safeGet(obj,"result.forecast_24h") ||
+      // Some return { forecast: { next24h: "..." } }
+      safeGet(obj,"forecast.next24h") || safeGet(obj,"forecast.24h") || safeGet(obj,"result.forecast.next24h");
+
+    const outlook_24h =
+      z.outlook_24h || z.outlook24h || z.outlook_24 || z.outlook24 || z.outlookText ||
+      safeGet(obj,"outlook_24h") || safeGet(obj,"outlook24h") || safeGet(obj,"outlook_24") || safeGet(obj,"outlook24") ||
+      safeGet(obj,"text.outlook_24h") || safeGet(obj,"text.outlook24h") || safeGet(obj,"zone.outlook_24h") || safeGet(obj,"result.outlook_24h") ||
+      // Some return { outlook: { next24h: "..." } }
+      safeGet(obj,"outlook.next24h") || safeGet(obj,"outlook.24h") || safeGet(obj,"result.outlook.next24h");
+
+    if (!zoneId && !zoneName) return null;
+
+    return { zoneId, zoneName, issued_en, url, forecast_24h, outlook_24h, _raw: obj };
+  };
+
+  const zoneList = [];
+  const considerArray = (arr) => {
+    if (!Array.isArray(arr)) return;
+    for (const item of arr){
+      const z = extractZoneCandidate(item);
+      if (z) zoneList.push(z);
+      // Point mapping candidates (id -> zone)
+      const pid = safeGet(item,"id") || safeGet(item,"point.id") || safeGet(item,"pointId");
+      const zid = safeGet(item,"zoneId") || safeGet(item,"zone.zoneId") || (z && z.zoneId);
+      const znm = safeGet(item,"zoneName") || safeGet(item,"zone.zoneName") || (z && z.zoneName);
+      if (pid && (zid || znm)){
+        const dh = debugHits.find(h => h.id === String(pid));
+        if (dh){
+          dh.ok = true;
+          dh.zoneId = zid;
+          dh.zoneName = znm;
+        }
+      }
+    }
+  };
+
+  
+const j = (res && res.json && typeof res.json === "object") ? res.json : {};
+
+// If the bulk endpoint returns full zone objects in a map (zoneId -> zoneObject),
+// merge them into zoneList so we can render forecast/outlook text.
+const mergeFromMap = (mapObj) => {
+  if (!mapObj || typeof mapObj !== "object" || Array.isArray(mapObj)) return;
+  for (const k of Object.keys(mapObj)){
+    const cand = extractZoneCandidate(mapObj[k]);
+    if (!cand) continue;
+    // Ensure zoneId is present (use map key as fallback)
+    if (!cand.zoneId) cand.zoneId = k;
+
+    const existing = zoneList.find(z =>
+      (z.zoneId && cand.zoneId && z.zoneId === cand.zoneId) ||
+      (z.zoneName && cand.zoneName && z.zoneName === cand.zoneName)
+    );
+
+    if (existing){
+      if (!existing.zoneId && cand.zoneId) existing.zoneId = cand.zoneId;
+      if (!existing.zoneName && cand.zoneName) existing.zoneName = cand.zoneName;
+      if (!existing.issued_en && cand.issued_en) existing.issued_en = cand.issued_en;
+      if (!existing.url && cand.url) existing.url = cand.url;
+      if (!existing.forecast_24h && cand.forecast_24h) existing.forecast_24h = cand.forecast_24h;
+      if (!existing.outlook_24h && cand.outlook_24h) existing.outlook_24h = cand.outlook_24h;
+    } else {
+      zoneList.push(cand);
+    }
+  }
+};
+
+if (res.ok){
+  // Arrays (points + any alternate list keys)
+  considerArray(j.zones);
+  considerArray(j.results);
+  considerArray(j.forecasts);
+  considerArray(j.items);
+  considerArray(j.pointResults);
+  considerArray(j.points);
+
+  // Also scan any other arrays on the top-level object
+  for (const k of Object.keys(j)){
+    if (["zones","results","forecasts","items","pointResults","points"].includes(k)) continue;
+    const v = j[k];
+    if (Array.isArray(v)) considerArray(v);
+  }
+
+  // Maps of zoneId -> full zone object (the worker bulk response uses this shape)
+  mergeFromMap(j.zones);
+  mergeFromMap(j.byZoneId);
+  mergeFromMap(j.zonesById);
+  mergeFromMap(j.zoneById);
+  mergeFromMap(j.zoneForecasts);
+  mergeFromMap(j.forecastsByZoneId);
+
+  // If we didn't get any explicit point mappings, infer from zones (mark all as ok if any zones returned)
+  if (!debugHits.some(h => h.ok) && zoneList.length){
+    debugHits.forEach(h => { h.ok = true; h.zoneId = zoneList[0].zoneId; h.zoneName = zoneList[0].zoneName; });
+  }
+}
+
+// De-dupe zones by zoneId/zoneName
+  const seen = new Set();
+  const zones = [];
+  for (const z of zoneList){
+    const key = z.zoneId || z.zoneName;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    zones.push(z);
+  }
+
+
+  if (!zones.length){
+      const dbg = debugHits
+        .map(h => h.ok ? `${h.tag}: ${h.zoneName || h.zoneId || "(no zone)"}` : `${h.tag}: (no data)`)
+        .join(" • ");
+      setWeatherStatus(`No Météo-France zone matched for this route. ${dbg ? "(" + dbg + ")" : ""}`);
+      return;
     }
 
-    const joined = summaries.join("\n\n---\n\n");
+    const joined = zones.map(z => formatBlock(z)).join("\n\n---\n\n");
     applyWeatherSection(
-      "Meteo-France",
-      "Météo-France Marine (best-effort extract)",
+      "meteofrance",
+      "Météo-France Inshore Waters",
       joined,
-      { zones: zones.map(z=>({label:z.label,url:z.url})), fetched_at: new Date().toISOString() }
+      { fetchedAt: new Date().toISOString(), zones: zones.map(z => ({ zoneId: z.zoneId, zoneName: z.zoneName, url: z.url })) }
     );
-    setWeatherStatus("Météo-France fetched.");
-  }catch(err){
-    console.error(err);
-    setWeatherStatus("Météo-France fetch failed. Try manual paste.");
-    alert("Météo-France fetch failed.\n\nThis can happen if the page layout changes or the network blocks access.\nTry again, or paste key lines manually.\n\nDetails: " + (err?.message || err));
-  }finally{
+// Helpful summary so we can see if Origin/Destination collapsed to one zone.
+    const dbg = debugHits
+      .map(h => h.ok
+        ? `${h.tag}: ${h.zoneName || h.zoneId}`
+        : `${h.tag}: (failed)`)
+      .join(" • ");
+    setWeatherStatus(`Météo-France updated (${zones.length} zone${zones.length===1?"":"s"}).${dbg ? " " + dbg : ""}`);
+  } finally {
     btnFetchWeatherFR.disabled = false;
   }
 }
@@ -2707,10 +3396,37 @@ planForm.addEventListener("submit", async (e) => {
   p.plan.date = planDate.value;
   p.plan.from = planFrom.value.trim();
   p.plan.to   = planTo.value.trim();
-  p.plan.vessel = planVessel.value.trim();
+
+    // Bind Origin/Destination to specific ports (stable ids).
+  // The Plan inputs are free-text, so we store the selected port id (when chosen from suggestions)
+  // and fall back to a name lookup only for legacy passages.
+  const readPortId = (el) => (el && el.dataset && el.dataset.portId) ? String(el.dataset.portId) : "";
+  const fromId = readPortId(planFrom);
+  const toId   = readPortId(planTo);
+
+  // Persist selected ids (source of truth for downstream features like Météo-France).
+  if (fromId) p.plan.fromPortId = fromId; else delete p.plan.fromPortId;
+  if (toId)   p.plan.toPortId   = toId;   else delete p.plan.toPortId;
+
+  // Keep optional coords datasets in-sync for convenience (but do NOT persist per-passage coords).
+  // If ids are missing, attempt a single conservative resolution for legacy data.
+  if (!fromId && p.plan.from){
+    const pi = findPortItemByName(p.plan.from);
+    if (pi && pi.id){ p.plan.fromPortId = String(pi.id); planFrom.dataset.portId = String(pi.id); }
+  }
+  if (!toId && p.plan.to){
+    const pi = findPortItemByName(p.plan.to);
+    if (pi && pi.id){ p.plan.toPortId = String(pi.id); planTo.dataset.portId = String(pi.id); }
+  }
+
+  // Purge any old per-passage coords (we now use Manage Ports as the single source of truth).
+  delete p.plan.fromLat; delete p.plan.fromLon; delete p.plan.toLat; delete p.plan.toLon;
+p.plan.vessel = planVessel.value.trim();
   p.plan.skipper = planSkipper.value.trim();
   p.plan.crew = planCrew.value.trim();
   p.plan.sunriseSet = planSunriseSet.value.trim();
+  if (planMoonPhase) p.plan.moonPhase = planMoonPhase.value.trim();
+  if (planMoonRiseSet) p.plan.moonRiseSet = planMoonRiseSet.value.trim();
   p.plan.tidalCoeff = planTidalCoeff.value.trim();
   p.plan.currents = planCurrents.value.trim();
   p.plan.weather = planWeather.value.trim();
@@ -2753,6 +3469,9 @@ function updatePlanSummaryPanel() {
   }
 
   const tidalCoeff = p.plan.tidalCoeff || "";
+  const sunriseSet = p.plan.sunriseSet || "";
+  const moonPhase = (p.plan.moonPhase || "").trim() || (p.plan.date ? getMoonPhaseLabel(p.plan.date) : "");
+  const moonRiseSet = p.plan.moonRiseSet || "";
   const currents = p.plan.currents || "";
   const weather  = p.plan.weather || "";
   const comms    = p.plan.comms || "";
@@ -2812,6 +3531,13 @@ function updatePlanSummaryPanel() {
   planSummaryPanel.innerHTML = `
     <div class="plan-summary-grid">
       <div class="col">
+        <div class="block plan-link" data-goto="planSunriseSet">
+          <p class="section-title">SUN &amp; MOON</p>
+          <p><strong>Sunrise / Sunset:</strong> ${sunriseSet ? escapeHtml(sunriseSet) : "–"}</p>
+          <p><strong>Moon phase:</strong> ${moonPhase ? escapeHtml(moonPhase) : "–"}</p>
+          <p><strong>Moon rise / set:</strong> ${moonRiseSet ? escapeHtml(moonRiseSet) : "–"}</p>
+        </div>
+
         <div class="block plan-link" data-goto="planTidalCoeff">
           <p class="section-title">TIDES</p>
           <p>${tidalCoeff ? `<strong>Coeff:</strong> ${escapeHtml(tidalCoeff)}` : "<strong>Coeff:</strong> –"}</p>
@@ -2827,7 +3553,7 @@ function updatePlanSummaryPanel() {
         <div class="block plan-link" data-goto="planComms">
           <p class="section-title">COMMS / PILOTAGE</p>
           <p>${comms ? escapeHtml(comms).replace(/\n/g, "<br>") : "<em>–</em>"}</p>
-        </div>
+                  </div>
       </div>
 
       <div class="col">
@@ -3350,14 +4076,14 @@ function renderLogEntries() {
     }
 
     addInputCell(entry.course, { field: "course", className: "log-input log-input-cog", type: "text", inputMode: "numeric" });
-    addInputCell(entry.speed,  { field: "speed",  className: "log-input log-input-num", type: "number", inputMode: "decimal", step: "0.1" });
-    addInputCell(entry.rpm,    { field: "rpm",    className: "log-input log-input-num", type: "number", inputMode: "numeric", step: "10" });
-    addInputCell(entry.engTP,  { field: "engTP",  className: "log-input log-input-num", type: "text",   inputMode: "decimal" });
+    addInputCell(entry.speed,  { field: "speed",  className: "log-input log-input-speed", type: "text", inputMode: "decimal" });
+    addInputCell(entry.rpm,    { field: "rpm",    className: "log-input log-input-rpm", type: "text", inputMode: "numeric" });
+    addInputCell(entry.engTP,  { field: "engTP",  className: "log-input log-input-engtp", type: "text", inputMode: "decimal" });
 
-    addInputCell(entry.waterLog || "", { field: "waterLog", className: "log-input log-input-num", type: "number", inputMode: "decimal", step: "0.1" });
-    addInputCell(entry.groundLog,      { field: "groundLog", className: "log-input log-input-num", type: "number", inputMode: "decimal", step: "0.1" });
+    addInputCell(entry.waterLog || "", { field: "waterLog", className: "log-input log-input-log", type: "text", inputMode: "decimal" });
+    addInputCell(entry.groundLog,      { field: "groundLog", className: "log-input log-input-log", type: "text", inputMode: "decimal" });
 
-    addInputCell(entry.fuelUsed, { field: "fuelUsed", className: "log-input log-input-num", type: "number", inputMode: "decimal", step: "0.1" });
+    addInputCell(entry.fuelUsed, { field: "fuelUsed", className: "log-input log-input-fuel", type: "text", inputMode: "decimal" });
 
     const tdNotes = document.createElement("td");
 
@@ -3401,34 +4127,54 @@ function renderLogEntries() {
   updateLogSummary();
 }
 
-function updateLogSummary() {
-  const p = getCurrentPassage();
-  if (!p || !p.finish.shutdownLogged) {
-    logSummaryPanel.textContent = "";
-    return;
+function computePassageLogSummary(p) {
+  if (!p) {
+    return { ehText: "–", fuelUsed: "–", fuelStart: "–", fuelEnd: "–", gLog: "–", durationText: "–" };
   }
 
-  let ehText = "–";
-  const start = parseFloat(p.plan.engineHoursStart || "NaN");
-  const endVal = parseFloat(p.finish.engineHoursEnd || "NaN");
-  if (!isNaN(start) && !isNaN(endVal)) ehText = `${(endVal - start).toFixed(1)} h (from ${start} to ${endVal})`;
+  const entries = Array.isArray(p.entries) ? p.entries : [];
+  const fuelStart = (p.plan && typeof p.plan.fuelStartPercent !== "undefined" && p.plan.fuelStartPercent !== null && p.plan.fuelStartPercent !== "")
+    ? p.plan.fuelStartPercent
+    : "–";
+  const fuelEnd = (p.finish && typeof p.finish.fuelEndPercent !== "undefined" && p.finish.fuelEndPercent !== null && p.finish.fuelEndPercent !== "")
+    ? p.finish.fuelEndPercent
+    : "–";
 
-  let fuelUsed = "–";
-  const sorted = p.entries.slice().sort((a, b) => (a.time > b.time ? 1 : -1));
+  if (entries.length === 0) {
+    return { ehText: "–", fuelUsed: "–", fuelStart, fuelEnd, gLog: "–", durationText: "–" };
+  }
+
+  const sorted = entries
+    .slice()
+    .sort((a, b) => new Date(a.time || 0) - new Date(b.time || 0));
+
+  // Engine hours used (first and last valid EH)
+  let ehStart = null, ehEnd = null;
+  for (let i = 0; i < sorted.length; i++) {
+    const v = parseFloat(sorted[i].engineHours);
+    if (!isNaN(v)) { ehStart = v; break; }
+  }
   for (let i = sorted.length - 1; i >= 0; i--) {
-    const fu = parseFloat(sorted[i].fuelUsed || "NaN");
+    const v = parseFloat(sorted[i].engineHours);
+    if (!isNaN(v)) { ehEnd = v; break; }
+  }
+  const ehText = (ehStart !== null && ehEnd !== null) ? `${ehStart}→${ehEnd}` : "–";
+
+  // Fuel used: first valid numeric in reverse (because shutdown summary often sets it)
+  let fuelUsed = "–";
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const fu = parseFloat(sorted[i].fuelUsed);
     if (!isNaN(fu)) { fuelUsed = `${fu}`; break; }
   }
 
+  // Ground log: last non-empty
   let gLog = "–";
   for (let i = sorted.length - 1; i >= 0; i--) {
     if (sorted[i].groundLog) { gLog = sorted[i].groundLog; break; }
   }
 
-
+  // Passage duration: prefer Slip -> Dock, else first->last
   let durationText = "–";
-
-  // Prefer Slip → Dock times when present (CL-076-7)
   const slipEntry = sorted.find(e => typeof e.notes === 'string' && e.notes.toLowerCase().startsWith('slipped lines'));
   let dockEntry = null;
   if (slipEntry && slipEntry.time) {
@@ -3445,7 +4191,6 @@ function updateLogSummary() {
       durationText = `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
     }
   } else {
-    // Fallback: earliest to latest entry
     const times = sorted.map(e => e.time).filter(Boolean).map(t => new Date(t));
     if (times.length >= 2) {
       const min = times.reduce((a, b) => (a < b ? a : b));
@@ -3458,14 +4203,26 @@ function updateLogSummary() {
     }
   }
 
+  return { ehText, fuelUsed, fuelStart, fuelEnd, gLog, durationText };
+}
+
+function updateLogSummary() {
+  const p = getCurrentPassage();
+  if (!p || !p.finish?.shutdownLogged) {
+    logSummaryPanel.textContent = "";
+    return;
+  }
+
+  const s = computePassageLogSummary(p);
+
   logSummaryPanel.innerHTML = `
     <strong>Summary:</strong>
-    Engine hours this passage: ${ehText} |
-    Fuel used: ${fuelUsed} |
-    Fuel start: ${p.plan.fuelStartPercent || "–"}% |
-    Fuel end: ${p.finish.fuelEndPercent || "–"}% |
-    Final GLog: ${gLog} |
-    Passage duration: ${durationText}
+    Engine hours this passage: ${s.ehText} |
+    Fuel used: ${s.fuelUsed} |
+    Fuel start: ${s.fuelStart}% |
+    Fuel end: ${s.fuelEnd}% |
+    Final GLog: ${s.gLog} |
+    Passage duration: ${s.durationText}
   `;
 }
 
@@ -3551,7 +4308,120 @@ function exportCurrentPassageToCsv() {
   URL.revokeObjectURL(url);
 }
 
+function exportCurrentPassageToPdf() {
+  const p = getCurrentPassage();
+  if (!p) return alert("No passage selected.");
+
+  // Ensure panels reflect current data before cloning
+  try { updatePlanSummaryPanel(); } catch(e) {}
+  try { renderLogEntries(); } catch(e) {}
+
+  const date = p.plan.date || p.createdAt.slice(0, 10);
+  const from = p.plan.from || "UnknownFrom";
+  const to = p.plan.to || "UnknownTo";
+  const title = `${date} — ${from} → ${to}`;
+
+  // Optional header metadata
+  const skipper = (p.plan?.skipper || "").trim();
+  const crew = (p.plan?.crew || "").trim();
+  const metaParts = [];
+  if (skipper) metaParts.push(`Skipper: ${skipper}`);
+  if (crew) metaParts.push(`Crew: ${crew}`);
+  const metaInline = metaParts.length ? escapeHtml(metaParts.join(" • ")) : "";
+
+  const headerHtml = `
+    <div class="print-header">
+      <div class="print-title">STEELER Logbook</div>
+      <div class="print-subline">
+        <div class="print-subtitle">${escapeHtml(title)}</div>
+        ${metaInline ? `<div class="print-meta-inline">${metaInline}</div>` : ""}
+      </div>
+    </div>
+  `;
+
+  // Plan summary is already formatted for readability
+  const planHtml = `
+    <section class="print-plan">
+      ${planSummaryPanel ? planSummaryPanel.innerHTML : ""}
+    </section>
+  `;
+
+  // Clone the log table structure (headers/colgroup) and current rows
+  const logTable = document.querySelector(".log-table");
+  // Use a print-specific colgroup so the table reliably fits A4 landscape.
+  // Widths are tuned so the numeric formats fit on one line WITHOUT truncation.
+  // (Padding + borders consume space, so these are slightly wider than the raw character counts.)
+  const colgroupHtml = `
+    <colgroup>
+      <col style="width:5.5ch"> <!-- TIME (12:34) -->
+      <col style="width:3.5ch"> <!-- COG (000) -->
+      <col style="width:4.5ch"> <!-- SPD (00.0) -->
+      <col style="width:4.5ch"> <!-- RPM (0000) -->
+      <col style="width:7.5ch"> <!-- ENG T/P (00/0.0) -->
+      <col style="width:6.5ch"> <!-- LOG W (000.0) -->
+      <col style="width:6.5ch"> <!-- LOG G (000.0) -->
+      <col style="width:6.5ch"> <!-- FUEL (000.0) -->
+      <col style="width:auto">  <!-- NOTES -->
+    </colgroup>
+  `;
+  const theadHtml = `
+      <thead>
+        <tr>
+          <th>TIME</th>
+          <th>COG</th>
+          <th>SPD</th>
+          <th>RPM</th>
+          <th>ENG&nbsp;T/P</th>
+          <th>LOG&nbsp;W</th>
+          <th>LOG&nbsp;G</th>
+          <th>FUEL</th>
+          <th>NOTES / ACTIONS</th>
+        </tr>
+      </thead>`;
+
+  // IMPORTANT: we must build rows from data (not innerHTML), otherwise <input> values are lost in print
+  const esc = (s) => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+  const entries = (p.entries || []).slice().sort((a,b) => (a.time > b.time ? 1 : -1));
+  const rowsHtml = entries.map(e => {
+    const t = e.time ? timeOnlyFromIso(e.time) : "";
+    return `<tr>
+      <td>${esc(t)}</td>
+      <td>${esc(e.course || "")}</td>
+      <td>${esc(e.speed || "")}</td>
+      <td>${esc(e.rpm || "")}</td>
+      <td>${esc(e.engTP || "")}</td>
+      <td>${esc(e.waterLog || "")}</td>
+      <td>${esc(e.groundLog || "")}</td>
+      <td>${esc(e.fuelUsed || "")}</td>
+      <td>${esc(e.notes || "")}</td>
+    </tr>`;
+  }).join("");
+const logHtml = `
+    <section class="print-log">
+      <table class="print-log-table">
+        ${colgroupHtml}
+        ${theadHtml}
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+    </section>
+  `;
+
+  if (!printArea) return alert("Print area not available.");
+
+  printArea.innerHTML = `<div class="print-wrap">${headerHtml}<div class="print-grid">${planHtml}${logHtml}</div></div>`;
+
+  // Trigger the browser print dialog (user can “Save as PDF”)
+  window.print();
+
+  // Clean up the print DOM afterwards to avoid any confusion
+  setTimeout(() => { printArea.innerHTML = ""; }, 500);
+}
+
+
 exportCsvBtn.addEventListener("click", exportCurrentPassageToCsv);
+exportPdfBtn?.addEventListener("click", exportCurrentPassageToPdf);
 addEntryBtn.addEventListener("click", () => addLogEntry());
 
 // --- Load passage into UI -----------------------------------------

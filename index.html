@@ -22,6 +22,7 @@
     <div class="header-bottom">
       <div class="header-leftline">
         <div id="headerPassageMain" class="header-main"></div>
+        <!-- Sunrise moved into Log > Plan panel (Group C: CL-076-10) -->
         <div id="headerSunrise" class="header-sunrise-inline"></div>
       </div>
 
@@ -68,6 +69,18 @@
           <label class="field-compact">
             Sunrise / Sunset
             <input type="text" id="planSunriseSet" placeholder="e.g. 05:12 / 21:18 (BST)" />
+          </label>
+        </div>
+
+        <div class="row row-date">
+          <label class="field-compact">
+            Moon phase
+            <input type="text" id="planMoonPhase" placeholder="e.g. Waxing gibbous" />
+          </label>
+
+          <label class="field-compact">
+            Moon rise / set
+            <input type="text" id="planMoonRiseSet" placeholder="e.g. 14:22 / 03:10 (GMT)" />
           </label>
         </div>
 
@@ -126,8 +139,7 @@
 
         <h3>Comms / Pilotage Notes</h3>
         <textarea id="planComms" rows="4" placeholder="VHF channels, phone numbers, pilotage notes..."></textarea>
-
-        <h3>Daily Summary</h3>
+<h3>Daily Summary</h3>
         <div id="dailySummariesContainer" class="grid-container ds-grid"></div>
         <button type="button" id="addDailySummaryBtn" class="btn btn-secondary btn-small">
           + Add Day
@@ -152,6 +164,7 @@
           <button id="expandPlanBtn" class="btn btn-secondary btn-small view-btn">Plan full</button>
           <button id="expandLogBtn" class="btn btn-secondary btn-small view-btn">Log full</button>
           <button id="exportCsvBtn" class="btn btn-secondary btn-small">Export CSV</button>
+          <button id="exportPdfBtn" class="btn btn-secondary btn-small">Export PDF</button>
         </div>
       </div>
 
@@ -160,11 +173,23 @@
 
         <section class="log-table-wrapper scroll-pane">
           <table class="log-table">
+            <!-- Group C: CL-076-09 (tighter columns in Log full view to widen NOTES/ACTIONS) -->
+            <colgroup>
+              <col class="col-time">
+              <col class="col-cog">
+              <col class="col-speed">
+              <col class="col-rpm">
+              <col class="col-eng">
+              <col class="col-logw">
+              <col class="col-logg">
+              <col class="col-fuel">
+              <col class="col-notes">
+            </colgroup>
             <thead>
               <tr>
                 <th rowspan="2">TIME</th>
                 <th rowspan="2">COG</th>
-                <th rowspan="2">SPEED</th>
+                <th rowspan="2">SPD</th>
                 <th rowspan="2">RPM</th>
                 <th rowspan="2">ENG T/P</th>
                 <th colspan="2">LOG</th>
@@ -279,6 +304,7 @@
     </div>
   </div>
 
-  <script src="app.v0.5.3c.js"></script>
+  <div id="printArea" aria-hidden="true"></div>
+  <script src="app.js"></script>
 </body>
 </html>

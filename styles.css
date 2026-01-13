@@ -246,6 +246,34 @@ body[data-theme="night"] .daily-summary-row{border-color:#333}
 .passage-card-left .passage-card-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .passage-card-actions{display:flex;gap:0.35rem;flex:0 0 auto}
 
+
+.passage-card.selected{
+  border:2px solid var(--accent);
+}
+
+.passage-card-main{
+  /* Two-column grid so the summary column starts consistently (roughly mid-card) */
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  align-items:flex-start;
+  column-gap:1rem;
+  flex:1;
+  min-width:0;
+}
+.passage-card-summary{
+  /* Summary column: left-justified from the centre line */
+  min-width:0;
+  text-align:left;
+  opacity:0.85;
+  font-size:0.78rem;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.passage-card-summary.empty{visibility:hidden;}
+
+
 .passage-delete-btn{
   border-radius:999px;
   padding:0.25rem 0.55rem;
@@ -305,6 +333,9 @@ body[data-theme="night"] .plan-summary .plan-link:hover{background:rgba(255,255,
 .plan-summary-grid{display:flex;gap:0.4rem}
 .plan-summary-grid .col{flex:1 1 0}
 
+/* Group C: CL-076-10 — Sunrise/Sunset moved out of header (kept for backwards compatibility) */
+#headerSunrise{display:none}
+
 /* Log table */
 .log-table{width:100%;border-collapse:collapse;font-size:0.82rem}
 .log-table th,.log-table td{border-bottom:1px solid #e0e0e0;padding:0.2rem 0.35rem;vertical-align:middle}
@@ -320,6 +351,20 @@ body[data-theme="night"] .log-table th, body[data-theme="night"] .log-table td{b
   background:var(--panel);
 }
 
+/* Group C: CL-076-09 — tighten columns in Log full view to widen NOTES/ACTIONS */
+.log-layout.log-only .log-table{table-layout:fixed}
+.log-layout.log-only .log-table th,
+.log-layout.log-only .log-table td{padding:0.18rem 0.25rem}
+.log-table col.col-time{width:5.5ch}
+.log-table col.col-cog{width:3.8ch}
+.log-table col.col-speed{width:3.8ch}
+.log-table col.col-rpm{width:4.8ch}
+.log-table col.col-eng{width:5.8ch}
+.log-table col.col-logw{width:4.8ch}
+.log-table col.col-logg{width:4.8ch}
+.log-table col.col-fuel{width:4.8ch}
+.log-table col.col-notes{width:auto}
+
 /* Inputs in log table – minimal */
 .log-table input.log-input{
   font-size:0.82rem;
@@ -331,6 +376,21 @@ body[data-theme="night"] .log-table th, body[data-theme="night"] .log-table td{b
   color:var(--fg);
 }
 body[data-theme="night"] .log-table input.log-input{border-bottom-color:#555}
+
+/* Hide number spinners (we use inputMode instead) */
+.log-table input::-webkit-outer-spin-button,
+.log-table input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.log-table input[type=number] { -moz-appearance: textfield; }
+
+/* Field width tuning to match requested formats */
+.log-table input.log-input-cog { width: 3.6ch; text-align: right; }
+.log-table input.log-input-speed { width: 3.6ch; text-align: right; }
+.log-table input.log-input-rpm { width: 4.6ch; text-align: right; }
+.log-table input.log-input-engtp { width: 5.6ch; text-align: right; }
+.log-table input.log-input-log { width: 4.6ch; text-align: right; }
+.log-table input.log-input-fuel { width: 4.6ch; text-align: right; }
+
+
 
 .log-table input.log-input-num{max-width:6ch}
 .log-table td:nth-child(2) .log-input-cog,
@@ -552,7 +612,33 @@ body.night .ports-delete { border-color: rgba(255,255,255,0.18); color: #fff; }
   z-index: 10001;
 }
 
+/* --- Tide paste modal layering fix ---
+   The tide paste modal shows a full-screen overlay (#tidePasteModalOverlay)
+   plus a modal panel. Ensure the panel sits *above* the overlay so inputs
+   remain clickable/typable.
+*/
+#tidePasteModalOverlay.modal-overlay{
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.25);
+  z-index: 10000;
+}
+
+#tidePasteModal .modal-panel{
+  position: fixed;
+  z-index: 10001;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 60px;
+  margin: 0;
+}
+
 .ports-dmm{flex-basis:100%;font-size:0.78rem;opacity:0.85;margin-top:0.15rem}
+
+/* Group D (CL-076-11): per-port comments */
+.ports-comments{margin-top:0.35rem}
+.ports-comments-label{font-size:0.78rem;opacity:0.85;margin-bottom:0.25rem}
+.ports-comment-input{width:100%;min-height:2.2rem;resize:vertical;padding:0.35rem 0.45rem;border:1px solid var(--border);border-radius:0.45rem;background:var(--panel);color:var(--fg);margin-bottom:0.25rem}
 
 /* Manage Ports modal scrolling */
 #portsManagerList{max-height:60vh;overflow:auto;-webkit-overflow-scrolling:touch}
@@ -584,4 +670,71 @@ body.night .ports-delete { border-color: rgba(255,255,255,0.18); color: #fff; }
 .modal-notes{
   font-size:0.85rem;
   font-family:inherit;
+}
+
+
+/* --- PDF / Print export (CL-076-13) ------------------------------- */
+#printArea { display: none; }
+
+@media print {
+  /* Prefer A4 landscape for "Save as PDF" (many browsers honour this when "Prefer CSS page size" is enabled) */
+  @page { size: A4 landscape; margin: 8mm; }
+  /* Hide the app UI and show only the print area */
+  body * { visibility: hidden !important; }
+  #printArea, #printArea * { visibility: visible !important; }
+  #printArea {
+    display: block !important;
+    position: absolute;
+    left: 0; top: 0;
+    width: 100%;
+    background: #fff;
+    color: #000;
+  }
+
+
+  .print-wrap { box-sizing: border-box; width: 100%; }
+  .print-grid { box-sizing: border-box; width: 100%; }
+  .print-log-table { box-sizing: border-box; }
+
+  .print-header { margin-bottom: 6mm; }
+  .print-title { font-size: 18pt; font-weight: 700; }
+  .print-subline { display:flex; justify-content:space-between; gap:6mm; align-items:baseline; margin-top: 2mm; }
+  .print-subtitle { font-size: 12pt; margin: 0; }
+  .print-meta-inline { font-size: 9.5pt; opacity: 0.9; text-align: right; white-space: nowrap; }
+  .print-meta { font-size: 9.5pt; margin-top: 1mm; opacity: 0.9; }
+  
+
+  .print-grid {
+    display: grid;
+    /* Use minmax(0,fr) to prevent column overflow causing RHS truncation */
+    grid-template-columns: minmax(0, 0.33fr) minmax(0, 0.67fr);
+    gap: 2mm;
+    align-items: start;
+  }
+
+  /* Plan summary text */
+  .print-plan { font-size: 10.5pt; line-height: 1.25; }
+  .print-plan h2, .print-plan h3 { margin: 0 0 3mm 0; }
+
+  /* Log table */
+  .print-log-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 8.5pt;
+  }
+  .print-log-table th,
+  .print-log-table td {
+    border: 1px solid #777;
+    padding: 1.0mm 0.8mm;
+    vertical-align: top;
+    white-space: nowrap;
+    overflow: visible;
+    text-overflow: clip;
+  }
+  /* Allow header labels to wrap if needed */
+  .print-log-table th { font-weight: 700; white-space: normal; }
+
+  /* NOTES/ACTIONS can wrap */
+  .print-log-table td:last-child { white-space: normal; }
 }
