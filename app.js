@@ -4,7 +4,7 @@ const STORAGE_KEY = "steeler_logbook_passages_v5";
 const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 
-const APP_VERSION = "0.6.1j";
+const APP_VERSION = "0.6.4l";
 
 // ---------------------------------------------------------------------------
 // Emergency reset hook
@@ -98,10 +98,10 @@ function getPortByName(name){
 
 function upsertPortItem(name, lat=null, lon=null, commsPilotage=null){
   // Backwards-compatible wrapper (coords only)
-  upsertPortItemExtended(name, lat, lon, null, commsPilotage);
+  upsertPortItemExtended(name, lat, lon, commsPilotage);
 }
 
-function upsertPortItemExtended(name, lat=null, lon=null, tideId=null, commsPilotage=null){
+function upsertPortItemExtended(name, lat=null, lon=null, commsPilotage=null){
   const n = (name || "").trim();
   if (!n) return;
 
@@ -112,21 +112,12 @@ function upsertPortItemExtended(name, lat=null, lon=null, tideId=null, commsPilo
     if (existingObj && typeof existingObj === "object"){
       if (existingObj.lat != null) out.lat = Number(existingObj.lat);
       if (existingObj.lon != null) out.lon = Number(existingObj.lon);
-      if (existingObj.tideId) out.tideId = String(existingObj.tideId);
             if (existingObj.commsPilotage) out.commsPilotage = String(existingObj.commsPilotage);
       else if (existingObj.comments) out.commsPilotage = String(existingObj.comments);
     }
     if (lat != null && lon != null){
       out.lat = Number(lat);
       out.lon = Number(lon);
-    }
-    if (tideId !== null){
-      // tideId == "" means clear; otherwise set
-      if (String(tideId).trim() === "") {
-        delete out.tideId;
-      } else {
-        out.tideId = String(tideId).trim();
-      }
     }
 
     if (commsPilotage !== null && commsPilotage !== undefined){
@@ -250,9 +241,43 @@ function setupSinglePortAutocomplete(inputId, boxId) {
   });
 }
 
+
+
+// Dynamic port autocomplete for modal-created inputs (e.g. Dynamic Leg Extension)
+function setupDynamicPortAutocomplete(inputEl, boxEl) {
+  if (!inputEl || !boxEl) return;
+
+  const show = () => renderPortSuggestBox(inputEl, boxEl);
+  inputEl.addEventListener("input", () => {
+    try { delete inputEl.dataset.lat; delete inputEl.dataset.lon; delete inputEl.dataset.portId; } catch(e) {}
+    show();
+  });
+  inputEl.addEventListener("focus", show);
+  inputEl.addEventListener("blur", () => {
+    // allow click selection
+    setTimeout(() => boxEl.classList.add("hidden"), 150);
+  });
+  inputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") boxEl.classList.add("hidden");
+  });
+}
+
+function setupDynamicPortCoordConfirmation(inputEl){
+  if (!inputEl) return;
+  inputEl.addEventListener("blur", async () => {
+    const name = (inputEl.value || "").trim();
+    if (!isLikelyRealPortName(name)) return;
+    const existing = findPortItemByName(name);
+    if (existing && portHasCoords(existing)) { rememberPort(name); return; }
+    await maybeSaveNewPort(name);
+  });
+}
 function setupPortAutocomplete() {
   setupSinglePortAutocomplete("planFrom", "planFromSuggest");
   setupSinglePortAutocomplete("planTo", "planToSuggest");
+  setupSinglePortAutocomplete("planTransit1", "planTransit1Suggest");
+  setupSinglePortAutocomplete("planTransit2", "planTransit2Suggest");
+  setupSinglePortAutocomplete("planTransit3", "planTransit3Suggest");
 }
 
 function setupPortCoordConfirmation(){
@@ -271,6 +296,9 @@ function setupPortCoordConfirmation(){
   };
   hook(document.getElementById("planFrom"));
   hook(document.getElementById("planTo"));
+  hook(document.getElementById("planTransit1"));
+  hook(document.getElementById("planTransit2"));
+  hook(document.getElementById("planTransit3"));
 }
 
 function deletePort(name) {
@@ -482,7 +510,7 @@ const lookupBtn = document.createElement("button");
     commentsSaveBtn.className = "ports-mini";
     commentsSaveBtn.textContent = "Save Comms / Pilotage";
     commentsSaveBtn.addEventListener("click", () => {
-      upsertPortItemExtended(name, null, null, null, commentsInput.value);
+      upsertPortItemExtended(name, null, null, commentsInput.value);
       savePorts();
       renderPortsManagerList();
     });
@@ -728,6 +756,9 @@ function loadPorts() {
 
   // ensure every port has a stable id
   try{ for (const p of knownPorts){ ensurePortId(p); } }catch{}
+
+  // Strip any legacy tideId fields from stored ports (no longer used)
+  try{ for (const p of knownPorts){ if (p && typeof p === 'object' && 'tideId' in p) delete p.tideId; } }catch{}
 }
 
 function savePorts() {
@@ -736,10 +767,12 @@ function savePorts() {
     localStorage.setItem(PORTS_KEY, JSON.stringify(payload));
     // If Plan comms is empty, auto-fill from updated port data
     try { updatePlanCommsFromPorts(); } catch(e) {}
+    try { updatePlanSummaryPanel(); } catch(e) {}
   } catch (e) {
     console.warn("Failed to save ports", e);
   }
 }
+
 
 function isLikelyRealPortName(name){
   const n = (name || "").toString().trim();
@@ -866,32 +899,6 @@ function normalisePortQuery(name){
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
-}
-
-function getEasyTidePortIdForName(name){
-  const n = (name || "").trim();
-  if (!n) return "";
-  const item = knownPorts.find(p => portName(p) === n);
-  if (item && typeof item === "object" && item.tideId) return String(item.tideId);
-  return "";
-}
-
-function setEasyTidePortIdForName(name, tideId){
-  const n = (name || "").trim();
-  if (!n) return;
-  upsertPortItemExtended(n, null, null, tideId);
-  savePorts();
-}
-
-function getOrPromptEasyTidePortId(name){
-  const existing = getEasyTidePortIdForName(name);
-  if (existing) return existing;
-  const n = (name || "").trim();
-  if (!n) return "";
-  const entered = prompt("EasyTide PortID for \"" + n + "\" (from the EasyTide URL, e.g. PortID=0062). Leave blank to cancel.");
-  if (!entered) return "";
-  setEasyTidePortIdForName(n, entered.trim());
-  return entered.trim();
 }
 
 function getPortCoords(name){
@@ -1132,6 +1139,39 @@ function buildPortCommsPilotageText(fromName, toName){
   return parts.join("\n\n");
 }
 
+function buildRouteCommsPilotageText(names){
+  const parts = [];
+  const seen = new Set();
+  const list = Array.isArray(names) ? names : [];
+  for (const raw of list){
+    const name = (raw || "").toString().trim();
+    if (!name) continue;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const p = getPortByName(name);
+    if (!p) continue;
+    const txt = (p.commsPilotage || p.comments || "").toString().trim();
+    if (!txt) continue;
+    parts.push(`${name}:\n${txt}`);
+  }
+  return parts.join("\n\n");
+}
+
+function getRoutePortNamesFromForm(){
+  const names = [];
+  const from = (document.getElementById("planFrom")?.value || "").trim();
+  const t1 = (document.getElementById("planTransit1")?.value || "").trim();
+  const t2 = (document.getElementById("planTransit2")?.value || "").trim();
+  const t3 = (document.getElementById("planTransit3")?.value || "").trim();
+  const to  = (document.getElementById("planTo")?.value || "").trim();
+  if (from) names.push(from);
+  if (t1) names.push(t1);
+  if (t2) names.push(t2);
+  if (t3) names.push(t3);
+  if (to)  names.push(to);
+  return names;
+}
+
 /**
  * Auto-populate the Plan "Comms / Pilotage Notes" field from per-port Comms/Pilotage,
  * but only if the user hasn't already entered anything.
@@ -1145,9 +1185,11 @@ function updatePlanCommsFromPorts(){
   const canOverwrite = !existing || ta.dataset.autofilled === "1";
   if (!canOverwrite) return;
 
-  const from = (document.getElementById("planFrom")?.value || "").trim();
-  const to   = (document.getElementById("planTo")?.value || "").trim();
-  const txt = buildPortCommsPilotageText(from, to);
+  const names = getRoutePortNamesFromForm();
+  // Backward-compat: if only from/to, keep identical output.
+  const txt = (names.length <= 2)
+    ? buildPortCommsPilotageText(names[0] || "", names[1] || "")
+    : buildRouteCommsPilotageText(names);
   if (!txt) return;
 
   ta.value = txt;
@@ -1171,6 +1213,31 @@ function timeOnlyFromIso(iso) {
 
 function switchToTab(tabId) {
   closePortsManagerModal();
+
+  // Persist any in-progress Plan edits (notably Tide Stations) when leaving the Plan tab.
+  try {
+    const planEl = document.getElementById("planTab");
+    const planWasActive = !!(planEl && planEl.classList && planEl.classList.contains("active"));
+    if (planWasActive && tabId !== "planTab") {
+      const p = getCurrentPassage();
+      if (p && p.plan) {
+        if (typeof planSunriseSet !== "undefined" && planSunriseSet) p.plan.sunriseSet = planSunriseSet.value.trim();
+        if (typeof planMoonPhase !== "undefined" && planMoonPhase) p.plan.moonPhase = planMoonPhase.value.trim();
+        if (typeof planMoonRiseSet !== "undefined" && planMoonRiseSet) p.plan.moonRiseSet = planMoonRiseSet.value.trim();
+        if (typeof planTidalCoeff !== "undefined" && planTidalCoeff) p.plan.tidalCoeff = planTidalCoeff.value.trim();
+        if (typeof planCurrents !== "undefined" && planCurrents) p.plan.currents = planCurrents.value.trim();
+        if (typeof planWeather !== "undefined" && planWeather) p.plan.weather = planWeather.value.trim();
+        if (typeof planComms !== "undefined" && planComms) p.plan.comms = planComms.value.trim();
+        if (typeof readTideStationsFromForm === "function") {
+          p.plan.tideStations = readTideStationsFromForm();
+          try { ensureAutoTideStations(p); } catch {}
+        }
+        if (typeof readDailySummariesFromForm === "function") p.plan.dailySummaries = readDailySummariesFromForm();
+        try { savePassages(); } catch {}
+      }
+    }
+  } catch {}
+
 
   tabButtons.forEach(b => b.classList.toggle("active", b.dataset.tab === tabId));
   tabs.forEach(t => t.classList.toggle("active", t.id === tabId));
@@ -1387,6 +1454,15 @@ const planForm = document.getElementById("planForm");
 const planDate = document.getElementById("planDate");
 const planFrom = document.getElementById("planFrom");
 const planTo   = document.getElementById("planTo");
+const addTransitPortBtn = document.getElementById("addTransitPortBtn");
+const extendLegBtn = document.getElementById("extendLegBtn");
+const planTransit1 = document.getElementById("planTransit1");
+const planTransit2 = document.getElementById("planTransit2");
+const planTransit3 = document.getElementById("planTransit3");
+const tp1Label = document.getElementById("tp1Label");
+const tp2Label = document.getElementById("tp2Label");
+const tp3Label = document.getElementById("tp3Label");
+const planPortsGrid = document.getElementById("planPortsGrid");
 const planVessel = document.getElementById("planVessel");
 const planSkipper = document.getElementById("planSkipper");
 const planCrew = document.getElementById("planCrew");
@@ -1464,10 +1540,9 @@ function updatePassageHeader() {
   }
 
   const date = p.plan.date || p.createdAt.slice(0, 10);
-  const from = p.plan.from || "?";
-  const to   = p.plan.to   || "?";
-
-  headerPassageMain.textContent = `${date} – ${from} → ${to}`;
+  const routeNames = getRouteNames(p);
+  const routeText = routeNames.length ? routeNames.join(" → ") : "?";
+  headerPassageMain.textContent = `${date} – ${routeText}`;
   // Group C: CL-076-10 — Sunrise/Moon moved into Log > Plan panel
   headerSunrise.textContent = "";
 
@@ -1475,6 +1550,23 @@ function updatePassageHeader() {
   if (p.plan.skipper) crewParts.push(`Skipper: ${p.plan.skipper}`);
   if (p.plan.crew)    crewParts.push(`Crew: ${p.plan.crew}`);
   headerCrew.textContent = crewParts.join("  |  ");
+}
+
+// Route helper (Origin → Transit(s) → Destination)
+function getRouteNames(p){
+  if (!p || !p.plan) return [];
+  const out = [];
+  const from = String(p.plan.from || "").trim();
+  if (from) out.push(from);
+  const tps = Array.isArray(p.plan.transitPorts) ? p.plan.transitPorts : [];
+  tps.forEach(t => {
+    const name = (t && typeof t === "object" ? (t.name||"") : String(t||""));
+    const n = String(name).trim();
+    if (n) out.push(n);
+  });
+  const to = String(p.plan.to || "").trim();
+  if (to) out.push(to);
+  return out;
 }
 
 
@@ -2075,10 +2167,10 @@ function refreshHomePassageList() {
     const hasShutdown = !!passage.finish?.shutdownLogged;
     const s = hasShutdown ? computePassageLogSummary(passage) : null;
     const summaryBits = [];
-    if (s?.durationText && s.durationText !== "–") summaryBits.push(`Dur ${s.durationText}`);
+    if (s?.durationText && s.durationText !== "–") summaryBits.push(`UW ${s.durationText}`);
     if (s?.ehText && s.ehText !== "–") summaryBits.push(`EH ${s.ehText}`);
-    if (s?.fuelUsed && s.fuelUsed !== "–") summaryBits.push(`Used ${s.fuelUsed}`);
-    if (s?.gLog && s.gLog !== "–") summaryBits.push(`GLog ${s.gLog}`);
+    if (s?.fuelUsed && s.fuelUsed !== "–") summaryBits.push(`Fuel Used ${s.fuelUsed}`);
+    if (s?.gLog && s.gLog !== "–") summaryBits.push(`NM(G) ${s.gLog}`);
 
     const summary = document.createElement("div");
     summary.className = "passage-card-summary" + (hasShutdown ? "" : " empty");
@@ -2160,22 +2252,84 @@ function ensureFinish(p) {
   if (typeof p.finish.shutdownLogged !== "boolean") p.finish.shutdownLogged = false;
 }
 
+
+// --- Multi-leg helpers (CL-077) ----------------------------------
+function getLegCount(p) {
+  if (!p || !p.plan) return 1;
+  const tps = Array.isArray(p.plan.transitPorts) ? p.plan.transitPorts : [];
+  const nonEmpty = tps
+    .map(t => (t && typeof t === "object" ? (t.name || "") : String(t || "")))
+    .map(s => s.trim())
+    .filter(Boolean);
+  const hasDest = !!String(p.plan.to || "").trim();
+  const base = hasDest ? 1 : 0;
+  return Math.max(1, base + nonEmpty.length);
+}
+
+function countShutdowns(p) {
+  const entries = Array.isArray(p?.entries) ? p.entries : [];
+  return entries.filter(e => typeof e?.notes === "string" && e.notes.toLowerCase().startsWith("shutdown")).length;
+}
+
+function getCurrentLegIndex(p) {
+  const legs = getLegCount(p);
+  const done = countShutdowns(p);
+  return Math.min(done, Math.max(0, legs - 1));
+}
+
+function ensureEntryLegs(p) {
+  if (!p || !Array.isArray(p.entries)) return;
+  if (p.entries.every(e => typeof e.leg === "number")) return;
+  const sorted = [...p.entries].sort((a, b) => String(a.time || "").localeCompare(String(b.time || "")));
+  let leg = 0;
+  for (const e of sorted) {
+    if (typeof e.leg !== "number") e.leg = leg;
+    if (typeof e?.notes === "string" && e.notes.toLowerCase().startsWith("shutdown")) {
+      leg += 1;
+    }
+  }
+}
+
+function hasSpecialForLeg(p, kind, legIdx) {
+  ensureEntryLegs(p);
+  const entries = Array.isArray(p?.entries) ? p.entries : [];
+  const k = String(kind || "").toLowerCase();
+  return entries.some(e => e.leg === legIdx && typeof e?.notes === "string" && e.notes.toLowerCase().startsWith(k));
+}
+
+function updateLegIndicator() {
+  const el = document.getElementById('legIndicator');
+  if (!el) return;
+  const p = getCurrentPassage();
+  if (!p) { el.textContent = ''; return; }
+  const legs = getLegCount(p);
+  if (legs <= 1) { el.textContent = ''; return; }
+  const idx = getCurrentLegIndex(p) + 1;
+  el.textContent = `Leg ${idx} of ${legs}`;
+}
+
 function ensureAutoTideStations(p) {
   if (!p) return;
   if (!p.plan.tideStations) p.plan.tideStations = [];
 
   const origin = (p.plan.from || "").trim();
   const dest = (p.plan.to || "").trim();
+  const transitPorts = (Array.isArray(p.plan.transitPorts) ? p.plan.transitPorts : []);
 
-  const want = [];
-  if (origin) want.push(origin);
-  if (dest && dest !== origin) want.push(dest);
+  // Ordered route list (max 5 ports = 4 legs)
+  const route = [];
+  if (origin) route.push({ role:"origin", name: origin });
+  // Include empty transit slots so their tide stations persist immediately after “+ Transit Port”.
+  transitPorts.slice(0,3).forEach((t,i) => {
+    const name = (t && typeof t === "object" ? (t.name||"") : String(t||"")).trim();
+    route.push({ role:`transit${i+1}`, name });
+  });
+  if (dest) route.push({ role:"dest", name: dest });
 
-  if (want.length === 0) return;
+  if (route.length === 0) return;
 
   const stations = Array.isArray(p.plan.tideStations) ? p.plan.tideStations : [];
   const now = Date.now();
-
   const makeBlank = (name, role, i) => ({
     id: `ts_${now}_${role}_${i}`,
     name,
@@ -2188,32 +2342,20 @@ function ensureAutoTideStations(p) {
     auto: true
   });
 
-  // Keep the user's extra (manual) stations exactly as-is and in order.
-  // IMPORTANT: do not promote old "auto" stations into extras; otherwise typing in Origin/Dest
-  // would accumulate partial-name stations ("L", "Ly", "Lym"...).
+  // Keep user-added manual stations (non-auto) in place.
   const extras = stations.filter(st => st && st.auto !== true);
 
-  // Reuse existing auto stations by ROLE (origin/dest), not by name.
-  let originSt = stations.find(st => st && st.auto === true && st.role === "origin");
-  let destSt   = stations.find(st => st && st.auto === true && st.role === "dest");
+  // Index existing autos by role for reuse
+  const byRole = new Map();
+  stations.forEach(st => {
+    if (st && st.auto === true && st.role) byRole.set(st.role, st);
+  });
 
-  // Backward-compat: if role wasn't stored, treat the first two auto stations as origin/dest.
-  if (!originSt || !destSt) {
-    const legacyAutos = stations.filter(st => st && st.auto === true);
-    if (!originSt && legacyAutos[0]) originSt = { ...legacyAutos[0], role: "origin" };
-    if (!destSt && legacyAutos[1])   destSt   = { ...legacyAutos[1], role: "dest" };
-  }
-
-  if (!originSt) originSt = makeBlank(origin, "origin", 0);
-  if (!destSt)   destSt   = makeBlank(dest, "dest", 1);
-
-  // Update names to match current Plan fields.
-  originSt = { ...originSt, name: origin, role: "origin", auto: true };
-  destSt   = { ...destSt,   name: dest,   role: "dest",   auto: true };
-
-  // Ensure expected fields exist
-  [originSt, destSt].forEach(st => {
-    st.id = st.id || `ts_${now}_${st.role}`;
+  const autos = route.map((r, idx) => {
+    let st = byRole.get(r.role);
+    if (!st) st = makeBlank(r.name, r.role, idx);
+    st = { ...st, name: r.name, role: r.role, auto:true };
+    st.id = st.id || `ts_${now}_${r.role}`;
     st.hw1 = st.hw1 || ""; st.hw2 = st.hw2 || "";
     st.lw1 = st.lw1 || ""; st.lw2 = st.lw2 || "";
     st.hw1h = st.hw1h || ""; st.hw2h = st.hw2h || "";
@@ -2221,11 +2363,97 @@ function ensureAutoTideStations(p) {
     st.events = Array.isArray(st.events) ? st.events : [];
     st.raw = typeof st.raw === "string" ? st.raw : "";
     st.source = st.source || "";
+    return st;
   });
 
-  // If origin/dest are same, keep only one auto station (origin)
-  const same = dest && origin && dest.toLowerCase() === origin.toLowerCase();
-  p.plan.tideStations = same ? [originSt, ...extras] : [originSt, destSt, ...extras];
+  p.plan.tideStations = [...autos, ...extras];
+}
+
+// When dynamically extending a passage, we may promote the existing destination
+// into a new transit slot. Tide station data previously captured for the dest
+// should follow the port, so we migrate the auto station role (presentation only).
+function migrateAutoTideRole(p, fromRole, toRole, name){
+  try{
+    if (!p?.plan?.tideStations) return;
+    const stations = Array.isArray(p.plan.tideStations) ? p.plan.tideStations : [];
+    const n = String(name||"").trim();
+    if (!n) return;
+    // Remove any existing auto station already occupying the target role
+    for (let i=stations.length-1;i>=0;i--){
+      const st = stations[i];
+      if (st && st.auto === true && st.role === toRole) stations.splice(i,1);
+    }
+    const src = stations.find(st => st && st.auto === true && st.role === fromRole && String(st.name||"").trim() === n);
+    if (src){
+      src.role = toRole;
+      src.name = n;
+      src.auto = true;
+    }
+  }catch(e){}
+}
+
+// --- CL-077: Transit Ports (up to 3) ---------------------------------------
+function normaliseTransitPorts(p){
+  if (!p || !p.plan) return [];
+  const tp = p.plan.transitPorts;
+  if (!Array.isArray(tp)) { p.plan.transitPorts = []; return p.plan.transitPorts; }
+  // Legacy: array of strings -> objects
+  p.plan.transitPorts = tp.map(t => {
+    if (t && typeof t === "object") return { name: (t.name||"").trim(), portId: t.portId ? String(t.portId) : "" };
+    return { name: String(t||"").trim(), portId: "" };
+  });
+  // Cap to 3
+  if (p.plan.transitPorts.length > 3) p.plan.transitPorts = p.plan.transitPorts.slice(0,3);
+  return p.plan.transitPorts;
+}
+
+function setPortsGridCols(count){
+  if (!planPortsGrid) return;
+  const cols = Math.max(2, Math.min(5, 2 + (count||0)));
+  planPortsGrid.style.setProperty("--cols", String(cols));
+}
+
+function renderTransitPortsUI(p){
+  if (!p) return;
+  const tps = normaliseTransitPorts(p);
+  const count = tps.length;
+  setPortsGridCols(count);
+  if (tp1Label) tp1Label.classList.toggle("hidden", count < 1);
+  if (tp2Label) tp2Label.classList.toggle("hidden", count < 2);
+  if (tp3Label) tp3Label.classList.toggle("hidden", count < 3);
+
+  const inputs = [planTransit1, planTransit2, planTransit3];
+  for (let i=0;i<3;i++){
+    const el = inputs[i];
+    if (!el) continue;
+    const val = tps[i] ? (tps[i].name||"") : "";
+    el.value = val;
+    // hydrate bindings
+    try {
+      delete el.dataset.lat; delete el.dataset.lon;
+      if (tps[i] && tps[i].portId){
+        el.dataset.portId = String(tps[i].portId);
+        const pi = findPortItemById(tps[i].portId);
+        if (pi && pi.lat != null && pi.lon != null){ el.dataset.lat = String(pi.lat); el.dataset.lon = String(pi.lon); }
+      } else {
+        delete el.dataset.portId;
+      }
+    } catch(e){}
+  }
+}
+
+function readTransitPortsFromForm(p){
+  if (!p || !p.plan) return;
+  const tps = normaliseTransitPorts(p);
+  const inputs = [planTransit1, planTransit2, planTransit3];
+  for (let i=0;i<3;i++){
+    if (!tps[i]) continue;
+    const el = inputs[i];
+    if (!el) continue;
+    tps[i].name = (el.value||"").trim();
+    tps[i].portId = el.dataset.portId ? String(el.dataset.portId) : (tps[i].portId||"");
+  }
+  p.plan.transitPorts = tps;
 }
 
 function createPassage() {
@@ -2239,6 +2467,7 @@ function createPassage() {
       date: today,
       from: "",
       to: "",
+      transitPorts: [],
       vessel: "STEELER",
       skipper: "",
       crew: "",
@@ -2290,6 +2519,9 @@ function loadPlanIntoForm(p) {
     if (pi && pi.lat != null && pi.lon != null){ planTo.dataset.lat = String(pi.lat); planTo.dataset.lon = String(pi.lon); }
   }
 
+  // CL-077: Transit Ports UI + bindings
+  try { renderTransitPortsUI(p); } catch(e) { console.warn("renderTransitPortsUI", e); }
+
 planVessel.value = p.plan.vessel || "STEELER";
   planSkipper.value = p.plan.skipper || "";
   planCrew.value = p.plan.crew || "";
@@ -2318,6 +2550,9 @@ function renderTideStations(p) {
     row.dataset.index = index;
     row.dataset.auto = st.auto ? "true" : "false";
     row.dataset.id = st.id || "";
+    // Preserve route-role for auto stations (origin/transit/dest) so ensureAutoTideStations
+    // can safely reuse edited values rather than regenerating blanks.
+    row.dataset.role = st.role || "";
 
     // keep events around for backwards compatibility, but Plan inputs are the editable truth
     row.dataset.events = JSON.stringify(st.events || []);
@@ -2419,6 +2654,7 @@ function readTideStationsFromForm() {
     stations.push({
       id: row.dataset.id || ("ts_" + Date.now() + "_" + Math.random().toString(36).slice(2)),
       name,
+      role: row.dataset.role || "",
       hw1, hw2, lw1, lw2,
       hw1h, hw2h, lw1h, lw2h,
       events,
@@ -2428,6 +2664,56 @@ function readTideStationsFromForm() {
   return stations;
 }
 
+
+// Auto-save Tide Station edits so Log > Plan panel reflects manual typing without needing Plan "Save".
+let __tideStationsAutosaveTimer = null;
+function __scheduleTideStationsAutosave(){
+  clearTimeout(__tideStationsAutosaveTimer);
+  __tideStationsAutosaveTimer = setTimeout(() => {
+    try {
+      const p = getCurrentPassage();
+      if (!p || !p.plan) return;
+      p.plan.tideStations = readTideStationsFromForm();
+      try { ensureAutoTideStations(p); } catch {}
+      try { savePassages(); } catch {}
+      // If Log tab is visible, refresh the left Plan summary panel immediately.
+      try {
+        const logEl = document.getElementById("logTab");
+        if (logEl && logEl.classList && logEl.classList.contains("active")) updatePlanSummaryPanel();
+      } catch {}
+    } catch {}
+  }, 250);
+}
+
+// Delegate input/change events from Tide Station fields.
+if (tideStationsContainer){
+  tideStationsContainer.addEventListener("input", (e) => {
+    const t = e.target;
+    if (!t || !t.classList) return;
+    if (
+      t.classList.contains("ts-name") ||
+      t.classList.contains("ts-hw1") || t.classList.contains("ts-hw2") ||
+      t.classList.contains("ts-lw1") || t.classList.contains("ts-lw2") ||
+      t.classList.contains("ts-hw1h") || t.classList.contains("ts-hw2h") ||
+      t.classList.contains("ts-lw1h") || t.classList.contains("ts-lw2h")
+    ) {
+      __scheduleTideStationsAutosave();
+    }
+  });
+  tideStationsContainer.addEventListener("change", (e) => {
+    const t = e.target;
+    if (!t || !t.classList) return;
+    if (
+      t.classList.contains("ts-name") ||
+      t.classList.contains("ts-hw1") || t.classList.contains("ts-hw2") ||
+      t.classList.contains("ts-lw1") || t.classList.contains("ts-lw2") ||
+      t.classList.contains("ts-hw1h") || t.classList.contains("ts-hw2h") ||
+      t.classList.contains("ts-lw1h") || t.classList.contains("ts-lw2h")
+    ) {
+      __scheduleTideStationsAutosave();
+    }
+  });
+}
 function moveTideStation(index, delta) {
   const p = getCurrentPassage();
   if (!p) return;
@@ -2523,6 +2809,7 @@ function scheduleAutoTideSync() {
     if (!p) return;
     p.plan.from = planFrom.value.trim();
     p.plan.to   = planTo.value.trim();
+    try { readTransitPortsFromForm(p); } catch(e) {}
     ensureAutoTideStations(p);
     renderTideStations(p);
     updatePlanSummaryPanel();
@@ -2534,6 +2821,143 @@ planFrom.addEventListener("input", () => { try{ delete planFrom.dataset.portId; 
 planTo.addEventListener("input", () => { try{ delete planTo.dataset.portId; delete planTo.dataset.lat; delete planTo.dataset.lon; }catch{} });
 planFrom.addEventListener("input", scheduleAutoTideSync);
 planTo.addEventListener("input", scheduleAutoTideSync);
+
+// CL-077: Transit ports drive auto tide stations too
+[planTransit1, planTransit2, planTransit3].forEach((el) => {
+  if (!el) return;
+  el.addEventListener("input", () => { try{ delete el.dataset.portId; delete el.dataset.lat; delete el.dataset.lon; }catch{} });
+  el.addEventListener("input", scheduleAutoTideSync);
+});
+
+if (addTransitPortBtn){
+  addTransitPortBtn.addEventListener("click", () => {
+    const p = getCurrentPassage();
+    if (!p) return;
+    const tps = normaliseTransitPorts(p);
+    if (tps.length >= 3) return;
+    tps.push({ name:"", portId:"" });
+    p.plan.transitPorts = tps;
+    renderTransitPortsUI(p);
+    // ensure auto tide stations exist for the new slot
+    p.plan.from = planFrom.value.trim();
+    p.plan.to = planTo.value.trim();
+    readTransitPortsFromForm(p);
+    ensureAutoTideStations(p);
+    renderTideStations(p);
+    updatePlanSummaryPanel();
+    updatePassageHeader();
+  });
+}
+
+// CL-077: Dynamic Leg Extension (add a new leg by promoting current destination to a transit port)
+if (extendLegBtn){
+  extendLegBtn.addEventListener("click", () => {
+    const p = getCurrentPassage();
+    if (!p) return;
+
+    const currentDest = (planTo?.value || p.plan.to || "").trim();
+    if (!currentDest) {
+      alert("Set a destination first, then you can add a new leg.");
+      return;
+    }
+    const tps = normaliseTransitPorts(p);
+    if (tps.length >= 3) {
+      alert("You already have the maximum of 3 transit ports (4 legs). Remove one transit port to add another leg.");
+      return;
+    }
+
+    showModal({
+      title: "Add a leg (extend this passage)",
+      okText: "Extend",
+      cancelText: "Cancel",
+      bodyHtml: `
+        <div style="line-height:1.35">
+          <p style="margin:0 0 10px 0;">
+            This will turn the current destination <b>${escapeHtml(currentDest)}</b> into the next transit port,
+            then set a <b>new destination</b>.
+          </p>
+          <label style="display:block; font-weight:600; margin:0 0 6px 0;">New destination</label>
+          <input id="extendNewDest" type="text" style="width:100%; padding:8px;" placeholder="e.g. Poole" />
+          <div id="extendNewDestSuggest" class="port-suggest-box hidden"></div>
+          <p style="margin:10px 0 0 0; opacity:0.8; font-size:0.92em;">
+            Tip: you can refine the destination later using the normal Route fields.
+          </p>
+        </div>
+      `,
+      onOk: () => {
+        const newDest = (document.getElementById("extendNewDest")?.value || "").trim();
+        if (!newDest) return false;
+
+        // Promote current destination into the next transit slot
+        const oldToPortId = (planTo?.dataset?.portId || p.plan.toPortId || "").toString().trim();
+        const nextIdx = tps.length + 1; // 1-based for role naming
+        tps.push({ name: currentDest, portId: oldToPortId });
+        p.plan.transitPorts = tps;
+
+        // Preserve any tide station data captured for the old destination by migrating its role
+        migrateAutoTideRole(p, "dest", `transit${nextIdx}`, currentDest);
+
+        // Update destination
+        p.plan.to = newDest;
+        // Best-effort portId binding by name
+        const pi = findPortItemByName(newDest);
+        if (pi && pi.id) {
+          p.plan.toPortId = String(pi.id);
+        } else {
+          delete p.plan.toPortId;
+        }
+
+
+
+        // If the passage had previously been completed (final leg shutdown), extending it
+        // means it is NO LONGER complete. Clear the overall shutdown flag and end-of-passage fields.
+        if (p.finish && p.finish.shutdownLogged) {
+          p.finish.shutdownLogged = false;
+          p.finish.finishedAt = null;
+          p.finish.engineHoursEnd = null;
+          p.finish.fuelEndPercent = null;
+          p.finish.notes = null;
+        }
+        // Reflect immediately in the form UI
+        renderTransitPortsUI(p);
+        if (planTo) {
+          planTo.value = newDest;
+          try{
+            delete planTo.dataset.portId; delete planTo.dataset.lat; delete planTo.dataset.lon;
+            if (pi && pi.id) {
+              planTo.dataset.portId = String(pi.id);
+              if (pi.lat != null && pi.lon != null){ planTo.dataset.lat = String(pi.lat); planTo.dataset.lon = String(pi.lon); }
+            }
+          }catch(e){}
+        }
+
+        // Rebuild auto tide stations for the new route, keeping existing data where roles match
+        p.plan.from = (planFrom?.value || p.plan.from || "").trim();
+        readTransitPortsFromForm(p);
+        ensureAutoTideStations(p);
+        renderTideStations(p);
+
+        // Comms/pilotage should follow the new route too
+        try{ updatePlanCommsFromPorts(); }catch(e){}
+
+        savePassages();
+        updatePlanSummaryPanel();
+        updatePassageHeader();
+      }
+    });
+
+    // Enable the same port dropdown + new-port confirmation flow as the Route fields
+    // (matches the behaviour of Origin/Destination/Transit inputs).
+    setTimeout(() => {
+      try {
+        const inp = document.getElementById('extendNewDest');
+        const box = document.getElementById('extendNewDestSuggest');
+        setupDynamicPortAutocomplete(inp, box);
+        setupDynamicPortCoordConfirmation(inp);
+      } catch(e) {}
+    }, 0);
+  });
+}
 
 
 let sunSyncTimer = null;
@@ -2558,6 +2982,9 @@ planFrom.addEventListener("input", scheduleAutoSunSync);
 planFrom.addEventListener("input", updatePlanCommsFromPorts);
 planTo.addEventListener("input", updatePlanCommsFromPorts);
 planTo.addEventListener("input", scheduleAutoSunSync);
+planTransit1?.addEventListener("input", updatePlanCommsFromPorts);
+planTransit2?.addEventListener("input", updatePlanCommsFromPorts);
+planTransit3?.addEventListener("input", updatePlanCommsFromPorts);
 
 // --- CL-074: Fetch Met Office Inshore Waters forecast (with manual edit) ---
 const MF_INSHORE_URL = "https://steeler-mf-inshore.bill-merry-52f.workers.dev/inshore";
@@ -3421,6 +3848,31 @@ planForm.addEventListener("submit", async (e) => {
 
   // Purge any old per-passage coords (we now use Manage Ports as the single source of truth).
   delete p.plan.fromLat; delete p.plan.fromLon; delete p.plan.toLat; delete p.plan.toLon;
+
+  // CL-077: Transit Ports (bind by id when chosen from suggestions)
+  try {
+    normaliseTransitPorts(p);
+    // Ensure we read current form values into p.plan.transitPorts
+    readTransitPortsFromForm(p);
+    const tInputs = [planTransit1, planTransit2, planTransit3];
+    const tps = Array.isArray(p.plan.transitPorts) ? p.plan.transitPorts : [];
+    for (let i=0;i<tps.length && i<3;i++){
+      const el = tInputs[i];
+      if (!el) continue;
+      const name = (el.value||"").trim();
+      tps[i].name = name;
+      const tid = readPortId(el);
+      if (tid) tps[i].portId = String(tid);
+      // Conservative legacy resolution if id missing
+      if (!tps[i].portId && name){
+        const pi = findPortItemByName(name);
+        if (pi && pi.id){ tps[i].portId = String(pi.id); el.dataset.portId = String(pi.id); }
+      }
+    }
+    p.plan.transitPorts = tps;
+  } catch(e) {
+    console.warn("Transit ports save failed", e);
+  }
 p.plan.vessel = planVessel.value.trim();
   p.plan.skipper = planSkipper.value.trim();
   p.plan.crew = planCrew.value.trim();
@@ -3480,7 +3932,9 @@ function updatePlanSummaryPanel() {
 
   const tideStationsHtml = tideStations.length
     ? tideStations.map(ts => {
-        const name = escapeHtml(ts.name || "Station");
+        const stationName = (ts.name || "Station");
+        const name = escapeHtml(stationName);
+
         // Build events list (prefer stored events; otherwise build from fields)
         let ev = Array.isArray(ts.events) ? ts.events.slice() : [];
         if (!ev.length){
@@ -3585,7 +4039,12 @@ planSummaryPanel.addEventListener("click", (e) => {
 // --- Log entries ----------------------------------------------------
 
 function passageIsShutdown(p) {
-  return p?.finish?.shutdownLogged === true;
+  // A passage is considered "shutdown" only once the FINAL leg has a Shutdown entry.
+  // Earlier legs also end with Shutdown entries in multi-leg passages, so we must
+  // not use a simple "any shutdown" flag.
+  if (!p) return false;
+  const finalLegIdx = Math.max(0, getLegCount(p) - 1);
+  return hasSpecialForLeg(p, 'shutdown', finalLegIdx);
 }
 
 
@@ -3657,6 +4116,8 @@ function addSpecialEntry(noteText, notesOverride = null) {
   const entry = {
     id: "e_" + Date.now(),
     time: timeStr,
+    leg: getCurrentLegIndex(p),
+    leg: getCurrentLegIndex(p),
     lat: "",
     lon: "",
     // No prefill from previous entries (CL-076-8)
@@ -3688,6 +4149,7 @@ async function addLogEntry(){
   const entry = {
     id: newId('e'),
     time: new Date().toISOString().slice(0,16),
+    leg: getCurrentLegIndex(p),
     cog: "",
     speed: "",
     rpm: "",
@@ -3763,18 +4225,19 @@ function deleteLogEntryById(entryId) {
 
   p.entries.splice(idx, 1);
 
-  // If the Shutdown entry was deleted, clear the shutdown flag so a new one can be added (CL-070)
-  if (
-    deleted &&
-    typeof deleted.notes === "string" &&
-    deleted.notes.toLowerCase().startsWith("shutdown")
-  ) {
-    if (!p.finish) p.finish = {};
-    p.finish.shutdownLogged = false;
-    // Clear finish fields that are only meaningful after shutdown
-    p.finish.finishedAt = null;
-    p.finish.engineHoursEnd = null;
-    p.finish.fuelEndPercent = null;
+  // If a Shutdown entry was deleted, we only clear the passage "finish" flag
+  // when that deleted shutdown belonged to the FINAL leg.
+  const finalLegIdx = Math.max(0, getLegCount(p) - 1);
+  if (deleted && typeof deleted.notes === "string" && deleted.notes.toLowerCase().startsWith("shutdown")) {
+    const deletedLeg = (typeof deleted.leg === 'number') ? deleted.leg : 0;
+    if (deletedLeg === finalLegIdx) {
+      if (!p.finish) p.finish = {};
+      p.finish.shutdownLogged = false;
+      // Clear finish fields that are only meaningful after final shutdown
+      p.finish.finishedAt = null;
+      p.finish.engineHoursEnd = null;
+      p.finish.fuelEndPercent = null;
+    }
   }
 
   // Recompute special-entry flags so deleted items can be re-added (CL-076-2)
@@ -3787,11 +4250,9 @@ function deleteLogEntryById(entryId) {
   p.flags.slip = !!hasSlip;
   p.flags.dock = !!hasDock;
 
-  // Keep shutdown flag consistent even if something odd happens
-  if (p.finish) {
-    const hasShutdown = (p.entries || []).some(e => typeof e.notes === "string" && e.notes.toLowerCase().startsWith("shutdown"));
-    p.finish.shutdownLogged = !!hasShutdown;
-  }
+  // Keep passage shutdown flag consistent: true ONLY when final leg has a Shutdown.
+  p.finish = p.finish || {};
+  p.finish.shutdownLogged = hasSpecialForLeg(p, 'shutdown', finalLegIdx);
   savePassages();
   renderLogEntries();
   refreshHomePassageList();
@@ -3832,7 +4293,23 @@ engineStartBtn.addEventListener("click", () => {
   if (!p) return alert("No passage selected.");
   ensureFlags(p);
   if (passageIsShutdown(p)) return alert("Shutdown already recorded – no further log entries allowed.");
-  if (p.flags.engineStart) return alert("Engine Start already recorded for this passage.");
+  const legIdx = getCurrentLegIndex(p);
+  if (hasSpecialForLeg(p, 'engine start', legIdx)) return alert("Engine Start already recorded for this leg.");
+
+  // Prefill rules (CL-077):
+  // - Leg 1: use Plan start values (existing behaviour)
+  // - Leg 2+: use previous leg's Shutdown snapshot (NOT Plan start values)
+  let prefillEh = "";
+  let prefillFu = "";
+  if (legIdx === 0) {
+    prefillEh = (p.plan && p.plan.engineHoursStart) ? String(p.plan.engineHoursStart) : "";
+    prefillFu = (p.plan && p.plan.fuelStartPercent) ? String(p.plan.fuelStartPercent) : "";
+  } else {
+    const legEnds = Array.isArray(p.legEnds) ? p.legEnds : [];
+    const prevEnd = legEnds[legIdx - 1] || {};
+    prefillEh = prevEnd.engineHoursEnd ? String(prevEnd.engineHoursEnd) : "";
+    prefillFu = prevEnd.fuelEndPercent ? String(prevEnd.fuelEndPercent) : "";
+  }
 
   // Persisted per-passage (not carried across passages)
   const prevEnv = (p.plan && p.plan.engineStartEnv) ? p.plan.engineStartEnv : {};
@@ -3842,12 +4319,12 @@ engineStartBtn.addEventListener("click", () => {
     bodyHtml: `
       <label style="display:flex;flex-direction:column;gap:0.25rem;">
         Fuel % at start
-        <input id="fuelStart" type="number" inputmode="numeric" step="1" value="${escapeHtml(p.plan.fuelStartPercent || "")}">
+        <input id="fuelStart" type="number" inputmode="numeric" step="1" value="${escapeHtml(prefillFu)}">
       </label>
 
       <label style="display:flex;flex-direction:column;gap:0.25rem;margin-bottom:0.5rem;">
         Engine hours at start
-        <input id="ehStart" type="number" inputmode="decimal" step="0.1" value="${escapeHtml(p.plan.engineHoursStart || "")}">
+        <input id="ehStart" type="number" inputmode="decimal" step="0.1" value="${escapeHtml(prefillEh)}">
       </label>
 <div style="margin-top:0.75rem;border-top:1px solid #e6e6e6;padding-top:0.75rem;">
         <div style="font-weight:600;margin-bottom:0.5rem;">Environment (optional)</div>
@@ -3906,8 +4383,12 @@ engineStartBtn.addEventListener("click", () => {
       const windBft       = document.getElementById("windBft").value.trim();
       const notesText     = document.getElementById("esNotes").value.trim();
 
-      p.plan.engineHoursStart = eh;
-      p.plan.fuelStartPercent = fu;
+      // Only persist to Plan start values for Leg 1.
+      // For Leg 2+, we keep Plan values immutable and rely on the previous leg's Shutdown snapshot.
+      if (legIdx === 0) {
+        p.plan.engineHoursStart = eh;
+        p.plan.fuelStartPercent = fu;
+      }
 
       // Persist the optional snapshot per-passage so it can be amended/reopened.
       p.plan.engineStartEnv = {
@@ -3950,7 +4431,8 @@ slipLinesBtn.addEventListener("click", () => {
   if (!p) return;
   ensureFlags(p);
   if (passageIsShutdown(p)) return alert("Shutdown already recorded – no further log entries allowed.");
-  if (p.flags.slip) return alert("Slip already recorded for this passage.");
+  const legIdx = getCurrentLegIndex(p);
+  if (hasSpecialForLeg(p, 'slipped lines', legIdx)) return alert("Slip already recorded for this leg.");
   addSpecialEntry("Slipped lines / underway");
   p.flags.slip = true;
   savePassages();
@@ -3962,48 +4444,75 @@ dockLinesBtn.addEventListener("click", () => {
   if (!p) return;
   ensureFlags(p);
   if (passageIsShutdown(p)) return alert("Shutdown already recorded – no further log entries allowed.");
-  if (p.flags.dock) return alert("Dock already recorded for this passage.");
+  const legIdx = getCurrentLegIndex(p);
+  if (hasSpecialForLeg(p, 'alongside', legIdx) || hasSpecialForLeg(p, 'docked', legIdx)) return alert("Dock already recorded for this leg.");
   addDockEntry();
   p.flags.dock = true;
   savePassages();
 });
 
-// Shutdown: one only; keep summary below, keep notes clean
+// Shutdown: once per leg (final leg sets passage completion)
 shutdownBtn.addEventListener("click", () => {
   const p = getCurrentPassage();
   if (!p) return alert("No passage selected.");
-  if (p.finish.shutdownLogged) return alert("Shutdown has already been recorded for this passage.");
+  ensureFlags(p);
+
+  // Once the final leg has shutdown, the passage is complete.
+  if (passageIsShutdown(p)) return alert("Shutdown already recorded – no further log entries allowed.");
+
+  const legIdx = getCurrentLegIndex(p);
+  if (hasSpecialForLeg(p, 'shutdown', legIdx)) return alert("Shutdown already recorded for this leg.");
+
+  const isFinalLeg = (legIdx >= (getLegCount(p) - 1));
+
+  // Per-leg end snapshots (used for leg summaries and for chaining starts).
+  p.legEnds = Array.isArray(p.legEnds) ? p.legEnds : [];
+  const prev = p.legEnds[legIdx] || {};
 
   showModal({
-    title: "Shutdown",
+    title: isFinalLeg ? "Shutdown (final leg)" : "Shutdown (end of leg)",
     bodyHtml: `
       <label style="display:flex;flex-direction:column;gap:0.25rem;margin-bottom:0.5rem;">
         Fuel % at end
-        <input id="fuelEnd" type="number" inputmode="numeric" step="1" value="${escapeHtml(p.finish.fuelEndPercent || "")}">
+        <input id="fuelEnd" type="number" inputmode="numeric" step="1" value="${escapeHtml(prev.fuelEndPercent || (isFinalLeg ? (p.finish?.fuelEndPercent || "") : ""))}">
       </label>
-<label style="display:flex;flex-direction:column;gap:0.25rem;margin-bottom:0.5rem;">
+      <label style="display:flex;flex-direction:column;gap:0.25rem;margin-bottom:0.5rem;">
         Engine hours (end)
-        <input id="ehEnd" type="number" inputmode="decimal" step="0.1" value="${escapeHtml(p.finish.engineHoursEnd || "")}">
+        <input id="ehEnd" type="number" inputmode="decimal" step="0.1" value="${escapeHtml(prev.engineHoursEnd || (isFinalLeg ? (p.finish?.engineHoursEnd || "") : ""))}">
       </label>
       <label style="display:flex;flex-direction:column;gap:0.25rem;">
         Notes / defects
-        <input id="shNotes" type="text" value="${escapeHtml(p.finish.notes || "")}">
+        <input id="shNotes" type="text" value="${escapeHtml(prev.notes || (isFinalLeg ? (p.finish?.notes || "") : ""))}">
       </label>
     `,
     onOk: () => {
-      p.finish.engineHoursEnd = document.getElementById("ehEnd").value.trim();
-      p.finish.fuelEndPercent = document.getElementById("fuelEnd").value.trim();
-      p.finish.notes = document.getElementById("shNotes").value.trim();
-      p.finish.shutdownLogged = true;
+      const notesVal = (document.getElementById("shNotes")?.value || "").trim();
+      const ehEndVal = (document.getElementById("ehEnd")?.value || "").trim();
+      const fuelEndVal = (document.getElementById("fuelEnd")?.value || "").trim();
+
+      // Persist per-leg end snapshot
+      p.legEnds[legIdx] = {
+        engineHoursEnd: ehEndVal,
+        fuelEndPercent: fuelEndVal,
+        notes: notesVal,
+        at: new Date().toISOString(),
+      };
+
+      // If this is the final leg, also persist the traditional passage end fields.
+      if (isFinalLeg) {
+        p.finish = p.finish || {};
+        p.finish.engineHoursEnd = ehEndVal;
+        p.finish.fuelEndPercent = fuelEndVal;
+        p.finish.notes = notesVal;
+        p.finish.shutdownLogged = true;
+      }
 
       // Include key figures in the notes for quick scanability (CL-066)
-      const ehEnd = p.finish.engineHoursEnd;
-      const fuelEnd = p.finish.fuelEndPercent;
       const shutBits = [];
-      if (ehEnd) shutBits.push(`EH ${ehEnd}`);
-      if (fuelEnd) shutBits.push(`Fuel ${fuelEnd}%`);
+      if (ehEndVal) shutBits.push(`EH ${ehEndVal}`);
+      if (fuelEndVal) shutBits.push(`Fuel ${fuelEndVal}%`);
       const shutPrefix = shutBits.length ? `Shutdown / alongside — ${shutBits.join(" | ")}` : "Shutdown / alongside";
-      const note = p.finish.notes ? `${shutPrefix} — ${p.finish.notes}` : shutPrefix;
+      const note = notesVal ? `${shutPrefix} — ${notesVal}` : shutPrefix;
 
       p.entries.unshift({
         id: "e_" + Date.now(),
@@ -4017,7 +4526,8 @@ shutdownBtn.addEventListener("click", () => {
         waterLog: "",
         groundLog: "",
         fuelUsed: "",
-        notes: note
+        notes: note,
+        leg: legIdx
       });
 
       savePassages();
@@ -4028,8 +4538,8 @@ shutdownBtn.addEventListener("click", () => {
     }
   });
 });
-
 function renderLogEntries() {
+  updateLegIndicator();
   const p = getCurrentPassage();
   logEntriesContainer.innerHTML = "";
 
@@ -4122,9 +4632,101 @@ function renderLogEntries() {
     tr.appendChild(tdNotes);
 
     logEntriesContainer.appendChild(tr);
+
+    // CL-077 (v0.6.4d): Presentation-only inline leg summary row.
+    // After each Shutdown entry, insert a display-only “LEG X SUMMARY” row.
+    // This must NOT touch logging logic or persist any data.
+    if (typeof entry?.notes === "string" && entry.notes.toLowerCase().startsWith("shutdown")) {
+      const legIdx = (typeof entry.leg === "number") ? entry.leg : 0;
+      const s = computeLegLogSummary(p, legIdx);
+
+      const trSum = document.createElement("tr");
+      trSum.className = "leg-summary-row";
+
+      const td = document.createElement("td");
+      td.colSpan = 9;
+
+      const bits = [];
+      bits.push(`Engine hours: ${s.ehText}`);
+      bits.push(`Fuel ${s.fuelStart}%→${s.fuelEnd}%`);
+      bits.push(`Fuel used: ${s.fuelUsed}`);
+      bits.push(`NM(G): ${s.nmG}`);
+      bits.push(`Under Way: ${s.durationText}`);
+
+      td.innerHTML = `<div class="leg-summary-title">LEG ${legIdx + 1} SUMMARY</div>` +
+        `<div class="leg-summary-bits">${escapeHtml(bits.join("  |  "))}</div>`;
+
+      trSum.appendChild(td);
+      logEntriesContainer.appendChild(trSum);
+    }
   });
 
   updateLogSummary();
+}
+
+function _num(v) {
+  const n = parseFloat(String(v ?? "").trim());
+  return isNaN(n) ? null : n;
+}
+
+function _fmt1(v) {
+  const n = _num(v);
+  return (n === null) ? "–" : (Math.round(n * 10) / 10).toFixed(1).replace(/\.0$/, "");
+}
+
+function _fmtDurationFromMinutes(totalMinutes) {
+  const m = Math.max(0, Math.round(totalMinutes || 0));
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+function computeLegMetricsFromEntries(p, legIdx) {
+  const entries = Array.isArray(p?.entries) ? p.entries : [];
+  const legEntries = entries.filter(e => (e.leg ?? 0) === legIdx);
+  const sorted = legEntries.slice().sort((a, b) => new Date(a.time || 0) - new Date(b.time || 0));
+
+  // Fuel used: last numeric in this leg
+  let fuelUsed = null;
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const fu = _num(sorted[i].fuelUsed);
+    if (fu !== null) { fuelUsed = fu; break; }
+  }
+
+  // NM(G): use the final Ground Log reading for the leg.
+  // (Users often record NM(G) per-leg rather than a cumulative trip total.)
+  let lastG = null;
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const g = _num(sorted[i].groundLog);
+    if (g !== null) { lastG = g; break; }
+  }
+  const nmG = lastG;
+
+  // Under way minutes: Slip -> Dock within this leg (fallback: first->last)
+  let durationMinutes = null;
+  const slipEntry = sorted.find(e => typeof e.notes === 'string' && e.notes.toLowerCase().startsWith('slipped lines'));
+  let dockEntry = null;
+  if (slipEntry && slipEntry.time) {
+    dockEntry = sorted.find(e => e.time && e.time > slipEntry.time && typeof e.notes === 'string' && e.notes.toLowerCase().startsWith('alongside'));
+  }
+  const tStart = slipEntry?.time ? new Date(slipEntry.time) : null;
+  const tEnd = dockEntry?.time ? new Date(dockEntry.time) : null;
+  if (tStart && tEnd && !isNaN(tStart) && !isNaN(tEnd)) {
+    const ms = tEnd - tStart;
+    if (!isNaN(ms) && ms > 0) durationMinutes = Math.round(ms / 60000);
+  } else {
+    const times = sorted.map(e => e.time).filter(Boolean).map(t => new Date(t)).filter(d => !isNaN(d));
+    if (times.length >= 2) {
+      const min = times.reduce((a, b) => (a < b ? a : b));
+      const max = times.reduce((a, b) => (a > b ? a : b));
+      const ms = max - min;
+      if (!isNaN(ms) && ms > 0) durationMinutes = Math.round(ms / 60000);
+    }
+  }
+
+  return {
+    fuelUsed,
+    nmG,
+    durationMinutes
+  };
 }
 
 function computePassageLogSummary(p) {
@@ -4148,82 +4750,107 @@ function computePassageLogSummary(p) {
     .slice()
     .sort((a, b) => new Date(a.time || 0) - new Date(b.time || 0));
 
-  // Engine hours used (first and last valid EH)
-  let ehStart = null, ehEnd = null;
-  for (let i = 0; i < sorted.length; i++) {
-    const v = parseFloat(sorted[i].engineHours);
-    if (!isNaN(v)) { ehStart = v; break; }
-  }
-  for (let i = sorted.length - 1; i >= 0; i--) {
-    const v = parseFloat(sorted[i].engineHours);
-    if (!isNaN(v)) { ehEnd = v; break; }
-  }
-  const ehText = (ehStart !== null && ehEnd !== null) ? `${ehStart}→${ehEnd}` : "–";
+  // Engine hours used: prefer plan/finish snapshot, else fall back to any per-entry EH (legacy)
+  const planEhStart = (p.plan && p.plan.engineHoursStart !== undefined && p.plan.engineHoursStart !== null && p.plan.engineHoursStart !== "") ? `${p.plan.engineHoursStart}` : null;
+  const finishEhEnd = (p.finish && p.finish.engineHoursEnd !== undefined && p.finish.engineHoursEnd !== null && p.finish.engineHoursEnd !== "") ? `${p.finish.engineHoursEnd}` : null;
 
-  // Fuel used: first valid numeric in reverse (because shutdown summary often sets it)
-  let fuelUsed = "–";
-  for (let i = sorted.length - 1; i >= 0; i--) {
-    const fu = parseFloat(sorted[i].fuelUsed);
-    if (!isNaN(fu)) { fuelUsed = `${fu}`; break; }
-  }
-
-  // Ground log: last non-empty
-  let gLog = "–";
-  for (let i = sorted.length - 1; i >= 0; i--) {
-    if (sorted[i].groundLog) { gLog = sorted[i].groundLog; break; }
-  }
-
-  // Passage duration: prefer Slip -> Dock, else first->last
-  let durationText = "–";
-  const slipEntry = sorted.find(e => typeof e.notes === 'string' && e.notes.toLowerCase().startsWith('slipped lines'));
-  let dockEntry = null;
-  if (slipEntry && slipEntry.time) {
-    dockEntry = sorted.find(e => e.time && e.time > slipEntry.time && typeof e.notes === 'string' && e.notes.toLowerCase().startsWith('alongside'));
-  }
-
-  const tStart = slipEntry && slipEntry.time ? new Date(slipEntry.time) : null;
-  const tEnd = dockEntry && dockEntry.time ? new Date(dockEntry.time) : null;
-
-  if (tStart && tEnd && !isNaN(tStart) && !isNaN(tEnd)) {
-    const ms = tEnd - tStart;
-    if (!isNaN(ms) && ms > 0) {
-      const minutes = Math.round(ms / 60000);
-      durationText = `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-    }
+  let ehText = "–";
+  if (planEhStart && finishEhEnd) {
+    ehText = `${planEhStart}→${finishEhEnd}`;
   } else {
-    const times = sorted.map(e => e.time).filter(Boolean).map(t => new Date(t));
-    if (times.length >= 2) {
-      const min = times.reduce((a, b) => (a < b ? a : b));
-      const max = times.reduce((a, b) => (a > b ? a : b));
-      const ms = max - min;
-      if (!isNaN(ms) && ms > 0) {
-        const minutes = Math.round(ms / 60000);
-        durationText = `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-      }
+    let ehStart = null, ehEnd = null;
+    for (let i = 0; i < sorted.length; i++) {
+      const v = parseFloat(sorted[i].engineHours);
+      if (!isNaN(v)) { ehStart = v; break; }
     }
+    for (let i = sorted.length - 1; i >= 0; i--) {
+      const v = parseFloat(sorted[i].engineHours);
+      if (!isNaN(v)) { ehEnd = v; break; }
+    }
+    ehText = (ehStart !== null && ehEnd !== null) ? `${ehStart}→${ehEnd}` : "–";
   }
+
+  // Totals across legs (fuel used, NM(G), under way time)
+  const legCount = getLegCount(p);
+  let fuelUsedTotal = 0;
+  let fuelUsedHas = false;
+  let nmGTotal = 0;
+  let nmGHas = false;
+  let underwayMinutesTotal = 0;
+  let underwayHas = false;
+
+  for (let i = 0; i < legCount; i++) {
+    const m = computeLegMetricsFromEntries(p, i);
+    if (m.fuelUsed !== null) { fuelUsedTotal += m.fuelUsed; fuelUsedHas = true; }
+    if (m.nmG !== null) { nmGTotal += m.nmG; nmGHas = true; }
+    if (m.durationMinutes !== null) { underwayMinutesTotal += m.durationMinutes; underwayHas = true; }
+  }
+
+  const fuelUsed = fuelUsedHas ? _fmt1(fuelUsedTotal) : "–";
+  const gLog = nmGHas ? _fmt1(nmGTotal) : "–";
+  const durationText = underwayHas ? _fmtDurationFromMinutes(underwayMinutesTotal) : "–";
 
   return { ehText, fuelUsed, fuelStart, fuelEnd, gLog, durationText };
 }
 
+
+function computeLegLogSummary(p, legIdx) {
+  if (!p) {
+    return { ehText: "–", fuelUsed: "–", fuelStart: "–", fuelEnd: "–", gLog: "–", durationText: "–" };
+  }
+
+  const entries = Array.isArray(p.entries) ? p.entries : [];
+  const legEntries = entries.filter(e => (e.leg ?? 0) === legIdx);
+
+  const sorted = legEntries.slice().sort((a, b) => new Date(a.time || 0) - new Date(b.time || 0));
+  const m = computeLegMetricsFromEntries(p, legIdx);
+  const fuelUsed = (m.fuelUsed === null) ? "–" : _fmt1(m.fuelUsed);
+  const nmG = (m.nmG === null) ? "–" : _fmt1(m.nmG);
+  const durationText = (m.durationMinutes === null) ? "–" : _fmtDurationFromMinutes(m.durationMinutes);
+
+  // Fuel start/end + engine hours start/end based on snapshots
+  const legEnds = Array.isArray(p.legEnds) ? p.legEnds : [];
+  const endSnap = legEnds[legIdx] || {};
+  const prevEndSnap = legIdx > 0 ? (legEnds[legIdx - 1] || {}) : {};
+
+  const fuelStart = (legIdx === 0)
+    ? (p.plan?.fuelStartPercent ?? "–")
+    : (prevEndSnap.fuelEndPercent ?? "–");
+  const fuelEnd = endSnap.fuelEndPercent ?? "–";
+
+  const ehStart = (legIdx === 0)
+    ? (p.plan?.engineHoursStart ?? "–")
+    : (prevEndSnap.engineHoursEnd ?? "–");
+  const ehEnd = endSnap.engineHoursEnd ?? "–";
+
+  const ehText = (ehStart !== "–" && ehEnd !== "–" && ehStart !== "" && ehEnd !== "") ? `${ehStart}→${ehEnd}` : "–";
+
+  return { ehText, fuelUsed, fuelStart: fuelStart || "–", fuelEnd: fuelEnd || "–", nmG, durationText };
+}
+
 function updateLogSummary() {
   const p = getCurrentPassage();
-  if (!p || !p.finish?.shutdownLogged) {
+  if (!p) {
     logSummaryPanel.textContent = "";
     return;
   }
 
-  const s = computePassageLogSummary(p);
+  // Only show an overall summary once the FINAL leg has been shut down.
+  // (Per-leg summaries are shown inline after each Shutdown.)
+  if (!p.finish?.shutdownLogged) {
+    logSummaryPanel.textContent = "";
+    return;
+  }
 
-  logSummaryPanel.innerHTML = `
-    <strong>Summary:</strong>
-    Engine hours this passage: ${s.ehText} |
-    Fuel used: ${s.fuelUsed} |
-    Fuel start: ${s.fuelStart}% |
-    Fuel end: ${s.fuelEnd}% |
-    Final GLog: ${s.gLog} |
-    Passage duration: ${s.durationText}
-  `;
+  const total = computePassageLogSummary(p);
+  const html = `<strong>Total:</strong>
+    Engine hours: ${total.ehText} |
+    Fuel Used: ${total.fuelUsed} |
+    Fuel ${total.fuelStart}%→${total.fuelEnd}% |
+    NM(G): ${total.gLog} |
+    Under Way: ${total.durationText}`;
+
+  logSummaryPanel.innerHTML = html;
 }
 
 // CSV Export

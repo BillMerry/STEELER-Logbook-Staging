@@ -189,6 +189,25 @@ body[data-theme="night"] textarea{
 }
 .grid-span-2{grid-column:1 / -1}
 
+/* CL-077: Route ports row (Origin + up to 3 Transit Ports + Destination) */
+.plan-ports-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:0.75rem;
+  margin:0.25rem 0 0.5rem;
+}
+
+.plan-ports-grid{
+  display:grid;
+  gap:0.5rem;
+  grid-template-columns:repeat(var(--cols,2),minmax(0,1fr));
+}
+
+.plan-ports-grid label{
+  margin:0;
+}
+
 .tide-stations-header{
   display:flex;align-items:center;justify-content:space-between;
   margin:0.2rem 0 0.25rem;
@@ -406,6 +425,29 @@ body[data-theme="night"] .log-table input.log-input{border-bottom-color:#555}
 }
 
 .log-empty{font-size:0.8rem;opacity:0.7;margin-top:0.4rem}
+
+/* CL-077 (v0.6.4d): inline per-leg summary row (display-only) */
+.leg-summary-row td{
+  padding:0.35rem 0.45rem;
+  background:rgba(0,0,0,0.03);
+  border-bottom:1px solid #dcdcdc;
+}
+body[data-theme="night"] .leg-summary-row td{
+  background:rgba(255,255,255,0.06);
+  border-bottom-color:#2f2f2f;
+}
+.leg-summary-title{
+  font-weight:700;
+  letter-spacing:0.04em;
+  font-size:0.72rem;
+  text-transform:uppercase;
+  margin-bottom:0.15rem;
+}
+.leg-summary-bits{
+  font-size:0.78rem;
+  opacity:0.9;
+  line-height:1.25;
+}
 
 .log-summary{
   margin-top:0.45rem;
@@ -737,4 +779,13 @@ body.night .ports-delete { border-color: rgba(255,255,255,0.18); color: #fff; }
 
   /* NOTES/ACTIONS can wrap */
   .print-log-table td:last-child { white-space: normal; }
+}
+
+
+/* CL-077: current leg indicator */
+.leg-indicator{
+  margin-left:0.75rem;
+  font-weight:600;
+  color:#a00000;
+  align-self:center;
 }

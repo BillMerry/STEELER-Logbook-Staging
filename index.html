@@ -84,18 +84,51 @@
           </label>
         </div>
 
-        <div class="grid-2">
+        <div class="plan-ports-header">
+          <h4 style="margin:0">Route</h4>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <button type="button" id="extendLegBtn" class="btn btn-secondary btn-small" title="Add a new leg by making the current destination a transit port and choosing a new destination">
+              + Add Leg
+            </button>
+            <button type="button" id="addTransitPortBtn" class="btn btn-secondary btn-small">
+              + Transit Port
+            </button>
+          </div>
+        </div>
+
+        <div id="planPortsGrid" class="plan-ports-grid" style="--cols:2">
           <label>
             Origin
             <input type="text" id="planFrom" placeholder="e.g. St Peter Port" autocomplete="off" />
             <div id="planFromSuggest" class="port-suggest hidden"></div>
           </label>
+
+          <label id="tp1Label" class="transit-label hidden">
+            Transit Port 1
+            <input type="text" id="planTransit1" placeholder="e.g. Cherbourg" autocomplete="off" />
+            <div id="planTransit1Suggest" class="port-suggest hidden"></div>
+          </label>
+
+          <label id="tp2Label" class="transit-label hidden">
+            Transit Port 2
+            <input type="text" id="planTransit2" placeholder="" autocomplete="off" />
+            <div id="planTransit2Suggest" class="port-suggest hidden"></div>
+          </label>
+
+          <label id="tp3Label" class="transit-label hidden">
+            Transit Port 3
+            <input type="text" id="planTransit3" placeholder="" autocomplete="off" />
+            <div id="planTransit3Suggest" class="port-suggest hidden"></div>
+          </label>
+
           <label>
             Intended Destination
             <input type="text" id="planTo" placeholder="e.g. Lymington" autocomplete="off" />
             <div id="planToSuggest" class="port-suggest hidden"></div>
           </label>
+        </div>
 
+        <div class="grid-2">
           <label>
             Vessel
             <input type="text" id="planVessel" value="STEELER" />
@@ -158,6 +191,7 @@
           <button id="slipLinesBtn" class="btn btn-secondary btn-small">Slip</button>
           <button id="dockLinesBtn" class="btn btn-secondary btn-small">Dock</button>
           <button id="shutdownBtn" class="btn btn-secondary btn-small">Shutdown</button>
+          <span id="legIndicator" class="leg-indicator"></span>
         </div>
         <div class="log-header-right">
           <button id="splitViewBtn" class="btn btn-secondary btn-small view-btn active">Split view</button>
@@ -270,7 +304,7 @@
     <div id="tidePasteModalOverlay" class="modal-overlay hidden"></div>
     <div class="modal-panel" role="dialog" aria-modal="true" aria-label="Paste tide times">
       <div class="modal-header">
-        <div class="modal-title">Paste tide times (EasyTide / Imray / Navionics)</div>
+        <div class="modal-title">Paste tide times (Imray / Navionics)</div>
         <button type="button" id="tidePasteModalClose" class="modal-close" aria-label="Close">×</button>
       </div>
       <div class="modal-body">

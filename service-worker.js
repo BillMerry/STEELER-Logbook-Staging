@@ -1,5 +1,5 @@
 // Bump this whenever assets change, to avoid stale PWA caches.
-const CACHE_NAME = "steeler-logbook-v0.6.1j";
+const CACHE_NAME = "steeler-logbook-v0.6.4l";
 
 const ASSETS = [
   "./",
