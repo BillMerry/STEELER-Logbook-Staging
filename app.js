@@ -4,7 +4,7 @@ const STORAGE_KEY = "steeler_logbook_passages_v5";
 const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 
-const APP_VERSION = "0.6.4l";
+const APP_VERSION = "0.6.6";
 
 // ---------------------------------------------------------------------------
 // Emergency reset hook
@@ -3095,29 +3095,600 @@ function setWeatherStatus(msg){
   weatherFetchStatus.textContent = msg || "";
 }
 function upsertWeatherSection(existingText, sectionKey, titleLine, content){
-  const start = `=== ${sectionKey} ===`;
-  const end   = `=== End ${sectionKey} ===`;
+  // Normalise keys that have historical variants so we don't accidentally append duplicates.
+  const key = String(sectionKey || "").trim();
+
+  const markersForKey = (k) => {
+    if (!k) return [];
+    // Meteo-France has appeared as "METEOFRANCE", "METEO-FRANCE", "MÉTÉO-FRANCE" and different casing.
+    if (k.toUpperCase() === "METEOFRANCE") {
+      return ["METEOFRANCE","METEO-FRANCE","MÉTÉO-FRANCE","METEO FRANCE","METEO‑FRANCE"];
+    }
+    // Met Office has sometimes used slightly different casing; keep simple.
+    if (k.toUpperCase() === "MET OFFICE") {
+      return ["Met Office","MET OFFICE"];
+    }
+    return [k];
+  };
+
+  const esc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
   let base = (existingText || "").trim();
 
-  // Remove existing block for this section (if present)
-  const re = new RegExp(`\\n?${start.replace(/[.*+?^${}()|[\\]\\\\]/g,"\\\\$&")}\\n[\\s\\S]*?\\n${end.replace(/[.*+?^${}()|[\\]\\\\]/g,"\\\\$&")}\\n?`, "g");
-  base = base.replace(re, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  // Remove any existing blocks for this section (including historical variants).
+  for (const k of markersForKey(key)) {
+    const start = `=== ${k} ===`;
+    const end   = `=== End ${k} ===`;
+    const re = new RegExp(`\\n?${esc(start)}\\n[\\s\\S]*?\\n${esc(end)}\\n?`, "gi");
+    base = base.replace(re, "\n");
+  }
+  base = base.replace(/\n{3,}/g, "\n\n").trim();
+
+  // Always write using the current requested key.
+  const start = `=== ${key} ===`;
+  const end   = `=== End ${key} ===`;
 
   const block = [
     start,
     titleLine,
-    content.trim(),
+    (content || "").trim(),
     end
   ].filter(Boolean).join("\n");
 
   return (base ? (base + "\n\n" + block) : block).trim();
 }
 
+
+
+// --- CL-078 Weather shorthand + formatting (Met Office / Channel Islands) ---
+function normalizeSpaces(s){
+  return (s||"").replace(/\s+/g," ").trim();
+}
+
+function toUpperSafe(s){ return (s||"").toUpperCase(); }
+
+function stripMetOfficeCopyright(raw){
+  if(!raw) return raw;
+  // Remove the copyright footer and URLs if present
+  return raw
+    .replace(/\[©\s*Crown\s*copyright\][\s\S]*?===\s*End\s*Met\s*Office\s*===/i, "=== End Met Office ===")
+    .replace(/\[©\s*CROWN\s*COPYRIGHT\][\s\S]*?===\s*End\s*Met\s*Office\s*===/i, "=== End Met Office ===")
+    .replace(/\[©\s*CROWN\s*COPYRIGHT\][\s\S]*$/i, "")
+    .trim();
+}
+
+function abbreviateMetOfficeText(t){
+  let s = toUpperSafe(normalizeSpaces(t));
+
+  // Common phrase reductions (order matters)
+  const reps = [
+    [/\bSOUTH\s+OR\s+SOUTHEAST\b/g, "S/SE"],
+    [/\bSOUTH\s+TO\s+SOUTHEAST\b/g, "S/SE"],
+    [/\bSOUTH\s+OR\s+SOUTHWEST\b/g, "S/SW"],
+    [/\bSOUTH\s+TO\s+SOUTHWEST\b/g, "S/SW"],
+    [/\bWEST\s+OR\s+SOUTHWEST\b/g, "W/SW"],
+    [/\bWEST\s+TO\s+SOUTHWEST\b/g, "W/SW"],
+    [/\bSOUTH\s+OR\s+WEST\b/g, "S/W"],
+    [/\bSOUTHEAST\s+OR\s+VARIABLE\b/g, "SE/VAR"],
+    [/\bNORTH\s+OR\s+NORTHEAST\b/g, "N/NE"],
+    [/\bNORTH\s+TO\s+NORTHEAST\b/g, "N/NE"],
+    [/\bEAST\s+OR\s+SOUTHEAST\b/g, "E/SE"],
+    [/\bEAST\s+TO\s+SOUTHEAST\b/g, "E/SE"],
+    [/\bSOUTHERLY\b/g, "S"],
+    [/\bNORTHERLY\b/g, "N"],
+    [/\bEASTERLY\b/g, "E"],
+    [/\bWESTERLY\b/g, "W"],
+    [/\bSOUTHEASTERLY\b/g, "SE"],
+    [/\bSOUTHWESTERLY\b/g, "SW"],
+    [/\bNORTHEASTERLY\b/g, "NE"],
+    [/\bNORTHWESTERLY\b/g, "NW"],
+  ];
+  reps.forEach(([re, rep]) => { s = s.replace(re, rep); });
+
+  // Words/verbs
+  const reps2 = [
+    [/\bOCCASIONALLY\b/g, "OCC"],
+    [/\bOCCASIONAL\b/g, "OCC"],
+    [/\bINCREASING\b/g, "INC"],
+    [/\bINCREASE\b/g, "INC"],
+    [/\bDECREASING\b/g, "DEC"],
+    [/\bDECREASE\b/g, "DEC"],
+    [/\bVEERING\b/g, "V"],
+    [/\bBACKING\b/g, "BK"],
+    [/\bBECOMING\b/g, "→"],
+    [/\bTHEN\b/g, "→"],
+    [/\bLATER\b/g, "LTR"],
+    [/\bAT\s+FIRST\b/g, "1ST"],
+    [/\bFOR\s+A\s+TIME\b/g, "T"],
+    [/\bAT\s+TIMES\b/g, "TS"],
+    [/\bMAINLY\b/g, "MLY"],
+    [/\bVARIABLE\b/g, "VRB"],
+    [/\bLOCALLY\b/g, "LOC"],
+    [/\bSWELL\b/g, "SWL"],
+    [/\bA\s+TIME\b/g, "T"],
+    [/\bUNTIL\b/g, "UNTIL"],
+    [/\bTILL\b/g, "TIL"],
+    [/\bOVER\s+NIGHT\b/g, "O/N"],
+    [/\bOVERNIGHT\b/g, "O/N"],
+    [/\bTHIS\s+EVENING\b/g, "EVE"],
+    [/\bEVENING\b/g, "EVE"],
+    [/\bAFTER\s+MIDNIGHT\b/g, "AFT MID"],
+    [/\bAFTER\s+DUSK\b/g, "AFT DUSK"],
+    [/\bTOWARDS\s+DAWN\b/g, "TWD DAWN"],
+    [/\bBY\s+MIDDAY\b/g, "MID"],
+    [/\bMIDDAY\b/g, "MID"],
+    [/\bMORNING\b/g, "AM"],
+    [/\bAFTERNOON\b/g, "PM"],
+    [/\bCLEARING\b/g, "CLR"],
+    [/\bSPREADING\b/g, "SPR"],
+    [/\bEASTWARDS\b/g, "E"],
+    [/\bWESTWARDS\b/g, "W"],
+    [/\bNORTHWARDS\b/g, "N"],
+    [/\bSOUTHWARDS\b/g, "S"],
+    [/\bMID\s+CHANNEL\b/g, "MID-CH"],
+  ];
+  reps2.forEach(([re, rep]) => { s = s.replace(re, rep); });
+
+  // Beaufort descriptors
+  s = s.replace(/\bGALE\s+8\b/g, "8");
+  s = s.replace(/\bSEVERE\s+GALE\s+9\b/g, "SEV 9");
+  s = s.replace(/\bSTORM\s+10\b/g, "STM 10");
+  s = s.replace(/\bVIOLENT\s+STORM\s+11\b/g, "VSTM 11");
+  s = s.replace(/\bHURRICANE\s+12\b/g, "HURR 12");
+
+  // Sea state words
+  const sea = [
+    [/\bVERY\s+ROUGH\b/g, "VR"],
+    [/\bRATHER\s+ROUGH\b/g, "RR"],
+    [/\bROUGH\b/g, "R"],
+    [/\bMODERATE\b/g, "M"],
+    [/\bSLIGHT\b/g, "SL"],
+    [/\bSMOOTH\b/g, "SM"],
+  ];
+  sea.forEach(([re, rep]) => { s = s.replace(re, rep); });
+
+  // Weather words
+  const wx = [
+    [/\bSHOWERS\b/g, "SH"],
+    [/\bSHOWER\b/g, "SH"],
+    [/\bRAIN\b/g, "R"],
+    [/\bDRIZZLE\b/g, "DZ"],
+    [/\bFAIR\b/g, "F"],
+    [/\bMIST\b/g, "MST"],
+    [/\bFOG\b/g, "FG"],
+    [/\bTHUNDER\b/g, "TH"],
+    [/\bTHUNDERSTORM\b/g, "TH"],
+  ];
+  wx.forEach(([re, rep]) => { s = s.replace(re, rep); });
+
+  // Visibility words
+  s = s.replace(/\bGOOD\b/g, "G");
+  s = s.replace(/\bPOOR\b/g, "P");
+  // Moderate in VIS context is ambiguous; keep as M.
+
+  // Compass/direction abbreviations (apply BEFORE converting TO -> -)
+  // Common combined phrases
+  s = s.replace(/\bSOUTH\s+(?:TO|OR)\s+SOUTH\s*EAST\b/g, "S/SE");
+  s = s.replace(/\bSOUTH\s+(?:TO|OR)\s+SOUTH\s*WEST\b/g, "S/SW");
+  s = s.replace(/\bWEST\s+TO\s+SOUTH\s*WEST\b/g, "W/SW");
+  s = s.replace(/\bEAST\s+OR\s+SOUTH\s*EAST\b/g, "E/SE");
+  s = s.replace(/\bEAST\s+OR\s+NORTH\s*EAST\b/g, "E/NE");
+  s = s.replace(/\bNORTH\s+(?:TO|OR)\s+NORTH\s*EAST\b/g, "N/NE");
+  s = s.replace(/\bNORTH\s+(?:TO|OR)\s+NORTH\s*WEST\b/g, "N/NW");
+  s = s.replace(/\bWEST\s+OR\s+NORTH\s*WEST\b/g, "W/NW");
+
+  // Geographic "X OF" phrases first (so SOUTH doesn't become S too early)
+  s = s.replace(/\bSOUTH\s+OF\b/g, "S OF");
+  s = s.replace(/\bNORTH\s+OF\b/g, "N OF");
+  s = s.replace(/\bEAST\s+OF\b/g, "E OF");
+  s = s.replace(/\bWEST\s+OF\b/g, "W OF");
+  s = s.replace(/\bSOUTH\s*EAST\s+OF\b/g, "SE OF");
+  s = s.replace(/\bSOUTH\s*WEST\s+OF\b/g, "SW OF");
+  s = s.replace(/\bNORTH\s*EAST\s+OF\b/g, "NE OF");
+  s = s.replace(/\bNORTH\s*WEST\s+OF\b/g, "NW OF");
+
+  // Standalone compass words
+  s = s.replace(/\bSOUTH\s*EASTERLY\b/g, "SE");
+  s = s.replace(/\bSOUTH\s*WESTERLY\b/g, "SW");
+  s = s.replace(/\bNORTH\s*EASTERLY\b/g, "NE");
+  s = s.replace(/\bNORTH\s*WESTERLY\b/g, "NW");
+  s = s.replace(/\bSOUTH\s*EAST\b/g, "SE");
+  s = s.replace(/\bSOUTH\s*WEST\b/g, "SW");
+  s = s.replace(/\bNORTH\s*EAST\b/g, "NE");
+  s = s.replace(/\bNORTH\s*WEST\b/g, "NW");
+  s = s.replace(/\bSOUTHERLY\b/g, "S");
+  s = s.replace(/\bNORTHEASTERLY\b/g, "NE");
+  s = s.replace(/\bNORTHWESTERLY\b/g, "NW");
+  s = s.replace(/\bSOUTHEASTERLY\b/g, "SE");
+  s = s.replace(/\bSOUTHWESTERLY\b/g, "SW");
+  s = s.replace(/\bSOUTHEAST\b/g, "SE");
+  s = s.replace(/\bSOUTHWEST\b/g, "SW");
+  s = s.replace(/\bNORTHEAST\b/g, "NE");
+  s = s.replace(/\bNORTHWEST\b/g, "NW");
+  s = s.replace(/\bSOUTH\b/g, "S");
+  s = s.replace(/\bNORTH\b/g, "N");
+  s = s.replace(/\bEAST\b/g, "E");
+  s = s.replace(/\bWEST\b/g, "W");
+
+  // Extra Met Office / Channel Islands vocab tweaks
+  s = s.replace(/\bMID[- ]CHANNEL\b/g, "MID-CH");
+  s = s.replace(/\bFAR\s+W(?:EST)?\b/g, "FAR W");
+  s = s.replace(/\bIN\s+THE\s+AM\b/g, "AM");
+  s = s.replace(/\bTOMORROW\b/g, "TMW");
+  s = s.replace(/\bFROM\b/g, "FR");
+  s = s.replace(/\bHEAVY\b/g, "HVY");
+  s = s.replace(/\bISOLATED\b/g, "ISO");
+  s = s.replace(/\bCLEARING\b/g, "CLR");
+  s = s.replace(/\bSPREADING\b/g, "SPR");
+  s = s.replace(/\bTHUNDERY\b/g, "TH");
+
+  // Reduce Beaufort descriptors when paired (e.g. "SEV 9 OR STM 10" -> "9/10"; "OCC SEV 9" -> "OCC 9")
+  s = s.replace(/\bSEV\s+9\s+OR\s+STM\s+10\b/g, "9/10");
+  s = s.replace(/\bSEV\s+9\s+OR\s+STORM\s+10\b/g, "9/10");
+  s = s.replace(/\bOCC\s+SEV\s+9\b/g, "OCC 9");
+  s = s.replace(/\bBUT\s+OCC\s+SEV\s+9\b/g, "BUT OCC 9");
+
+  // Replace "OR" with "/" in common abbreviated constructions (numbers and short tokens)
+  s = s.replace(/\b(\d{1,2})\s+OR\s+(\d{1,2})\b/g, "$1/$2");
+  s = s.replace(/\b([A-Z]{1,3})\s+OR\s+([A-Z]{1,3})\b/g, "$1/$2");
+
+  // Replace connector
+  s = s.replace(/\bTO\b/g, "-"); // note: later we restore "TO" where needed by numeric rules
+
+  // Numeric ranges: "6 - 8" or "6 - 7" already ok. Handle "6 - 8" tokens from TO->-
+  s = s.replace(/\b(\d{1,2})\s*-\s*(\d{1,2})\b/g, "$1-$2");
+  s = s.replace(/\b(\d{1,2})\s*-\s*GALE\s*(\d{1,2})\b/g, "$1-$2");
+
+  // Question mark for PERHAPS
+  s = s.replace(/\bPERHAPS\s+([A-Z]{1,3})\b/g, "$1?");
+  s = s.replace(/\bPERHAPS\s+([A-Z]{1,3}\/[A-Z]{1,3})\b/g, "$1?");
+  s = s.replace(/\bPERHAPS\b/g, "?");
+
+  // Clean punctuation spacing
+  s = s.replace(/\s+\./g, ".").replace(/\s+,/g, ",");
+  s = s.replace(/\s{2,}/g, " ").trim();
+  return s;
+}
+
+function splitIntoSentences(paragraph){
+  // Keep it simple: split on period followed by space/end.
+  const p = normalizeSpaces(paragraph);
+  if(!p) return [];
+  return p.split(/\.\s+/).map(x => x.replace(/\.$/, "").trim()).filter(Boolean);
+}
+
+function parseMetOfficeParagraph(paragraph){
+  // Returns {wind, sea, weather, vis} with abbreviations applied.
+  const sents = splitIntoSentences(paragraph);
+  const parts = { wind:"", sea:"", weather:"", vis:"" };
+  if(sents.length===0) return parts;
+  parts.wind = abbreviateMetOfficeText(sents[0]);
+  if(sents.length>1) parts.sea = abbreviateMetOfficeText(sents[1]);
+  if(sents.length>2) parts.weather = abbreviateMetOfficeText(sents[2]);
+  if(sents.length>3) parts.vis = abbreviateMetOfficeText(sents[3]);
+  return parts;
+}
+
+function extractIssuedLine(raw){
+  // Example: "Met Office Inshore Waters (Issued 12:00 (UTC) on Sat 24 Jan 2026)"
+  const m = raw.match(/Issued\s+([0-9]{2}:[0-9]{2})\s*\(UTC\)\s+on\s+([A-Za-z]{3})\s+([0-9]{1,2})\s+([A-Za-z]{3})\s+([0-9]{4})/i);
+  if(!m) return null;
+  const hhmm = m[1];
+  const dow = m[2].toUpperCase();
+  const dd = String(m[3]).padStart(2,"0");
+  const mon = m[4].toUpperCase();
+  const yyyy = m[5];
+  return `IW FCST (${hhmm} UTC ${dow} ${dd} ${mon} ${yyyy})`;
+}
+
+function formatMetOfficeShorthand(raw){
+  // Returns ONLY the formatted content for the Met Office block (no === wrappers),
+  // because upsertWeatherSection() already wraps sections with:
+  // === Met Office === ... === End Met Office ===
+  if(!raw) return raw;
+
+  // Normalise line breaks so WebKit/Chromium behave identically
+  let txt = String(raw).replace(/\r\n?/g, "\n");
+
+  // Strip any upstream wrapper lines + copyright noise
+  txt = stripMetOfficeCopyright(txt);
+  txt = txt.split("\n").filter(l => {
+  // Normalise weird trailing chars + whitespace
+  const t = (l || "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")   // zero-width chars
+    .replace(/\r/g, "")
+    .trim();
+
+				// Remove any existing section wrappers (case-insensitive), even if they contain punctuation
+				if (/^===.*MET\s*OFFICE.*===$/i.test(t)) return false;
+				if (/^===.*END\s*MET\s*OFFICE.*===$/i.test(t)) return false;
+		
+				return true;
+		}).join("\n").trim();
+
+
+  const issued = extractIssuedLine(txt) || "IW FCST";
+
+  const out = [];
+  out.push(issued);
+
+  const areaRegex = /(\n|^)([A-Za-z][A-Za-z\s'’\-]+?)\n\*\*24 hour forecast:\*\*\s*([\s\S]*?)\n\*\*Outlook for the following 24 hours:\*\*\s*([\s\S]*?)(?=(\n[A-Za-z][A-Za-z\s'’\-]+?\n\*\*24 hour forecast:\*\*)|$)/g;
+
+  let m;
+  while((m = areaRegex.exec(txt)) !== null){
+    const area = normalizeSpaces(m[2]).toUpperCase();
+    const p24 = normalizeSpaces(m[3]);
+    const pol = normalizeSpaces(m[4]);
+
+    out.push("==================");
+    out.push(`${area} 24 HR FCST`);
+    const p1 = parseMetOfficeParagraph(p24);
+    out.push(`WIND: ${p1.wind}.`);
+    if(p1.sea) out.push(`SEA: ${p1.sea}.`);
+    if(p1.weather) out.push(`WEATHER: ${p1.weather}.`);
+    if(p1.vis) out.push(`VIS: ${p1.vis}.`);
+
+    out.push("O/L 24");
+    const p2 = parseMetOfficeParagraph(pol);
+    out.push(`WIND: ${p2.wind}.`);
+    if(p2.sea) out.push(`SEA: ${p2.sea}.`);
+    if(p2.weather) out.push(`WEATHER: ${p2.weather}.`);
+    if(p2.vis) out.push(`VIS: ${p2.vis}.`);
+  }
+
+  return out.join("\n").trim();
+}
+
+
+// --- CL-078 MF shorthand ----------------------------------------------------
+
+function extractMFIssuedLine(txt){
+  // e.g. "Issued: Tuesday 20 January 2026 at 12:30 (local MF time)"
+  const m = String(txt || "").match(/^\s*ISSUED\s*:\s*(.+)$/im);
+  if(!m) return null;
+  return normalizeSpaces(m[1]).toUpperCase();
+}
+
+function formatMFIssuedShort(issuedLine){
+  // Expected patterns include e.g. "CAP DE LA HAGUE ... WEDNESDAY 28 JANUARY 2026 AT 12:30 (LOCAL MF TIME)"
+  // Returns "12:30LT WED 28 JAN 2026" or null if not parseable.
+  if (!issuedLine) return null;
+  const s = String(issuedLine).toUpperCase();
+
+  const dayMap = {
+    MONDAY:"MON", TUESDAY:"TUE", WEDNESDAY:"WED", THURSDAY:"THU", FRIDAY:"FRI", SATURDAY:"SAT", SUNDAY:"SUN",
+    LUNDI:"MON", MARDI:"TUE", MERCREDI:"WED", JEUDI:"THU", VENDREDI:"FRI", SAMEDI:"SAT", DIMANCHE:"SUN"
+  };
+  const monMap = {
+    JANUARY:"JAN", FEBRUARY:"FEB", MARCH:"MAR", APRIL:"APR", MAY:"MAY", JUNE:"JUN", JULY:"JUL", AUGUST:"AUG",
+    SEPTEMBER:"SEP", OCTOBER:"OCT", NOVEMBER:"NOV", DECEMBER:"DEC",
+    JANVIER:"JAN", FÉVRIER:"FEB", FEVRIER:"FEB", MARS:"MAR", AVRIL:"APR", MAI:"MAY", JUIN:"JUN", JUILLET:"JUL",
+    AOÛT:"AUG", AOUT:"AUG", SEPTEMBRE:"SEP", OCTOBRE:"OCT", NOVEMBRE:"NOV", DÉCEMBRE:"DEC", DECEMBRE:"DEC"
+  };
+
+  // Try "DAYNAME DD MONTH YYYY AT HH:MM"
+  let m = s.match(/\b(MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY|LUNDI|MARDI|MERCREDI|JEUDI|VENDREDI|SAMEDI|DIMANCHE)\b\s+(\d{1,2})\s+([A-ZÉÛÎÔÀÇ]+)\s+(\d{4}).*?\bAT\b\s*(\d{1,2}:\d{2})/);
+  if (!m) {
+    // Alternate "DD MONTH YYYY ... HH:MM"
+    m = s.match(/\b(\d{1,2})\s+([A-ZÉÛÎÔÀÇ]+)\s+(\d{4}).*?(\d{1,2}:\d{2})/);
+    if (m) {
+      const dd = m[1].padStart(2,"0");
+      const mon = monMap[m[2]] || m[2].slice(0,3);
+      const yyyy = m[3];
+      const time = m[4].padStart(5,"0");
+      return `${time}LT ${dd} ${mon} ${yyyy}`;
+    }
+    return null;
+  }
+  const day = dayMap[m[1]] || m[1].slice(0,3);
+  const dd = m[2].padStart(2,"0");
+  const mon = monMap[m[3]] || m[3].slice(0,3);
+  const yyyy = m[4];
+  const time = m[5].padStart(5,"0");
+  return `${time}LT ${day} ${dd} ${mon} ${yyyy}`;
+}
+
+
+function normalizeMeteoFranceLabels(line){
+  let l = line;
+
+  // Normalise common MF labels to our 4(+SWL) label set
+  l = l.replace(/^\s*SEA\s*STATE\s*:/i, "SEA:");
+  l = l.replace(/^\s*SEA\s*:/i, "SEA:");
+  l = l.replace(/^\s*SWELL\s*:/i, "SWL:");
+  l = l.replace(/^\s*WEATHER\s*:/i, "WEATHER:");
+  l = l.replace(/^\s*VISIBILITY\s*:/i, "VIS:");
+  l = l.replace(/^\s*VIS\s*:/i, "VIS:");
+  l = l.replace(/^\s*WIND\s*:/i, "WIND:");
+
+  return l;
+}
+
+function abbreviateMeteoFranceLine(line){
+  // Abbreviate only the content, not the label
+  const m = line.match(/^(\s*[A-Z\/\s\-]+?:)\s*(.*)$/);
+  if(!m) return abbreviateMetOfficeText(line);
+  const label = m[1].trim();
+  const body  = m[2] || "";
+  const canon = label.toUpperCase();
+
+  if(["WIND:","SEA:","WEATHER:","VIS:","SWL:"].includes(canon)){
+    const b = abbreviateMetOfficeText(body);
+    return `${canon} ${b}`.trim();
+  }
+  // Unknown label; abbreviate whole
+  return abbreviateMetOfficeText(line);
+}
+
+function formatMeteoFranceShorthand(raw){
+  // Returns ONLY formatted content (no === wrappers)
+  if(!raw) return raw;
+
+  // Normalise line breaks so WebKit/Chromium behave identically
+  let txt = String(raw).replace(/\r\n?/g, "\n");
+
+  // Drop any existing wrappers if present
+  txt = txt.split("\n").filter(l => {
+    const t = (l || "").replace(/[\u200B-\u200D\uFEFF]/g, "").trim();
+    if(/^===.*METEO.*FRANCE.*===$/i.test(t)) return false;
+    if(/^===.*END.*METEO.*FRANCE.*===$/i.test(t)) return false;
+    return true;
+  }).join("\n").trim();
+
+  const out = [];
+  const issued = extractMFIssuedLine(txt);
+  let issuedShort = "";
+  if (issued) {
+    issuedShort = formatMFIssuedShort(issued);
+  }
+  out.push(`CÔTE FCST (${issuedShort || issued})`);
+
+  // MF blocks are often separated by "---"
+  const blocks = txt.split(/\n-{3,}\n/).map(b => b.trim()).filter(Boolean);
+
+  // If there's no obvious block split, treat whole text as one block
+  const useBlocks = blocks.length ? blocks : [txt.trim()];
+
+  useBlocks.forEach((block, idx) => {
+    let b = block;
+
+    // Area title: first non-empty line that isn't an "Issued:" or "Forecast" header
+    const lines = b.split("\n").map(x => x.trim()).filter(Boolean);
+    let area = "";
+    for(const ln of lines){
+      if(/^ISSUED\s*:/i.test(ln)) continue;
+      if(/^(FORECAST|OUTLOOK)\b/i.test(ln)) continue;
+      area = ln;
+      break;
+    }
+    area = normalizeSpaces(area).toUpperCase();
+
+    // Split 24h vs outlook
+    const m24 = b.match(/FORECAST[\s\S]*?NEXT\s+24\s+HOURS([\s\S]*?)(?=OUTLOOK[\s\S]*?FOLLOWING\s+24\s+HOURS|$)/i);
+    const mol = b.match(/OUTLOOK[\s\S]*?FOLLOWING\s+24\s+HOURS([\s\S]*)$/i);
+
+    const part24 = m24 ? m24[1].trim() : b;
+    const partOL = mol ? mol[1].trim() : "";
+
+    // Helpers to extract labelled lines from a section, in order encountered
+    function sectionToLines(sectionText){
+      const rawLines = String(sectionText || "").replace(/\r/g,"").split("\n");
+      const outLines = [];
+      rawLines.forEach(rawLine => {
+        let l = rawLine.trim();
+        if(!l) return;
+
+        // Convert narrative period headers into compact tags
+        l = l.replace(/^DURING\s+THE\s+AFTERNOON\b.*$/i, "PM");
+        l = l.replace(/^DURING\s+THE\s+NIGHT\b.*$/i, "NIGHT");
+        l = l.replace(/^OUTLOOK\b.*$/i, "");
+        l = l.replace(/^FORECAST\b.*$/i, "");
+        if(!l) return;
+
+        l = normalizeMeteoFranceLabels(l);
+
+        // Keep only our key lines + period markers
+        if(/^(PM|NIGHT)\b/i.test(l)){
+          outLines.push(abbreviateMetOfficeText(l));
+          return;
+        }
+
+        if(/^(WIND|SEA|WEATHER|VIS|SWL)\s*:/i.test(l)){
+          outLines.push(abbreviateMeteoFranceLine(l));
+        }
+      });
+
+      // If no labelled lines were detected, fall back to abbreviating paragraph(s)
+      if(!outLines.length){
+        const compact = abbreviateMetOfficeText(sectionText);
+        if(compact) outLines.push(compact);
+      }
+      return outLines;
+    }
+
+    // Only print separator if we have more than one area, or to match Met Office styling
+    out.push("==================");
+    if(area) out.push(`${area} 24 HR FCST`);
+    else if(idx === 0 && !issued) out.push("24 HR FCST");
+
+    sectionToLines(part24).forEach(l => out.push(l.endsWith(".") ? l : (l + (/[A-Z0-9)]$/.test(l) ? "." : "")) ));
+
+    if(partOL){
+      out.push("O/L 24");
+      sectionToLines(partOL).forEach(l => out.push(l.endsWith(".") ? l : (l + (/[A-Z0-9)]$/.test(l) ? "." : "")) ));
+    }
+  });
+
+  // Remove any accidental duplicated separator at start if first line is issued header
+  // (we always include separators, but that's intentional; keep)
+  return out.join("\n").trim();
+}
+
+// --- End CL-078 MF shorthand ------------------------------------------------
+function weatherTextToHtmlForPlanPanel(text){
+  // Turn plain text into HTML with bold labels for display in the Log split-view plan panel.
+  if(!text) return "";
+  const esc = escapeHtml(text);
+  const lines = esc.split(/\n/);
+  const boldLabels = new Set(["WIND:", "SEA:", "WEATHER:", "VIS:", "SWL:", "SWELL:", "O/L 24", "24 HR FCST"]);
+  const htmlLines = lines.map(line => {
+    const trimmed = line.trim();
+    if(/^===\s*.*\s*===$/i.test(trimmed)) {
+						return `<strong>${line}</strong>`;
+				}
+
+    if(trimmed === "=================="){
+      return `<span style="font-weight:600;">${line}</span>`;
+    }
+    // Bold label at start of line
+    const m = line.match(/^([A-Z\/\s\-]+?):\s*(.*)$/);
+    if(m){
+      const label = m[1] + ":";
+      if(boldLabels.has(label)){
+        return `<strong>${label}</strong> ${m[2]}`;
+      }
+    }
+    if(trimmed === "O/L 24"){
+      return `<strong>O/L 24</strong>`;
+    }
+    return line;
+  });
+  return htmlLines.join("<br>");
+}
+// --- End CL-078 ---
+
 function applyWeatherSection(sectionKey, titleLine, content, meta){
   // Update textbox (combined), then persist in passage
   const current = (planWeather && planWeather.value) ? planWeather.value : ((getCurrentPassage()?.plan?.weather) || "");
-  const merged = upsertWeatherSection(current, sectionKey, titleLine, content);
+    // Apply CL-078 shorthand for Met Office / Channel Islands
+  let contentToStore = content;
+  if (sectionKey && String(sectionKey).toLowerCase() === "met office") {
+    contentToStore = formatMetOfficeShorthand(content);
+  }
+		if (sectionKey && String(sectionKey).toLowerCase() === "met office") {
+				// We embed the IW FCST line inside the formatted content; suppress the separate titleLine
+				titleLine = "";
+		}
+
+  // Apply CL-078 shorthand for Meteo France
+  if (sectionKey && /meteo\s*france/i.test(String(sectionKey))) {
+    contentToStore = formatMeteoFranceShorthand(content);
+    // suppress separate title line (formatter produces its own header where possible)
+    titleLine = "";
+  }
+  let merged = upsertWeatherSection(current, sectionKey, titleLine, contentToStore);
+		// Strip any orphan Met Office wrapper lines that may exist outside the section (legacy data cleanup)
+		merged = merged
+				.replace(/^\s*===\s*END\s+MET\s+OFFICE\s*===\s*\n+/i, "")
+				.replace(/^\s*===\s*END\s+MET\s+OFFICE\s*===\s*$/gim, "")
+				.replace(/^\s*===\s*MET\s+OFFICE\s*===\s*$/gim, (m, off) => m) // no-op
+        // Strip any orphan Meteo France wrapper lines that may exist outside the section (legacy data cleanup)
+        merged = merged
+                .replace(/^\s*===\s*END\s+METEO\s+FRANCE\s*===\s*\n+/i, "")
+                .replace(/^\s*===\s*END\s+METEO\s+FRANCE\s*===\s*$/gim, "")
+        ;
+  // keeps normal header
+		;
 
   if (planWeather) planWeather.value = merged;
 
@@ -4013,7 +4584,7 @@ function updatePlanSummaryPanel() {
       <div class="col">
         <div class="block plan-link" data-goto="planWeather">
           <p class="section-title">WEATHER</p>
-          <p>${weather ? escapeHtml(weather).replace(/\n/g, "<br>") : "<em>–</em>"}</p>
+          <p>${weather ? weatherTextToHtmlForPlanPanel(weather) : "<em>–</em>"}</p>
         </div>
 
         <div class="block">
