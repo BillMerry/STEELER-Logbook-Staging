@@ -4,7 +4,7 @@ const STORAGE_KEY = "steeler_logbook_passages_v5";
 const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 
-const APP_VERSION = "0.6.6";
+const APP_VERSION = "0.7.8";
 
 // ---------------------------------------------------------------------------
 // Emergency reset hook
@@ -51,6 +51,7 @@ function setAppVersionBadge(){
   if (el) el.textContent = APP_VERSION;
 }
 window.addEventListener("DOMContentLoaded", setAppVersionBadge);
+window.addEventListener("DOMContentLoaded", function(){ try{ loadAbbrDb(); }catch(e){} });
 
 
 let passages = [];
@@ -1474,6 +1475,7 @@ const planCurrents = document.getElementById("planCurrents");
 const planWeather = document.getElementById("planWeather");
 const btnFetchWeather = document.getElementById("btnFetchWeather");
 const btnFetchWeatherFR = document.getElementById("btnFetchWeatherFR");
+if (btnFetchWeather){ btnFetchWeather.textContent = "Fetch Inshore Waters Forecast"; }
 const weatherFetchStatus = document.getElementById("weatherFetchStatus");
 const planComms = document.getElementById("planComms");
 const tideStationsContainer = document.getElementById("tideStationsContainer");
@@ -2986,35 +2988,9 @@ planTransit1?.addEventListener("input", updatePlanCommsFromPorts);
 planTransit2?.addEventListener("input", updatePlanCommsFromPorts);
 planTransit3?.addEventListener("input", updatePlanCommsFromPorts);
 
-// --- CL-074: Fetch Met Office Inshore Waters forecast (with manual edit) ---
-const MF_INSHORE_URL = "https://steeler-mf-inshore.bill-merry-52f.workers.dev/inshore";
+// --- CL-080: Unified Marine Worker (route-based) ---
+const MARINE_ROUTE_URL = "https://steeler-mf-inshore.bill-merry-52f.workers.dev/marine/route";
 
-const METOFFICE_INSHORE_URL = "https://weather.metoffice.gov.uk/specialist-forecasts/coast-and-sea/print/inshore-waters-forecast";
-const METOFFICE_INSHORE_URL_PROXY = "https://r.jina.ai/" + METOFFICE_INSHORE_URL; // CORS-friendly fallback
-
-// --- CL-074 (extension): French coast ...
-// Météo-France coastal zone pages are largely JS-rendered. For now, we store
-// a tidy set of authoritative links for the relevant zones and let the user
-// paste/trim key bits into the free-text field if desired.
-const METEOFRANCE_COAST_ZONES = [
-  {
-    label: "Baie de Somme / Cap de la Hague",
-    url: "https://meteofrance.com/meteo-marine/baie-de-somme-cap-de-la-hague/BMSCOTE-01-02"
-  },
-  {
-    label: "Cap de la Hague / Penmarc'h",
-    url: "https://meteofrance.com/meteo-marine/cap-de-la-hague-penmarc-h/BMSCOTE-01-03"
-  },
-  {
-    label: "Penmarc'h / Anse de l'Aiguillon",
-    url: "https://meteofrance.com/meteo-marine/penmarc-h-anse-de-l-aiguillon/BMSCOTE-01-04"
-  }
-];
-
-
-// Attach proxy URL + rough bounding boxes for zone selection (marine-sane, not global)
-const METEOFRANCE_PROXY_PREFIX = "https://r.jina.ai/";
-METEOFRANCE_COAST_ZONES.forEach(z => { z.proxy = METEOFRANCE_PROXY_PREFIX + z.url; });
 
 // Rough bboxes (lat/lon) to auto-pick a zone from Origin/Destination.
 // These are intentionally broad, but constrained to Northern France / Channel / Biscay coast.
@@ -3095,18 +3071,18 @@ function setWeatherStatus(msg){
   weatherFetchStatus.textContent = msg || "";
 }
 function upsertWeatherSection(existingText, sectionKey, titleLine, content){
-  // Normalise keys that have historical variants so we don't accidentally append duplicates.
+  // Upsert (replace) a named section in the Weather textarea.
+  // If content is null/empty, this acts as a delete (removes existing blocks and does NOT re-add a header).
   const key = String(sectionKey || "").trim();
+  if (!key) return (existingText || "").trim();
 
   const markersForKey = (k) => {
     if (!k) return [];
-    // Meteo-France has appeared as "METEOFRANCE", "METEO-FRANCE", "MÉTÉO-FRANCE" and different casing.
-    if (k.toUpperCase() === "METEOFRANCE") {
-      return ["METEOFRANCE","METEO-FRANCE","MÉTÉO-FRANCE","METEO FRANCE","METEO‑FRANCE"];
+    if (k.toUpperCase() === "METEOFRANCE" || k.toUpperCase() === "MÉTÉO-FRANCE" || k.toUpperCase() === "METEO-FRANCE") {
+      return ["METEOFRANCE","METEO-FRANCE","MÉTÉO-FRANCE","METEO FRANCE","METEO‑FRANCE","MÉTÉO‑FRANCE","meteofrance","Météo‑France","Meteo France"];
     }
-    // Met Office has sometimes used slightly different casing; keep simple.
     if (k.toUpperCase() === "MET OFFICE") {
-      return ["Met Office","MET OFFICE"];
+      return ["Met Office","MET OFFICE","metoffice"];
     }
     return [k];
   };
@@ -3124,17 +3100,17 @@ function upsertWeatherSection(existingText, sectionKey, titleLine, content){
   }
   base = base.replace(/\n{3,}/g, "\n\n").trim();
 
-  // Always write using the current requested key.
+  const body = (content == null) ? "" : String(content).trim();
+  const ttl  = (titleLine == null) ? "" : String(titleLine).trim();
+
+  // Delete-only: if there is no body AND no title, or body is empty, do not re-add a block.
+  if (!body && !ttl) return base;
+  if (!body) return base; // don't emit empty provider headers
+
   const start = `=== ${key} ===`;
   const end   = `=== End ${key} ===`;
 
-  const block = [
-    start,
-    titleLine,
-    (content || "").trim(),
-    end
-  ].filter(Boolean).join("\n");
-
+  const block = [start, ttl, body, end].filter(Boolean).join("\n");
   return (base ? (base + "\n\n" + block) : block).trim();
 }
 
@@ -3146,6 +3122,183 @@ function normalizeSpaces(s){
 }
 
 function toUpperSafe(s){ return (s||"").toUpperCase(); }
+
+// --- CL-081: Abbreviations DB (v0.7.0) ----------------------------------
+// We keep the existing hard-coded shorthand (abbreviateMetOfficeText) as the
+// baseline, then apply user-defined rules from localStorage on top.
+// This lets Bill add context-specific rules (e.g. "R" => "RAIN" in WEATHER,
+// but "R" => "ROUGH" in SEA) without risking regression in the base logic.
+
+const ABBR_DB_KEY = "STEELER_ABBR_DB_V1";
+
+function _escapeRegExp(s){ return String(s||"").replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+function getDefaultAbbrDb(){
+  // CL-081: Single-source-of-truth defaults (previous built-in Met Office shorthands)
+  return {"version":1,"seededFromDefaults":true,"updatedAt":null,"groups":{"global":[],"byCategory":{"wind":[],"sea":[],"weather":[],"vis":[],"swl":[]},"providers":{"metoffice":{"global":[{"id":"mo_001","from":"\\bSOUTH\\s+OR\\s+SOUTHEAST\\b","to":"S/SE","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_002","from":"\\bSOUTH\\s+TO\\s+SOUTHEAST\\b","to":"S/SE","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_003","from":"\\bSOUTH\\s+OR\\s+SOUTHWEST\\b","to":"S/SW","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_004","from":"\\bSOUTH\\s+TO\\s+SOUTHWEST\\b","to":"S/SW","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_005","from":"\\bWEST\\s+OR\\s+SOUTHWEST\\b","to":"W/SW","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_006","from":"\\bWEST\\s+TO\\s+SOUTHWEST\\b","to":"W/SW","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_007","from":"\\bSOUTH\\s+OR\\s+WEST\\b","to":"S/W","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_008","from":"\\bSOUTHEAST\\s+OR\\s+VARIABLE\\b","to":"SE/VAR","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_009","from":"\\bNORTH\\s+OR\\s+NORTHEAST\\b","to":"N/NE","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_010","from":"\\bNORTH\\s+TO\\s+NORTHEAST\\b","to":"N/NE","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_011","from":"\\bEAST\\s+OR\\s+SOUTHEAST\\b","to":"E/SE","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_012","from":"\\bEAST\\s+TO\\s+SOUTHEAST\\b","to":"E/SE","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_013","from":"\\bSOUTHERLY\\b","to":"S","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_014","from":"\\bNORTHERLY\\b","to":"N","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_015","from":"\\bEASTERLY\\b","to":"E","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_016","from":"\\bWESTERLY\\b","to":"W","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_017","from":"\\bSOUTHEASTERLY\\b","to":"SE","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_018","from":"\\bSOUTHWESTERLY\\b","to":"SW","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_019","from":"\\bNORTHEASTERLY\\b","to":"NE","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_020","from":"\\bNORTHWESTERLY\\b","to":"NW","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_021","from":"\\bOCCASIONALLY\\b","to":"OCC","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_022","from":"\\bOCCASIONAL\\b","to":"OCC","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_023","from":"\\bINCREASING\\b","to":"INC","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_024","from":"\\bINCREASE\\b","to":"INC","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_025","from":"\\bDECREASING\\b","to":"DEC","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_026","from":"\\bDECREASE\\b","to":"DEC","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_027","from":"\\bVEERING\\b","to":"V","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_028","from":"\\bBACKING\\b","to":"BK","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_029","from":"\\bBECOMING\\b","to":"→","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_030","from":"\\bTHEN\\b","to":"→","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_031","from":"\\bLATER\\b","to":"LTR","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_032","from":"\\bAT\\s+FIRST\\b","to":"1ST","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_033","from":"\\bFOR\\s+A\\s+TIME\\b","to":"T","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_034","from":"\\bAT\\s+TIMES\\b","to":"TS","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_035","from":"\\bMAINLY\\b","to":"MLY","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_036","from":"\\bVARIABLE\\b","to":"VRB","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_037","from":"\\bLOCALLY\\b","to":"LOC","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_038","from":"\\bSWELL\\b","to":"SWL","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_039","from":"\\bA\\s+TIME\\b","to":"T","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_040","from":"\\bUNTIL\\b","to":"UNTIL","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_041","from":"\\bTILL\\b","to":"TIL","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_042","from":"\\bOVER\\s+NIGHT\\b","to":"O/N","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_043","from":"\\bOVERNIGHT\\b","to":"O/N","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_044","from":"\\bTHIS\\s+EVENING\\b","to":"EVE","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_045","from":"\\bEVENING\\b","to":"EVE","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_046","from":"\\bAFTER\\s+MIDNIGHT\\b","to":"AFT MID","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_047","from":"\\bAFTER\\s+DUSK\\b","to":"AFT DUSK","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_048","from":"\\bTOWARDS\\s+DAWN\\b","to":"TWD DAWN","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_049","from":"\\bBY\\s+MIDDAY\\b","to":"MID","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_050","from":"\\bMIDDAY\\b","to":"MID","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_051","from":"\\bMORNING\\b","to":"AM","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_052","from":"\\bAFTERNOON\\b","to":"PM","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_053","from":"\\bCLEARING\\b","to":"CLR","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_054","from":"\\bSPREADING\\b","to":"SPR","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_055","from":"\\bEASTWARDS\\b","to":"E","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_056","from":"\\bWESTWARDS\\b","to":"W","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_057","from":"\\bNORTHWARDS\\b","to":"N","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_058","from":"\\bSOUTHWARDS\\b","to":"S","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_059","from":"\\bMID\\s+CHANNEL\\b","to":"MID-CH","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_060","from":"\\bGALE\\s+8\\b","to":"8","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_061","from":"\\bSEVERE\\s+GALE\\s+9\\b","to":"SEV 9","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_062","from":"\\bSTORM\\s+10\\b","to":"STM 10","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_063","from":"\\bVIOLENT\\s+STORM\\s+11\\b","to":"VSTM 11","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_064","from":"\\bHURRICANE\\s+12\\b","to":"HURR 12","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_065","from":"\\bGOOD\\b","to":"G","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_066","from":"\\bPOOR\\b","to":"P","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_067","from":"\\bSOUTH\\s+(?:TO|OR)\\s+SOUTH\\s*EAST\\b","to":"S/SE","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_068","from":"\\bSOUTH\\s+(?:TO|OR)\\s+SOUTH\\s*WEST\\b","to":"S/SW","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_069","from":"\\bWEST\\s+TO\\s+SOUTH\\s*WEST\\b","to":"W/SW","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_070","from":"\\bEAST\\s+OR\\s+SOUTH\\s*EAST\\b","to":"E/SE","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_071","from":"\\bEAST\\s+OR\\s+NORTH\\s*EAST\\b","to":"E/NE","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_072","from":"\\bNORTH\\s+(?:TO|OR)\\s+NORTH\\s*EAST\\b","to":"N/NE","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_073","from":"\\bNORTH\\s+(?:TO|OR)\\s+NORTH\\s*WEST\\b","to":"N/NW","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_074","from":"\\bWEST\\s+OR\\s+NORTH\\s*WEST\\b","to":"W/NW","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_075","from":"\\bSOUTH\\s+OF\\b","to":"S OF","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_076","from":"\\bNORTH\\s+OF\\b","to":"N OF","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_077","from":"\\bEAST\\s+OF\\b","to":"E OF","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_078","from":"\\bWEST\\s+OF\\b","to":"W OF","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_079","from":"\\bSOUTH\\s*EAST\\s+OF\\b","to":"SE OF","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_080","from":"\\bSOUTH\\s*WEST\\s+OF\\b","to":"SW OF","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_081","from":"\\bNORTH\\s*EAST\\s+OF\\b","to":"NE OF","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_082","from":"\\bNORTH\\s*WEST\\s+OF\\b","to":"NW OF","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_083","from":"\\bSOUTH\\s*EASTERLY\\b","to":"SE","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_084","from":"\\bSOUTH\\s*WESTERLY\\b","to":"SW","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_085","from":"\\bNORTH\\s*EASTERLY\\b","to":"NE","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_086","from":"\\bNORTH\\s*WESTERLY\\b","to":"NW","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_087","from":"\\bSOUTH\\s*EAST\\b","to":"SE","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_088","from":"\\bSOUTH\\s*WEST\\b","to":"SW","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_089","from":"\\bNORTH\\s*EAST\\b","to":"NE","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_090","from":"\\bNORTH\\s*WEST\\b","to":"NW","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_091","from":"\\bSOUTHERLY\\b","to":"S","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_092","from":"\\bNORTHEASTERLY\\b","to":"NE","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_093","from":"\\bNORTHWESTERLY\\b","to":"NW","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_094","from":"\\bSOUTHEASTERLY\\b","to":"SE","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_095","from":"\\bSOUTHWESTERLY\\b","to":"SW","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_096","from":"\\bSOUTHEAST\\b","to":"SE","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_097","from":"\\bSOUTHWEST\\b","to":"SW","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_098","from":"\\bNORTHEAST\\b","to":"NE","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_099","from":"\\bNORTHWEST\\b","to":"NW","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_100","from":"\\bSOUTH\\b","to":"S","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_101","from":"\\bNORTH\\b","to":"N","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_102","from":"\\bEAST\\b","to":"E","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_103","from":"\\bWEST\\b","to":"W","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_104","from":"\\bMID[- ]CHANNEL\\b","to":"MID-CH","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_105","from":"\\bFAR\\s+W(?:EST)?\\b","to":"FAR W","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_106","from":"\\bIN\\s+THE\\s+AM\\b","to":"AM","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_107","from":"\\bTOMORROW\\b","to":"TMW","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_108","from":"\\bFROM\\b","to":"FR","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_109","from":"\\bHEAVY\\b","to":"HVY","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_110","from":"\\bISOLATED\\b","to":"ISO","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_111","from":"\\bCLEARING\\b","to":"CLR","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_112","from":"\\bSPREADING\\b","to":"SPR","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_113","from":"\\bTHUNDERY\\b","to":"TH","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_114","from":"\\bSEV\\s+9\\s+OR\\s+STM\\s+10\\b","to":"9/10","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_115","from":"\\bSEV\\s+9\\s+OR\\s+STORM\\s+10\\b","to":"9/10","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_116","from":"\\bOCC\\s+SEV\\s+9\\b","to":"OCC 9","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_117","from":"\\bBUT\\s+OCC\\s+SEV\\s+9\\b","to":"BUT OCC 9","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_118","from":"\\b(\\d{1,2})\\s+OR\\s+(\\d{1,2})\\b","to":"$1/$2","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_119","from":"\\b([A-Z]{1,3})\\s+OR\\s+([A-Z]{1,3})\\b","to":"$1/$2","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_120","from":"\\bTO\\b","to":"-","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_121","from":"\\b(\\d{1,2})\\s*-\\s*(\\d{1,2})\\b","to":"$1-$2","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_122","from":"\\b(\\d{1,2})\\s*-\\s*GALE\\s*(\\d{1,2})\\b","to":"$1-$2","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_123","from":"\\bPERHAPS\\s+([A-Z]{1,3})\\b","to":"$1?","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_124","from":"\\bPERHAPS\\s+([A-Z]{1,3}\\/[A-Z]{1,3})\\b","to":"$1?","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_125","from":"\\bPERHAPS\\b","to":"?","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_126","from":"\\s+\\.","to":".","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_127","from":"\\s+,","to":",","mode":"regex","enabled":true,"flags":"g"},{"id":"mo_128","from":"\\s{2,}","to":" ","mode":"regex","enabled":true,"flags":"g"}],"byCategory":{"wind":[],"sea":[],"weather":[],"vis":[],"swl":[]}},"meteofrance":{"global":[],"byCategory":{"wind":[],"sea":[],"weather":[],"vis":[],"swl":[]}}}}};
+}
+
+function loadAbbrDb(options){
+  // CL-081 (v0.7.7): Flat Abbreviations DB (no categories, no provider differentiation)
+  // options:
+  //  - forceReset: overwrite DB with shipped defaults
+  const opts = options || {};
+  const shipped = getDefaultAbbrDb(); // legacy-shaped defaults (we flatten them)
+
+  const flattenGroups = (groups) => {
+    const out = [];
+    const seen = new Set();
+    const pushArr = (arr) => {
+      (arr || []).forEach(r => {
+        if (!r || typeof r !== "object") return;
+        const id = r.id || ("r_" + out.length);
+        if (seen.has(id)) return;
+        seen.add(id);
+        out.push(Object.assign({ enabled:true, mode:"word" }, r, { id }));
+      });
+    };
+
+    if (!groups || typeof groups !== "object") return out;
+
+    // global
+    pushArr(groups.global);
+
+    // byCategory (legacy) — we now ignore category, but we include the rules
+    if (groups.byCategory){
+      ["wind","sea","weather","vis","swl"].forEach(k => pushArr(groups.byCategory[k]));
+    }
+
+    // providers (legacy) — we now ignore provider, but we include the rules
+    if (groups.providers){
+      Object.keys(groups.providers).forEach(p => {
+        const gp = groups.providers[p] || {};
+        pushArr(gp.global);
+        if (gp.byCategory){
+          ["wind","sea","weather","vis","swl"].forEach(k => pushArr(gp.byCategory[k]));
+        }
+      });
+    }
+    return out;
+  };
+
+  const shippedFlat = () => ({
+    version: 2,
+    seededFromDefaults: true,
+    updatedAt: null,
+    rules: flattenGroups(shipped.groups)
+  });
+
+  const mergeById = (targetRules, shippedRules) => {
+    const ids = new Set((targetRules||[]).map(r => r && r.id).filter(Boolean));
+    (shippedRules||[]).forEach(r => { if (r && r.id && !ids.has(r.id)) targetRules.push(r); });
+    return targetRules;
+  };
+
+  try{
+    if (opts.forceReset){
+      const d = shippedFlat();
+      localStorage.setItem(ABBR_DB_KEY, JSON.stringify(d));
+      return d;
+    }
+
+    const raw = localStorage.getItem(ABBR_DB_KEY);
+    if (!raw){
+      const d = shippedFlat();
+      localStorage.setItem(ABBR_DB_KEY, JSON.stringify(d));
+      return d;
+    }
+
+    let db = JSON.parse(raw);
+
+    // Already flat?
+    if (db && typeof db === "object" && Array.isArray(db.rules)){
+      if (db.seededFromDefaults !== true){
+        // one-time upgrade merge of shipped defaults (non-destructive)
+        db.rules = mergeById(db.rules, shippedFlat().rules);
+        db.seededFromDefaults = true;
+        db.updatedAt = new Date().toISOString();
+        localStorage.setItem(ABBR_DB_KEY, JSON.stringify(db));
+      }
+      return db;
+    }
+
+    // Legacy shaped DB — migrate once to flat, preserving user edits and adding shipped defaults.
+    const migrated = shippedFlat();
+    const legacyRules = flattenGroups(db && db.groups ? db.groups : null);
+    migrated.rules = mergeById(legacyRules, migrated.rules); // keep legacy first (user wins on duplicate ids)
+    migrated.seededFromDefaults = true;
+    migrated.updatedAt = new Date().toISOString();
+    localStorage.setItem(ABBR_DB_KEY, JSON.stringify(migrated));
+    return migrated;
+
+  }catch(e){
+    // Fallback: restore shipped defaults
+    const d = shippedFlat();
+    localStorage.setItem(ABBR_DB_KEY, JSON.stringify(d));
+    return d;
+  }
+}
+
+function saveAbbrDb(db){
+  try{
+    db.updatedAt = new Date().toISOString();
+    localStorage.setItem(ABBR_DB_KEY, JSON.stringify(db));
+    return true;
+  }catch(e){ return false; }
+}
+
+function applyAbbrRules(text, rules){
+  let s = String(text ?? "");
+  (rules || []).forEach(rule => {
+    try{
+      if (!rule || rule.enabled === false) return;
+      const from = String(rule.from ?? "");
+      const to   = String(rule.to   ?? "");
+      if (!from) return;
+
+      const mode = (rule.mode || "plain").toLowerCase();
+
+      if (mode === "regex"){
+        // Default to case-insensitive global matching so rules work with native-case forecasts
+        let flags = rule.flags ? String(rule.flags) : "gi";
+        if (!flags.includes("g")) flags += "g";
+        if (!flags.includes("i")) flags += "i";
+        const re = new RegExp(from, flags);
+        s = s.replace(re, to);
+      } else if (mode === "word"){
+        const re = new RegExp("\\b" + _escapeRegExp(from) + "\\b", "gi");
+        s = s.replace(re, to);
+      } else { // plain
+        const re = new RegExp(_escapeRegExp(from), 'gi');
+        s = s.replace(re, to);
+      }
+    }catch(e){
+      // ignore bad rule
+    }
+  });
+  return s;
+}
+
+
+function applyAbbrDbToText(text, provider, category){
+  // v0.7.7: Flat DB — provider/category ignored.
+  const db = loadAbbrDb();
+  const rules = Array.isArray(db.rules) ? db.rules : [];
+  let out = String(text ?? "");
+  // Apply in order; defaults are case-insensitive by default.
+  rules.forEach(r => {
+    if (!r || r.enabled === false) return;
+    out = applyAbbrRules(out, [r]);
+  });
+  return out;
+}
+
+function abbreviateTextWithDb(text, provider, category){
+  // CL-081: Apply shorthands from DB only (single source of truth)
+  const p = (provider || "").toLowerCase();
+  const base = normalizeSpaces(text);
+  return applyAbbrDbToText(base, p, category);
+}
 
 function stripMetOfficeCopyright(raw){
   if(!raw) return raw;
@@ -3362,10 +3515,10 @@ function parseMetOfficeParagraph(paragraph){
   const sents = splitIntoSentences(paragraph);
   const parts = { wind:"", sea:"", weather:"", vis:"" };
   if(sents.length===0) return parts;
-  parts.wind = abbreviateMetOfficeText(sents[0]);
-  if(sents.length>1) parts.sea = abbreviateMetOfficeText(sents[1]);
-  if(sents.length>2) parts.weather = abbreviateMetOfficeText(sents[2]);
-  if(sents.length>3) parts.vis = abbreviateMetOfficeText(sents[3]);
+  parts.wind = abbreviateTextWithDb(sents[0], 'metoffice', 'wind');
+  if(sents.length>1) parts.sea = abbreviateTextWithDb(sents[1], 'metoffice', 'sea');
+  if(sents.length>2) parts.weather = abbreviateTextWithDb(sents[2], 'metoffice', 'weather');
+  if(sents.length>3) parts.vis = abbreviateTextWithDb(sents[3], 'metoffice', 'vis');
   return parts;
 }
 
@@ -3381,73 +3534,69 @@ function extractIssuedLine(raw){
   return `IW FCST (${hhmm} UTC ${dow} ${dd} ${mon} ${yyyy})`;
 }
 
+
 function formatMetOfficeShorthand(raw){
-  // Returns ONLY the formatted content for the Met Office block (no === wrappers),
-  // because upsertWeatherSection() already wraps sections with:
-  // === Met Office === ... === End Met Office ===
+  // Single-source-of-truth rendering:
+  // - Keep forecast text in its native case
+  // - Uppercase only titles + category labels
+  // - Apply CL-081 abbreviation DB ONLY to the category content
   if(!raw) return raw;
 
-  // Normalise line breaks so WebKit/Chromium behave identically
   let txt = String(raw).replace(/\r\n?/g, "\n");
-
-  // Strip any upstream wrapper lines + copyright noise
   txt = stripMetOfficeCopyright(txt);
-  txt = txt.split("\n").filter(l => {
-  // Normalise weird trailing chars + whitespace
-  const t = (l || "")
-    .replace(/[\u200B-\u200D\uFEFF]/g, "")   // zero-width chars
-    .replace(/\r/g, "")
-    .trim();
 
-				// Remove any existing section wrappers (case-insensitive), even if they contain punctuation
-				if (/^===.*MET\s*OFFICE.*===$/i.test(t)) return false;
-				if (/^===.*END\s*MET\s*OFFICE.*===$/i.test(t)) return false;
-		
-				return true;
-		}).join("\n").trim();
+  const lines = txt.split("\n");
 
-
-  const issued = extractIssuedLine(txt) || "IW FCST";
+  // Try to normalise the issued line if we can find it
+  let issued = null;
+  for(const l of lines){
+    if(/^\s*IW\s*FCST\s*\(/i.test(l)){ issued = l.trim(); break; }
+  }
+  if(!issued){
+    issued = extractIssuedLine(txt);
+  }
 
   const out = [];
-  out.push(issued);
+  out.push("Met Office Inshore Waters");
+  if(issued) out.push(String(issued).toUpperCase());
+  out.push("==================");
 
-  const areaRegex = /(\n|^)([A-Za-z][A-Za-z\s'’\-]+?)\n\*\*24 hour forecast:\*\*\s*([\s\S]*?)\n\*\*Outlook for the following 24 hours:\*\*\s*([\s\S]*?)(?=(\n[A-Za-z][A-Za-z\s'’\-]+?\n\*\*24 hour forecast:\*\*)|$)/g;
+  for(let line of lines){
+    if(!line) continue;
+    const t = String(line).trim();
+    if(!t) continue;
 
-  let m;
-  while((m = areaRegex.exec(txt)) !== null){
-    const area = normalizeSpaces(m[2]).toUpperCase();
-    const p24 = normalizeSpaces(m[3]);
-    const pol = normalizeSpaces(m[4]);
+    if(/^===.*MET\s*OFFICE.*===$/i.test(t)) continue;
+    if(/^===.*END\s*MET\s*OFFICE.*===$/i.test(t)) continue;
+    if(/^Met Office Inshore Waters/i.test(t)) continue;
+    if(/^IW\s*FCST\s*\(/i.test(t)) continue;
 
-    out.push("==================");
-    out.push(`${area} 24 HR FCST`);
-    const p1 = parseMetOfficeParagraph(p24);
-    out.push(`WIND: ${p1.wind}.`);
-    if(p1.sea) out.push(`SEA: ${p1.sea}.`);
-    if(p1.weather) out.push(`WEATHER: ${p1.weather}.`);
-    if(p1.vis) out.push(`VIS: ${p1.vis}.`);
+    if(/^[=]{5,}$/.test(t)){
+      out.push("==================");
+      continue;
+    }
 
-    out.push("O/L 24");
-    const p2 = parseMetOfficeParagraph(pol);
-    out.push(`WIND: ${p2.wind}.`);
-    if(p2.sea) out.push(`SEA: ${p2.sea}.`);
-    if(p2.weather) out.push(`WEATHER: ${p2.weather}.`);
-    if(p2.vis) out.push(`VIS: ${p2.vis}.`);
+    const m = t.match(/^(WIND|SEA|WEATHER|VIS|SWL|SWELL)\s*:\s*(.*)$/i);
+    if(m){
+      const label = (m[1].toUpperCase()==="SWELL") ? "SWL" : m[1].toUpperCase();
+      const catMap = {WIND:"wind", SEA:"sea", WEATHER:"weather", VIS:"vis", SWL:"swl"};
+      const cat = catMap[label] || label.toLowerCase();
+      const abbr = abbreviateTextWithDb(String(m[2]||"").trim(), "metoffice", cat);
+      out.push(`${label}: ${abbr}`);
+      continue;
+    }
+
+    if(/^O\/L\s*24/i.test(t)){
+      out.push("O/L 24");
+      continue;
+    }
+
+    out.push(t);
   }
 
   return out.join("\n").trim();
 }
 
-
-// --- CL-078 MF shorthand ----------------------------------------------------
-
-function extractMFIssuedLine(txt){
-  // e.g. "Issued: Tuesday 20 January 2026 at 12:30 (local MF time)"
-  const m = String(txt || "").match(/^\s*ISSUED\s*:\s*(.+)$/im);
-  if(!m) return null;
-  return normalizeSpaces(m[1]).toUpperCase();
-}
 
 function formatMFIssuedShort(issuedLine){
   // Expected patterns include e.g. "CAP DE LA HAGUE ... WEDNESDAY 28 JANUARY 2026 AT 12:30 (LOCAL MF TIME)"
@@ -3507,17 +3656,19 @@ function normalizeMeteoFranceLabels(line){
 function abbreviateMeteoFranceLine(line){
   // Abbreviate only the content, not the label
   const m = line.match(/^(\s*[A-Z\/\s\-]+?:)\s*(.*)$/);
-  if(!m) return abbreviateMetOfficeText(line);
+  if(!m) return abbreviateTextWithDb(line, 'meteofrance', '');
   const label = m[1].trim();
   const body  = m[2] || "";
   const canon = label.toUpperCase();
 
+  const catMap = {"WIND:":"wind","SEA:":"sea","WEATHER:":"weather","VIS:":"vis","SWL:":"swl"};
+
   if(["WIND:","SEA:","WEATHER:","VIS:","SWL:"].includes(canon)){
-    const b = abbreviateMetOfficeText(body);
+    const b = abbreviateTextWithDb(body, 'meteofrance', (catMap[canon]||''));
     return `${canon} ${b}`.trim();
   }
   // Unknown label; abbreviate whole
-  return abbreviateMetOfficeText(line);
+  return abbreviateTextWithDb(line, 'meteofrance', '');
 }
 
 function formatMeteoFranceShorthand(raw){
@@ -3589,7 +3740,7 @@ function formatMeteoFranceShorthand(raw){
 
         // Keep only our key lines + period markers
         if(/^(PM|NIGHT)\b/i.test(l)){
-          outLines.push(abbreviateMetOfficeText(l));
+          outLines.push(abbreviateTextWithDb(l, 'meteofrance', ''));
           return;
         }
 
@@ -3600,7 +3751,7 @@ function formatMeteoFranceShorthand(raw){
 
       // If no labelled lines were detected, fall back to abbreviating paragraph(s)
       if(!outLines.length){
-        const compact = abbreviateMetOfficeText(sectionText);
+        const compact = abbreviateTextWithDb(sectionText, 'meteofrance', '');
         if(compact) outLines.push(compact);
       }
       return outLines;
@@ -3658,46 +3809,25 @@ function weatherTextToHtmlForPlanPanel(text){
 // --- End CL-078 ---
 
 function applyWeatherSection(sectionKey, titleLine, content, meta){
-  // Update textbox (combined), then persist in passage
   const current = (planWeather && planWeather.value) ? planWeather.value : ((getCurrentPassage()?.plan?.weather) || "");
-    // Apply CL-078 shorthand for Met Office / Channel Islands
-  let contentToStore = content;
-  if (sectionKey && String(sectionKey).toLowerCase() === "met office") {
-    contentToStore = formatMetOfficeShorthand(content);
-  }
-		if (sectionKey && String(sectionKey).toLowerCase() === "met office") {
-				// We embed the IW FCST line inside the formatted content; suppress the separate titleLine
-				titleLine = "";
-		}
+  let contentToStore = content || "";
 
-  // Apply CL-078 shorthand for Meteo France
-  if (sectionKey && /meteo\s*france/i.test(String(sectionKey))) {
-    contentToStore = formatMeteoFranceShorthand(content);
-    // suppress separate title line (formatter produces its own header where possible)
-    titleLine = "";
+  // Allow caller to bypass formatting (already formatted content).
+  if(!(meta && meta.skipFormat)){
+    if(sectionKey === "Met Office"){
+      contentToStore = formatMetOfficeShorthand(contentToStore);
+    }else if(sectionKey === "meteofrance"){
+      contentToStore = formatMeteoFranceShorthand(contentToStore);
+    }
   }
-  let merged = upsertWeatherSection(current, sectionKey, titleLine, contentToStore);
-		// Strip any orphan Met Office wrapper lines that may exist outside the section (legacy data cleanup)
-		merged = merged
-				.replace(/^\s*===\s*END\s+MET\s+OFFICE\s*===\s*\n+/i, "")
-				.replace(/^\s*===\s*END\s+MET\s+OFFICE\s*===\s*$/gim, "")
-				.replace(/^\s*===\s*MET\s+OFFICE\s*===\s*$/gim, (m, off) => m) // no-op
-        // Strip any orphan Meteo France wrapper lines that may exist outside the section (legacy data cleanup)
-        merged = merged
-                .replace(/^\s*===\s*END\s+METEO\s+FRANCE\s*===\s*\n+/i, "")
-                .replace(/^\s*===\s*END\s+METEO\s+FRANCE\s*===\s*$/gim, "")
-        ;
-  // keeps normal header
-		;
 
-  if (planWeather) planWeather.value = merged;
+  const merged = upsertWeatherSection(current, sectionKey, titleLine, contentToStore);
+  if(planWeather) planWeather.value = merged;
 
   const p = getCurrentPassage();
-  if (p){
+  if(p){
+    p.plan = p.plan || {};
     p.plan.weather = merged;
-    p.plan.weather_sources = p.plan.weather_sources || {};
-    if (meta) p.plan.weather_sources[sectionKey] = meta;
-    p.plan.weather_fetched_at = new Date().toISOString();
     savePassages();
   }
 }
@@ -4018,356 +4148,334 @@ function formatMeteoFranceSummary(zoneLabel, parsed){
   return out.join("\n");
 }
 
-async function fetchMeteoFranceWeatherForCurrent(){
-  if (!btnFetchWeatherFR || !planWeather) return;
 
-  const pCur = getCurrentPassage();
+async function fetchInshoreWeatherForCurrent(opts){
+  // CL-080: Unified Marine Worker route fetch (handles routing, interim areas, de-dupe, MF translation)
+  // Worker endpoint: POST /marine/route
+  // Body: { lang:"en", tr:"google", origin:{lat,lon}, via:[{id,lat,lon}], destination:{lat,lon} }
+  try{
+    const p = getCurrentPassage();
+    if(!p) return;
 
-  // Prefer stable port binding (id) over free-text names.
-  const fromId = (planFrom?.dataset?.portId || pCur?.plan?.fromPortId || "").toString().trim();
-  const toId   = (planTo?.dataset?.portId   || pCur?.plan?.toPortId   || "").toString().trim();
-
-  let fromPort = fromId ? findPortItemById(fromId) : null;
-  let toPort   = toId   ? findPortItemById(toId)   : null;
-
-  // Legacy fallback: resolve once by name (does not guess; must be an actual saved port).
-  const fromName = (planFrom?.value || pCur?.plan?.from || "").toString().trim();
-  const toName   = (planTo?.value   || pCur?.plan?.to   || "").toString().trim();
-  if (!fromPort && fromName) { fromPort = findPortItemByName(fromName); if (fromPort?.id) { planFrom.dataset.portId = String(fromPort.id); pCur.plan.fromPortId = String(fromPort.id); } }
-  if (!toPort && toName)     { toPort   = findPortItemByName(toName);   if (toPort?.id)   { planTo.dataset.portId   = String(toPort.id);   pCur.plan.toPortId   = String(toPort.id); } }
-
-  const fromC = (fromPort && fromPort.lat != null && fromPort.lon != null) ? { lat: Number(fromPort.lat), lon: Number(fromPort.lon) } : null;
-  const toC   = (toPort   && toPort.lat   != null && toPort.lon   != null) ? { lat: Number(toPort.lat),   lon: Number(toPort.lon)   } : null;
-
-  const haveDest = !!(toC && Number.isFinite(toC.lat) && Number.isFinite(toC.lon));
-  const destDifferent = haveDest && (Math.abs(fromC.lat - toC.lat) > 1e-9 || Math.abs(fromC.lon - toC.lon) > 1e-9);
-
-  if (!fromC || !Number.isFinite(fromC.lat) || !Number.isFinite(fromC.lon)){
-    setWeatherStatus("Météo-France: select an Origin port from the list (or save it in Manage Ports with lat/lon).");
-    return;
-  }
-  if (toName && (!toC || !Number.isFinite(toC.lat) || !Number.isFinite(toC.lon))){
-    setWeatherStatus("Météo-France: select an Intended Destination from the list (or save it in Manage Ports with lat/lon).");
-    return;
-  }
-
-  const tidy = (s) => (s || "").replace(/\r/g, "").trim();
-  const formatBlock = (j) => {
-    const issued = tidy(j.issued_en || j.issued_fr);
-    const head = issued ? `${j.zoneName}\n${issued}` : `${j.zoneName}`;
-    const f24 = tidy(j.forecast_24h);
-    const o24 = tidy(j.outlook_24h);
-    const parts = [head];
-    if (f24) parts.push("", f24);
-    if (o24) parts.push("", o24);
-    return parts.join("\n");
-  };
-
-  
-  try {
-  // Bulk endpoint supports up to 4 points in one call and de-dupes zones server-side.
-  const MF_BULK_URL = MF_INSHORE_URL + "/bulk";
-
-  // Build up to 4 points: origin, (optional midpoints), destination.
-  const bulkPts = [];
-  bulkPts.push({ id: "origin", tag: "Origin", lat: fromC.lat, lon: fromC.lon });
-
-  if (haveDest){
-    const destPt = { id: "dest", tag: "Destination", lat: toC.lat, lon: toC.lon };
-
-    if (destDifferent){
-      const mid1 = {
-        id: "mid1",
-        tag: "En-route 33%",
-        lat: fromC.lat + (toC.lat - fromC.lat) * (1/3),
-        lon: fromC.lon + (toC.lon - fromC.lon) * (1/3)
-      };
-      const mid2 = {
-        id: "mid2",
-        tag: "En-route 67%",
-        lat: fromC.lat + (toC.lat - fromC.lat) * (2/3),
-        lon: fromC.lon + (toC.lon - fromC.lon) * (2/3)
-      };
-      bulkPts.push(mid1, mid2, destPt);
-    } else {
-      // Same area/coords: still include destination so we can confirm the worker agrees.
-      bulkPts.push(destPt);
-    }
-  }
-
-  // Hard cap to worker limit
-  while (bulkPts.length > 4) bulkPts.splice(bulkPts.length - 2, 1); // drop midpoints first if ever needed
-
-  const coordSummary = bulkPts
-    .filter(p => p.id === "origin" || p.id === "dest")
-    .map(p => `${p.lat.toFixed(6)},${p.lon.toFixed(6)}`)
-    .join(" → ");
-
-  setWeatherStatus(`Fetching Météo-France (${coordSummary})…`);
-  btnFetchWeatherFR.disabled = true;
-
-  // --- Bulk fetch ---
-  const fetchBulk = async () => {
-    const payload = {
-      lang: "en",
-      points: bulkPts.map(p => ({ id: p.id, lat: p.lat, lon: p.lon }))
-    };
-    const r = await fetch(MF_BULK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-    // Even on non-200, try to parse JSON for a helpful message.
-    let j = null;
-    try { j = await r.json(); } catch(e) {}
-    return { ok: r.ok && j && j.ok, json: j, httpOk: r.ok, status: r.status };
-  };
-
-  const res = await fetchBulk();
-
-  // --- Parse / normalise response ---
-  const debugHits = bulkPts.map(p => ({ tag: p.tag, id: p.id, lat: p.lat, lon: p.lon, ok: false }));
-
-  const safeGet = (o, path) => {
-    try{
-      return path.split(".").reduce((a,k)=> (a && a[k] != null) ? a[k] : null, o);
-    }catch(e){ return null; }
-  };
-
-  const extractZoneCandidate = (obj) => {
-    if (!obj || typeof obj !== "object") return null;
-
-    // Allow a few common nested shapes (bulk endpoint may wrap).
-    const z = obj.zone || obj.forecast || obj.data || obj.result || obj;
-
-    const zoneId =
-      z.zoneId || z.id ||
-      safeGet(obj,"zoneId") || safeGet(obj,"zone.zoneId") || safeGet(obj,"zone.id") ||
-      safeGet(obj,"result.zoneId") || safeGet(obj,"result.id");
-
-    const zoneName =
-      z.zoneName || z.name ||
-      safeGet(obj,"zoneName") || safeGet(obj,"zone.zoneName") || safeGet(obj,"zone.name") ||
-      safeGet(obj,"result.zoneName") || safeGet(obj,"result.name");
-
-    const issued_en =
-      z.issued_en || z.issued || z.issuedEn ||
-      safeGet(obj,"issued_en") || safeGet(obj,"issued") || safeGet(obj,"issuedEn") ||
-      safeGet(obj,"zone.issued_en") || safeGet(obj,"result.issued_en");
-
-    const url =
-      z.url || safeGet(obj,"url") || safeGet(obj,"zone.url") || safeGet(obj,"result.url");
-
-    // Forecast text keys vary between implementations.
-    const forecast_24h =
-      z.forecast_24h || z.forecast24h || z.forecast_24 || z.forecast24 || z.forecastText ||
-      safeGet(obj,"forecast_24h") || safeGet(obj,"forecast24h") || safeGet(obj,"forecast_24") || safeGet(obj,"forecast24") ||
-      safeGet(obj,"text.forecast_24h") || safeGet(obj,"text.forecast24h") || safeGet(obj,"zone.forecast_24h") || safeGet(obj,"result.forecast_24h") ||
-      // Some return { forecast: { next24h: "..." } }
-      safeGet(obj,"forecast.next24h") || safeGet(obj,"forecast.24h") || safeGet(obj,"result.forecast.next24h");
-
-    const outlook_24h =
-      z.outlook_24h || z.outlook24h || z.outlook_24 || z.outlook24 || z.outlookText ||
-      safeGet(obj,"outlook_24h") || safeGet(obj,"outlook24h") || safeGet(obj,"outlook_24") || safeGet(obj,"outlook24") ||
-      safeGet(obj,"text.outlook_24h") || safeGet(obj,"text.outlook24h") || safeGet(obj,"zone.outlook_24h") || safeGet(obj,"result.outlook_24h") ||
-      // Some return { outlook: { next24h: "..." } }
-      safeGet(obj,"outlook.next24h") || safeGet(obj,"outlook.24h") || safeGet(obj,"result.outlook.next24h");
-
-    if (!zoneId && !zoneName) return null;
-
-    return { zoneId, zoneName, issued_en, url, forecast_24h, outlook_24h, _raw: obj };
-  };
-
-  const zoneList = [];
-  const considerArray = (arr) => {
-    if (!Array.isArray(arr)) return;
-    for (const item of arr){
-      const z = extractZoneCandidate(item);
-      if (z) zoneList.push(z);
-      // Point mapping candidates (id -> zone)
-      const pid = safeGet(item,"id") || safeGet(item,"point.id") || safeGet(item,"pointId");
-      const zid = safeGet(item,"zoneId") || safeGet(item,"zone.zoneId") || (z && z.zoneId);
-      const znm = safeGet(item,"zoneName") || safeGet(item,"zone.zoneName") || (z && z.zoneName);
-      if (pid && (zid || znm)){
-        const dh = debugHits.find(h => h.id === String(pid));
-        if (dh){
-          dh.ok = true;
-          dh.zoneId = zid;
-          dh.zoneName = znm;
-        }
-      }
-    }
-  };
-
-  
-const j = (res && res.json && typeof res.json === "object") ? res.json : {};
-
-// If the bulk endpoint returns full zone objects in a map (zoneId -> zoneObject),
-// merge them into zoneList so we can render forecast/outlook text.
-const mergeFromMap = (mapObj) => {
-  if (!mapObj || typeof mapObj !== "object" || Array.isArray(mapObj)) return;
-  for (const k of Object.keys(mapObj)){
-    const cand = extractZoneCandidate(mapObj[k]);
-    if (!cand) continue;
-    // Ensure zoneId is present (use map key as fallback)
-    if (!cand.zoneId) cand.zoneId = k;
-
-    const existing = zoneList.find(z =>
-      (z.zoneId && cand.zoneId && z.zoneId === cand.zoneId) ||
-      (z.zoneName && cand.zoneName && z.zoneName === cand.zoneName)
-    );
-
-    if (existing){
-      if (!existing.zoneId && cand.zoneId) existing.zoneId = cand.zoneId;
-      if (!existing.zoneName && cand.zoneName) existing.zoneName = cand.zoneName;
-      if (!existing.issued_en && cand.issued_en) existing.issued_en = cand.issued_en;
-      if (!existing.url && cand.url) existing.url = cand.url;
-      if (!existing.forecast_24h && cand.forecast_24h) existing.forecast_24h = cand.forecast_24h;
-      if (!existing.outlook_24h && cand.outlook_24h) existing.outlook_24h = cand.outlook_24h;
-    } else {
-      zoneList.push(cand);
-    }
-  }
-};
-
-if (res.ok){
-  // Arrays (points + any alternate list keys)
-  considerArray(j.zones);
-  considerArray(j.results);
-  considerArray(j.forecasts);
-  considerArray(j.items);
-  considerArray(j.pointResults);
-  considerArray(j.points);
-
-  // Also scan any other arrays on the top-level object
-  for (const k of Object.keys(j)){
-    if (["zones","results","forecasts","items","pointResults","points"].includes(k)) continue;
-    const v = j[k];
-    if (Array.isArray(v)) considerArray(v);
-  }
-
-  // Maps of zoneId -> full zone object (the worker bulk response uses this shape)
-  mergeFromMap(j.zones);
-  mergeFromMap(j.byZoneId);
-  mergeFromMap(j.zonesById);
-  mergeFromMap(j.zoneById);
-  mergeFromMap(j.zoneForecasts);
-  mergeFromMap(j.forecastsByZoneId);
-
-  // If we didn't get any explicit point mappings, infer from zones (mark all as ok if any zones returned)
-  if (!debugHits.some(h => h.ok) && zoneList.length){
-    debugHits.forEach(h => { h.ok = true; h.zoneId = zoneList[0].zoneId; h.zoneName = zoneList[0].zoneName; });
-  }
-}
-
-// De-dupe zones by zoneId/zoneName
-  const seen = new Set();
-  const zones = [];
-  for (const z of zoneList){
-    const key = z.zoneId || z.zoneName;
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    zones.push(z);
-  }
-
-
-  if (!zones.length){
-      const dbg = debugHits
-        .map(h => h.ok ? `${h.tag}: ${h.zoneName || h.zoneId || "(no zone)"}` : `${h.tag}: (no data)`)
-        .join(" • ");
-      setWeatherStatus(`No Météo-France zone matched for this route. ${dbg ? "(" + dbg + ")" : ""}`);
+    const routeNames = getRouteNames(p); // [from, ...transits, to]
+    if(!routeNames || routeNames.length < 2){
+      alert("Set an Origin and Destination first.");
       return;
     }
 
-    const joined = zones.map(z => formatBlock(z)).join("\n\n---\n\n");
-    applyWeatherSection(
-      "meteofrance",
-      "Météo-France Inshore Waters",
-      joined,
-      { fetchedAt: new Date().toISOString(), zones: zones.map(z => ({ zoneId: z.zoneId, zoneName: z.zoneName, url: z.url })) }
-    );
-// Helpful summary so we can see if Origin/Destination collapsed to one zone.
-    const dbg = debugHits
-      .map(h => h.ok
-        ? `${h.tag}: ${h.zoneName || h.zoneId}`
-        : `${h.tag}: (failed)`)
-      .join(" • ");
-    setWeatherStatus(`Météo-France updated (${zones.length} zone${zones.length===1?"":"s"}).${dbg ? " " + dbg : ""}`);
-  } finally {
-    btnFetchWeatherFR.disabled = false;
-  }
-}
-
-async function fetchTextWithFallback(url, proxyUrl){
-  // 1) direct fetch (may fail due to CORS on some setups)
-  try{
-    const r = await fetch(url, { cache: "no-store" });
-    if (r && r.ok) return await r.text();
-  }catch(e){
-    // ignore
-  }
-  // 2) proxy fallback (CORS-friendly)
-  const proxy = proxyUrl || ("https://r.jina.ai/" + url);
-  const r2 = await fetch(proxy, { cache: "no-store" });
-  if (!r2.ok) throw new Error("Proxy fetch failed");
-  return await r2.text();
-}
-
-async function fetchInshoreWeatherForCurrent(){
-  if (!btnFetchWeather || !planWeather) return;
-  const areasWanted = getInshoreAreasForCurrentPassage();
-  if (!areasWanted.length){
-    setWeatherStatus("Add Origin & Destination (with coords) first.");
-    return;
-  }
-
-  btnFetchWeather.disabled = true;
-  setWeatherStatus(`Fetching: ${areasWanted.join(" • ")} ...`);
-
-  try{
-    let addedFranceLinks = false;
-    const raw = await fetchTextWithFallback(METOFFICE_INSHORE_URL);
-    const parsed = parseMetOfficeInshore(raw);
-
-    const blocks = [];
-    const issued = parsed.issued ? `Met Office Inshore Waters (${parsed.issued})` : "Met Office Inshore Waters";
-    blocks.push(issued);
-
-    for (const area of areasWanted){
-      // Exact match first, else fuzzy (case/space)
-      let text = parsed.areas[area];
-      if (!text){
-        const key = Object.keys(parsed.areas).find(k => k.toLowerCase() === area.toLowerCase());
-        if (key) text = parsed.areas[key];
+    // Resolve coordinates for all route points (prefer stored port coords; do NOT auto-save here)
+    const resolved = [];
+    for(const name of routeNames){
+      if(!name) continue;
+      let c = getPortCoords(name);
+      if(!(c && isFinite(c.lat) && isFinite(c.lon))){
+        const ensured = await ensurePortCoords(name, { save: false });
+        if(ensured && isFinite(ensured.lat) && isFinite(ensured.lon)){
+          c = ensured;
+        }
       }
-      if (!text){
-        // final fallback: contains
-        const key = Object.keys(parsed.areas).find(k => k.toLowerCase().includes(area.toLowerCase()));
-        if (key) text = parsed.areas[key];
+      if(!(c && isFinite(c.lat) && isFinite(c.lon))){
+        alert(`Missing coordinates for "${name}".\n\nOpen Manage Ports and add Lat/Lon, then try again.`);
+        return;
       }
-      if (!text){
-        blocks.push(`\n${area}\n(Area not found in fetched page — you may need to update mapping.)`);
-      }else{
-        blocks.push(`\n${area}\n${text}`);
-      }
+      resolved.push({ name, lat: c.lat, lon: c.lon });
     }
 
-    const ukText = blocks.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+    if(resolved.length < 2){
+      alert("Route needs at least an Origin and Destination with coordinates.");
+      return;
+    }
 
-    applyWeatherSection(
-      "Met Office",
-      "",
-      ukText,
-      { areas: areasWanted, fetched_at: new Date().toISOString() }
-    );
+    const makeId = (s) => String(s || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 40) || "pt";
 
-    setWeatherStatus("Fetched ✓ (you can edit the text).");
-  }catch(e){
-    console.warn("Weather fetch failed", e);
-    setWeatherStatus("Fetch failed — you can still type it manually.");
-  }finally{
-    btnFetchWeather.disabled = false;
+    const origin = { lat: resolved[0].lat, lon: resolved[0].lon };
+    const destination = { lat: resolved[resolved.length-1].lat, lon: resolved[resolved.length-1].lon };
+
+    const via = [];
+    for(let i=1; i<resolved.length-1; i++){
+      const r = resolved[i];
+      via.push({ id: makeId(r.name), lat: r.lat, lon: r.lon });
+    }
+
+    const fmtLatLon = (lat, lon) => {
+      const la = (typeof lat === "number") ? lat.toFixed(4) : String(lat);
+      const lo = (typeof lon === "number") ? lon.toFixed(4) : String(lon);
+      return `${la},${lo}`;
+    };
+
+    // Progress hint (useful on iPad/Safari): show coords we’re asking the Worker to route
+    const viaStr = via.length ? (" VIA " + via.map(v=>fmtLatLon(v.lat,v.lon)).join(", ")) : "";
+    setWeatherStatus(`FETCHING IW FCST: ${fmtLatLon(origin.lat, origin.lon)} → ${fmtLatLon(destination.lat, destination.lon)}${viaStr}`);
+
+    const body = {
+      lang: "en",
+      tr: "google",
+      origin,
+      destination
+    };
+    if(via.length) body.via = via;
+
+    const res = await fetch(MARINE_ROUTE_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      cache: "no-store"
+    });
+
+    if(!res.ok){
+      throw new Error(`Worker HTTP ${res.status}`);
+    }
+
+    const payload = await res.json();
+
+    // Worker may return an array or an object containing an array; accept common shapes.
+    let items = [];
+
+// Worker contract (route):
+// - payload.legs[].areas[] provides *ordered* provider/refId traversal (may include duplicates)
+// - payload.forecasts is a map of composite keys -> forecast objects
+if (payload && payload.ok){
+  // Build a flat array of forecasts (map -> array)
+  const allForecasts = (payload.forecasts && typeof payload.forecasts === "object")
+    ? Object.values(payload.forecasts).filter(Boolean)
+    : [];
+
+  // Helper to match a legs[].areas ref to a forecast object
+  const matchForecast = (areaRef) => {
+    const prov = (areaRef && areaRef.provider) ? String(areaRef.provider).toLowerCase() : "";
+    const refId = areaRef ? areaRef.refId : null;
+
+    return allForecasts.find(f => {
+      if (!f || String(f.provider).toLowerCase() !== prov) return false;
+      const raw = f.raw || {};
+      if (prov === "metoffice") return String(raw.areaId) === String(refId);
+      if (prov === "meteofrance") return String(raw.zoneId) === String(refId);
+      return false;
+    }) || null;
+  };
+
+  // Prefer ordered areas list, de-duping in order
+  const orderedRefs = [];
+  if (Array.isArray(payload.legs)){
+    payload.legs.forEach(leg => {
+      if (leg && Array.isArray(leg.areas)){
+        leg.areas.forEach(a => orderedRefs.push(a));
+      }
+    });
   }
+
+  const seen = new Set();
+  if (orderedRefs.length){
+    orderedRefs.forEach(a => {
+      const prov = (a && a.provider) ? String(a.provider).toLowerCase() : "";
+      const refId = (a && a.refId != null) ? String(a.refId) : "";
+      const key = `${prov}|${refId}`;
+      if (seen.has(key)) return;
+      const f = matchForecast(a);
+      if (f && f.ok){
+        items.push(f);
+        seen.add(key);
+      }
+    });
+  }
+
+  // Fallback: if we didn't build anything from legs, use all forecasts (stable-ish order)
+  if (!items.length){
+    items = allForecasts.filter(f => f && f.ok);
+  }
+const byProvider = { metoffice: [], meteofrance: [] };
+
+    for(const r of items){
+      if(!r || !r.ok) continue;
+      const key = `${r.provider}|${r.areaName}`;
+      if(seen.has(key)) continue;
+      seen.add(key);
+      if(r.provider === "metoffice") byProvider.metoffice.push(r);
+      else if(r.provider === "meteofrance") byProvider.meteofrance.push(r);
+    }
+
+    // Update textbox and persist
+    const current = (planWeather && planWeather.value) ? planWeather.value : ((getCurrentPassage()?.plan?.weather) || "");
+
+    // Remove any legacy/alternate section keys so we don’t end up with duplicate blocks.
+    // IMPORTANT: Use the cleaned text as the base for upserts. (Using `current` here can
+    // re-introduce older cached/abbreviated blocks ahead of the newly fetched section.)
+    let cleaned = current;
+    ["Met Office","metoffice","MET OFFICE"].forEach(k => { cleaned = upsertWeatherSection(cleaned, k, null, null); });
+    ["meteofrance","Météo‑France","Meteo France"].forEach(k => { cleaned = upsertWeatherSection(cleaned, k, null, null); });
+
+    let merged = upsertWeatherSection(cleaned, "Met Office", "Met Office Inshore Waters", byProvider.metoffice.length ? formatMetOfficeFromWorker(byProvider.metoffice) : null);
+    merged = upsertWeatherSection(merged, "meteofrance", "Météo‑France", byProvider.meteofrance.length ? formatMeteoFranceFromWorker(byProvider.meteofrance) : null);
+
+    if (planWeather) planWeather.value = merged;
+
+    const pp = getCurrentPassage();
+    if (pp){
+      if (!pp.plan) pp.plan = {};
+      pp.plan.weather = merged;
+      savePassages();
+    }
+
+  }
+  }catch(err){
+    console.error(err);
+    alert("Fetch failed — you can still type it manually.");
+  }
+}
+
+
+// --- CL-080 formatting (worker contract -> shorthand text) ---
+
+function shortMetOfficeIssued(issuedText){
+  if(!issuedText) return "";
+  const t = String(issuedText).toUpperCase();
+  // Examples:
+  // "ISSUED AT: 12:00 (UTC) ON MON 2 FEB 2026"
+  let m = t.match(/(\d{1,2}:\d{2})\s*\(?(UTC)\)?\s*ON\s*([A-Z]{3})\s*(\d{1,2})\s*([A-Z]{3})\s*(\d{4})/);
+  if(m){
+    const dd = m[4].padStart(2,"0");
+    return `${m[1]} ${m[2]} ${m[3]} ${dd} ${m[5]} ${m[6]}`;
+  }
+  m = t.match(/(\d{1,2}:\d{2})\s*\(?(UTC)\)?\s*ON\s*([A-Z]{3})\s*(\d{1,2})\s*([A-Z]{3})\s*(\d{4})/);
+  if(m) return `${m[1]} ${m[2]} ${m[3]} ${m[4].padStart(2,"0")} ${m[5]} ${m[6]}`;
+  return t.replace(/^ISSUED AT:\s*/,"").replace(/\s*\(UTC\)\s*/," UTC ").trim();
+}
+
+function shortMFIssued(issuedText){
+  if(!issuedText) return "";
+  // Worker may return either:
+  //  - "12:30 LT LUNDI 02 FEBRUARY 2026"
+  //  - "06:30 LT FRIDAY, FEBRUARY 6, 2026"
+  const t = String(issuedText).toUpperCase().replace(/,/g," ").replace(/\s+/g," ").trim();
+
+  // Pattern A: "HH:MM LT DOW DD MONTH YYYY"
+  let m = t.match(/(\d{1,2}:\d{2})\s*LT\s*([A-Z]{3,})\s+(\d{1,2})\s+([A-Z]{3,})\s+(\d{4})/);
+  if(m){
+    const hhmm = m[1];
+    const dow = m[2].slice(0,3);
+    const dd  = m[3].padStart(2,"0");
+    const mon = m[4].slice(0,3);
+    const yyyy = m[5];
+    return `${hhmm} LT ${dow} ${dd} ${mon} ${yyyy}`;
+  }
+
+  // Pattern B: "HH:MM LT DOW MONTH DD YYYY"
+  m = t.match(/(\d{1,2}:\d{2})\s*LT\s*([A-Z]{3,})\s+([A-Z]{3,})\s+(\d{1,2})\s+(\d{4})/);
+  if(m){
+    const hhmm = m[1];
+    const dow = m[2].slice(0,3);
+    const mon = m[3].slice(0,3);
+    const dd  = m[4].padStart(2,"0");
+    const yyyy = m[5];
+    return `${hhmm} LT ${dow} ${dd} ${mon} ${yyyy}`;
+  }
+
+  return t;
+}
+
+function shortMFPeriodId(id){
+  if(!id) return "";
+  const t = String(id).toUpperCase().replace(/,/g," ").replace(/\s+/g," ").trim();
+
+  // Identify time-of-day bucket
+  let bucket = null;
+  if(/AFTERNOON/.test(t) || /PM\b/.test(t)) bucket = "PM";
+  else if(/MORNING/.test(t) || /\bAM\b/.test(t)) bucket = "AM";
+  else if(/NIGHT/.test(t)) bucket = "NIGHT";
+  else if(/TREND/.test(t)) bucket = "TREND";
+  else bucket = "DAY";
+
+  // Extract dates (month + day)
+  // e.g. "... FEBRUARY 6TH ...", "... FEBRUARY 6 TO ... FEBRUARY 7 ..."
+  const months = {
+    JANUARY:"JAN", FEBRUARY:"FEB", MARCH:"MAR", APRIL:"APR", MAY:"MAY", JUNE:"JUN",
+    JULY:"JUL", AUGUST:"AUG", SEPTEMBER:"SEP", OCTOBER:"OCT", NOVEMBER:"NOV", DECEMBER:"DEC"
+  };
+
+  // Capture sequences like "FEBRUARY 6", allowing "6TH"
+  const reDate = /(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER)\s+(\d{1,2})(?:ST|ND|RD|TH)?/g;
+  const dates = [];
+  let m;
+  while((m = reDate.exec(t))){
+    dates.push({ mon: months[m[1]] || m[1].slice(0,3), day: parseInt(m[2],10) });
+    if(dates.length >= 2) break; // we only need up to 2
+  }
+
+  if(dates.length === 0) return t;
+
+  const mon = dates[0].mon;
+  const d1 = dates[0].day;
+
+  if(bucket === "NIGHT" && dates.length >= 2){
+    const d2 = dates[1].day;
+    const mon2 = dates[1].mon;
+    if(mon2 === mon) return `NIGHT ${mon} ${d1}-${d2}`;
+    return `NIGHT ${mon} ${d1} - ${mon2} ${d2}`;
+  }
+
+  if(bucket === "PM" || bucket === "AM" || bucket === "DAY"){
+    return `${bucket} ${mon} ${d1}`;
+  }
+
+  if(bucket === "TREND"){
+    return `TREND ${mon} ${d1}`;
+  }
+
+  return t;
+}
+
+
+function formatMetOfficeFromWorker(responses){
+  if(!responses || !responses.length) return "";
+  const first = responses[0];
+  const lines = [];
+  lines.push(`IW FCST (${shortMetOfficeIssued(first.issuedText)})`);
+  for(const r of responses){
+    lines.push("==================");
+    lines.push(`${String(r.areaName||"").toUpperCase()} 24 HR FCST`);
+    const p24 = (r.periods||[]).find(p => (p.id||"").toUpperCase()==="24H") || (r.periods||[])[0];
+    const pol = (r.periods||[]).find(p => (p.id||"").toUpperCase()==="OL24");
+
+    const pushLabels = (p) => {
+      if(!p) return;
+      if(p.wind)   lines.push(`WIND: ${abbreviateTextWithDb(p.wind,"metoffice","wind")}`);
+      if(p.sea)    lines.push(`SEA: ${abbreviateTextWithDb(p.sea,"metoffice","sea")}`);
+      if(p.weather)lines.push(`WEATHER: ${abbreviateTextWithDb(p.weather,"metoffice","weather")}`);
+      if(p.vis)    lines.push(`VIS: ${abbreviateTextWithDb(p.vis,"metoffice","vis")}`);
+    };
+
+    pushLabels(p24);
+    if(pol){
+      lines.push("O/L 24");
+      pushLabels(pol);
+    }
+  }
+  return lines.join("\n");
+}
+
+function formatMeteoFranceFromWorker(responses){
+  if(!responses || !responses.length) return "";
+  const first = responses[0];
+  const lines = [];
+  lines.push(`CÔTE FCST (${shortMFIssued(first.issuedText)})`);
+  for(const r of responses){
+    lines.push("==================");
+    lines.push(`${String(r.areaName||"").toUpperCase()} 24 HR FCST`);
+    for(const p of (r.periods||[])){
+      if(p && p.id) lines.push(shortMFPeriodId(p.id));
+      if(p.wind)   lines.push(abbreviateMeteoFranceLine(`WIND: ${p.wind}`));
+      if(p.sea)    lines.push(abbreviateMeteoFranceLine(`SEA: ${p.sea}`));
+      if(p.swell)  lines.push(abbreviateMeteoFranceLine(`SWL: ${p.swell}`));
+      if(p.weather)lines.push(abbreviateMeteoFranceLine(`WEATHER: ${p.weather}`));
+      if(p.vis)    lines.push(abbreviateMeteoFranceLine(`VIS: ${p.vis}`));
+      lines.push(""); // blank line between periods
+    }
+  }
+  return lines.join("\n").replace(/\n{3,}/g,"\n\n").trim();
 }
 
 if (btnFetchWeather){
@@ -4380,10 +4488,8 @@ if (btnFetchWeather){
 
 
 if (btnFetchWeatherFR){
-  btnFetchWeatherFR.addEventListener("click", (e) => {
-    e.preventDefault();
-    fetchMeteoFranceWeatherForCurrent();
-  });
+  // CL-080: Worker now handles all providers; hide legacy FR button if present.
+  btnFetchWeatherFR.style.display = "none";
 }
 // Save plan -> remember ports, ensure tide stations, then jump to Log
 planForm.addEventListener("submit", async (e) => {
@@ -5678,6 +5784,418 @@ async function resetPwaCache({ silent=false } = {}) {
   location.replace(cleanUrl);
 }
 
+
+// --- CL-081: Weather Shorthand (Abbreviations DB) Settings UI -----------------
+
+function __wxAbbrFindSettingsContainer() {
+  const settingsTab = document.getElementById("settingsTab");
+  if (!settingsTab) return null;
+
+  const elPorts  = document.getElementById("managePortsBtn");
+  const elBackup = document.getElementById("exportBackupBtn");
+  const elCache  = document.getElementById("resetPwaCacheBtn");
+
+  const els = [elPorts, elBackup, elCache].filter(Boolean);
+  if (els.length < 2) return null;
+
+  const chain = (el) => {
+    const out = [];
+    let n = el;
+    while (n) {
+      out.push(n);
+      if (n === settingsTab) break;
+      n = n.parentElement;
+    }
+    return out;
+  };
+
+  const c0 = chain(els[0]);
+  const sets = els.slice(1).map(e => new Set(chain(e)));
+  let lca = null;
+  for (const n of c0) {
+    if (sets.every(s => s.has(n))) { lca = n; break; }
+  }
+  if (!lca) return null;
+
+  // We want the container that *contains the blocks* as direct children (cards).
+  // If the LCA is the settingsTab itself, we still use it.
+  return lca;
+}
+
+function __wxAbbrBlockForEl(el, container) {
+  if (!el || !container) return null;
+  let n = el;
+  while (n && n.parentElement && n.parentElement !== container) n = n.parentElement;
+  return (n && n.parentElement === container) ? n : null;
+}
+
+function reorderSettingsBlocksAndInjectWx() {
+  const container = __wxAbbrFindSettingsContainer();
+  if (!container) return;
+
+  const portsBtn  = document.getElementById("managePortsBtn");
+  const backupBtn = document.getElementById("exportBackupBtn");
+  const cacheBtn  = document.getElementById("resetPwaCacheBtn");
+
+  const portsBlock  = __wxAbbrBlockForEl(portsBtn, container);
+  const backupBlock = __wxAbbrBlockForEl(backupBtn, container);
+  const cacheBlock  = __wxAbbrBlockForEl(cacheBtn, container);
+
+  if (!portsBlock || !backupBlock || !cacheBlock) return;
+
+  // Create Weather Shorthand block (card) if not already present
+  let wxBlock = document.getElementById("wxAbbrSettingsBlock");
+  if (!wxBlock) {
+    wxBlock = document.createElement(portsBlock.tagName.toLowerCase());
+    wxBlock.id = "wxAbbrSettingsBlock";
+    wxBlock.className = portsBlock.className || "";
+
+    // Basic structure that should look reasonable even without CSS.
+    wxBlock.innerHTML = `
+      <div class="settings-block-inner">
+        <h3 style="margin:0 0 8px 0;">Weather Shorthand</h3>
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+          <button type="button" id="manageWxAbbrBtn">Manage Weather Abbreviations</button>
+        </div>
+        <div style="margin-top:10px; opacity:0.85;">
+          Define abbreviation / expansion rules for Met Office and Météo-France forecasts.
+        </div>
+        <div id="wxAbbrEditorWrap" style="display:none; margin-top:14px; border-top:1px solid rgba(0,0,0,0.12); padding-top:12px;"></div>
+      </div>
+    `;
+  }
+
+  // Detach blocks first (preserve any other content)
+  const blocks = [portsBlock, wxBlock, backupBlock, cacheBlock];
+  blocks.forEach(b => { if (b && b.parentElement === container) container.removeChild(b); });
+
+  // Re-insert in desired order: Ports, Weather Shorthand, Backup, Cache
+  container.appendChild(portsBlock);
+  container.appendChild(wxBlock);
+  container.appendChild(backupBlock);
+  container.appendChild(cacheBlock);
+
+  // Now wire up editor UI once
+  try { setupWeatherShorthandEditorUI(); } catch (e) { console.warn("wxAbbr UI setup failed", e); }
+}
+
+function setupWeatherShorthandEditorUI(){
+  const btn  = document.getElementById("manageWxAbbrBtn");
+  const wrap = document.getElementById("wxAbbrEditorWrap");
+  if (!btn || !wrap) return;
+
+  // Toggle editor visibility
+  const toggle = () => {
+    wrap.style.display = (wrap.style.display === "none" || !wrap.style.display) ? "block" : "none";
+  };
+
+  // Wire toggle every time (safe)
+  btn.onclick = toggle;
+
+  // Build UI once
+  if (wrap.dataset.built === "1") return;
+  wrap.dataset.built = "1";
+
+  const mk = (tag, attrs={}, children=[]) => {
+    const el = document.createElement(tag);
+    Object.entries(attrs).forEach(([k,v]) => {
+      if (k === "class") el.className = v;
+      else if (k === "html") el.innerHTML = v;
+      else if (k === "text") el.textContent = v;
+      else if (k === "value") el.value = v;
+      else el.setAttribute(k, v);
+    });
+    children.forEach(c => el.appendChild(c));
+    return el;
+  };
+
+  // Helpers
+  const isAutoRegex = (s) => {
+    const t = String(s||"");
+    return (t.startsWith("\\b") && t.endsWith("\\b") && /\\s\+/.test(t));
+  };
+  const regexToHuman = (s) => {
+    let t = String(s||"");
+    t = t.replace(/\\b/g, "");
+    t = t.replace(/\\s\+/g, " ");
+    t = t.replace(/\\s\*/g, " ");
+    t = t.replace(/\\s\?/g, " ");
+    t = t.replace(/\\\\/g, "\\");
+    t = t.replace(/\(\?:/g, "(");
+    return t.trim();
+  };
+
+  const modeOptions = [
+    ["plain","Plain"],
+    ["word","Whole word"],
+    ["regex","Regex"],
+  ];
+
+  // Hidden file input for import
+  const importFile = mk("input", { id:"wxAbbrImportFile", type:"file", accept:".json,application/json", style:"display:none" });
+  wrap.appendChild(importFile);
+
+  const searchInp = mk("input", { id:"wxAbbrSearch", type:"search", placeholder:"Filter rules…", style:"min-width:220px;" });
+  const addBtn    = mk("button", { type:"button", id:"wxAbbrAddBtn", text:"Add rule" });
+  const sortBtn   = mk("button", { type:"button", id:"wxAbbrSortBtn", text:"Sort A→Z" });
+  const exportBtn = mk("button", { type:"button", id:"wxAbbrExportBtn", text:"Export JSON" });
+  const importBtn = mk("button", { type:"button", id:"wxAbbrImportBtn", text:"Import .json" });
+  const resetBtn  = mk("button", { type:"button", id:"wxAbbrResetBtn",  text:"Reset to shipped defaults" });
+  const clearBtn  = mk("button", { type:"button", id:"wxAbbrClearBtn",  text:"Clear all rules" });
+
+  const topRow = mk("div", { style:"display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px;" }, [
+    searchInp, addBtn, sortBtn, exportBtn, importBtn, resetBtn, clearBtn
+  ]);
+
+  const table = mk("table", { id:"wxAbbrTable", style:"width:100%; border-collapse:collapse;" });
+  const thead = mk("thead", {}, [
+    mk("tr", {}, [
+      mk("th", { text:"On",   style:"text-align:left; padding:6px 4px; border-bottom:1px solid rgba(0,0,0,0.12);" }),
+      mk("th", { text:"FROM", style:"text-align:left; padding:6px 4px; border-bottom:1px solid rgba(0,0,0,0.12);" }),
+      mk("th", { text:"TO",   style:"text-align:left; padding:6px 4px; border-bottom:1px solid rgba(0,0,0,0.12);" }),
+      mk("th", { text:"Mode", style:"text-align:left; padding:6px 4px; border-bottom:1px solid rgba(0,0,0,0.12);" }),
+      mk("th", { text:"",     style:"padding:6px 4px; border-bottom:1px solid rgba(0,0,0,0.12);" }),
+    ])
+  ]);
+  const tbody = mk("tbody", { id:"wxAbbrTbody" });
+  table.appendChild(thead); table.appendChild(tbody);
+
+  // Preview
+  const prevProvider = mk("select", { id:"wxAbbrPrevProvider" });
+  [["metoffice","Met Office"],["meteofrance","Météo-France"]].forEach(([v,t])=>prevProvider.appendChild(mk("option",{value:v,text:t})));
+  const prevCat = mk("select", { id:"wxAbbrPrevCat" });
+  [["wind","Wind"],["sea","Sea"],["weather","Weather"],["vis","Visibility"],["swl","Swell"]].forEach(([v,t])=>prevCat.appendChild(mk("option",{value:v,text:t})));
+
+  const prevIn  = mk("textarea", { id:"wxAbbrPrevIn", rows:"4", style:"width:100%;", placeholder:"Paste forecast snippet here…" });
+  const prevOut = mk("textarea", { id:"wxAbbrPrevOut", rows:"4", style:"width:100%;", readonly:"readonly" });
+
+  const prevRow = mk("div", { style:"display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:14px;" }, [
+    mk("div",{style:"display:flex; gap:8px; align-items:center;"},[mk("div",{text:"Preview as:", style:"opacity:0.8;"}), prevProvider, prevCat])
+  ]);
+  const prevGrid = mk("div", { style:"display:grid; grid-template-columns:1fr; gap:10px; margin-top:10px;" }, [
+    mk("div",{},[mk("div",{text:"Original", style:"opacity:0.8; margin-bottom:4px;"}), prevIn]),
+    mk("div",{},[mk("div",{text:"Result",   style:"opacity:0.8; margin-bottom:4px;"}), prevOut]),
+  ]);
+
+  wrap.appendChild(topRow);
+  wrap.appendChild(table);
+  wrap.appendChild(prevRow);
+  wrap.appendChild(prevGrid);
+
+  const getDb = () => loadAbbrDb();
+  const saveDb = (db) => saveAbbrDb(db);
+
+  const rebuildPreview = () => {
+    try{
+      const provider = prevProvider.value || "metoffice";
+      const cat      = prevCat.value || "wind";
+      const txt      = prevIn.value || "";
+      // Use the runtime function if available; otherwise fall back to db apply directly.
+      if (typeof abbreviateTextWithDb === "function") {
+        prevOut.value = abbreviateTextWithDb(txt, provider, cat);
+      } else if (typeof applyAbbrDbToText === "function") {
+        prevOut.value = applyAbbrDbToText(txt, provider, cat);
+      } else {
+        prevOut.value = txt;
+      }
+    }catch(e){
+      prevOut.value = (prevIn.value || "");
+    }
+  };
+
+  const render = () => {
+    const db = getDb();
+    const q = (searchInp.value || "").trim().toLowerCase();
+    const rules = Array.isArray(db.rules) ? db.rules : [];
+    tbody.innerHTML = "";
+
+    rules.forEach((rule, idx) => {
+      const fromRaw = String(rule.from || "");
+      const toRaw   = String(rule.to || "");
+      const mode    = String(rule.mode || "plain");
+      const enabled = (rule.enabled !== false);
+
+      const fromDisp = (mode === "regex" && isAutoRegex(fromRaw)) ? regexToHuman(fromRaw) : fromRaw;
+
+      if (q && !(fromDisp.toLowerCase().includes(q) || toRaw.toLowerCase().includes(q) || mode.toLowerCase().includes(q))) return;
+
+      const tr = mk("tr", {}, []);
+
+      const onTd = mk("td", { style:"padding:6px 4px; border-bottom:1px solid rgba(0,0,0,0.06);" });
+      const onCb = mk("input", { type:"checkbox" });
+      onCb.checked = enabled;
+      onCb.onchange = () => {
+        const db2 = getDb();
+        if (!Array.isArray(db2.rules)) db2.rules = [];
+        if (db2.rules[idx]) db2.rules[idx].enabled = !!onCb.checked;
+        saveDb(db2);
+        rebuildPreview();
+      };
+      onTd.appendChild(onCb);
+
+      const fromTd = mk("td", { style:"padding:6px 4px; border-bottom:1px solid rgba(0,0,0,0.06);" });
+      const fromIn = mk("input", { type:"text", value:fromDisp, style:"width:100%;" });
+      fromIn.onchange = () => {
+        const db2 = getDb();
+        if (!Array.isArray(db2.rules)) db2.rules = [];
+        if (!db2.rules[idx]) return;
+        // If this is an auto-regex rule, preserve regex storage; else store plain text
+        if (String(db2.rules[idx].mode || "plain") === "regex" && isAutoRegex(String(db2.rules[idx].from||""))) {
+          // Convert human back to regex-ish minimal: keep original if you didn't change much
+          // Safer: just replace display tokens back to \s+ and wrap \b...\b
+          const human = String(fromIn.value||"").trim().toUpperCase();
+          db2.rules[idx].from = "\\b" + human.replace(/\s+/g, "\\\\s+") + "\\\\b";
+        } else {
+          db2.rules[idx].from = String(fromIn.value||"");
+        }
+        saveDb(db2);
+        rebuildPreview();
+      };
+      fromTd.appendChild(fromIn);
+
+      const toTd = mk("td", { style:"padding:6px 4px; border-bottom:1px solid rgba(0,0,0,0.06);" });
+      const toIn = mk("input", { type:"text", value:toRaw, style:"width:100%;" });
+      toIn.onchange = () => {
+        const db2 = getDb();
+        if (!Array.isArray(db2.rules)) db2.rules = [];
+        if (db2.rules[idx]) db2.rules[idx].to = String(toIn.value||"");
+        saveDb(db2);
+        rebuildPreview();
+      };
+      toTd.appendChild(toIn);
+
+      const modeTd = mk("td", { style:"padding:6px 4px; border-bottom:1px solid rgba(0,0,0,0.06);" });
+      const modeSel = mk("select", {});
+      modeOptions.forEach(([v,t]) => modeSel.appendChild(mk("option",{value:v,text:t})));
+      modeSel.value = mode;
+      modeSel.onchange = () => {
+        const db2 = getDb();
+        if (!Array.isArray(db2.rules)) db2.rules = [];
+        if (db2.rules[idx]) db2.rules[idx].mode = String(modeSel.value||"plain");
+        saveDb(db2);
+        render();
+        rebuildPreview();
+      };
+      modeTd.appendChild(modeSel);
+
+      const actTd = mk("td", { style:"padding:6px 4px; border-bottom:1px solid rgba(0,0,0,0.06);" });
+      const delBtn = mk("button", { type:"button", text:"Delete" });
+      delBtn.onclick = () => {
+        const db2 = getDb();
+        if (!Array.isArray(db2.rules)) db2.rules = [];
+        if (idx >= 0 && idx < db2.rules.length) {
+          db2.rules.splice(idx, 1);
+          saveDb(db2);
+          render();
+          rebuildPreview();
+        }
+      };
+      actTd.appendChild(delBtn);
+
+      tr.appendChild(onTd);
+      tr.appendChild(fromTd);
+      tr.appendChild(toTd);
+      tr.appendChild(modeTd);
+      tr.appendChild(actTd);
+      tbody.appendChild(tr);
+    });
+  };
+
+  // Wire buttons
+  searchInp.oninput = () => render();
+
+  addBtn.onclick = () => {
+    const db = getDb();
+    if (!Array.isArray(db.rules)) db.rules = [];
+    db.rules.unshift({ id:"r_"+Date.now(), from:"", to:"", mode:"plain", enabled:true });
+    saveDb(db);
+    render();
+  };
+
+  sortBtn.onclick = () => {
+    const db = getDb();
+    if (!Array.isArray(db.rules)) db.rules = [];
+    db.rules.sort((a,b) => String(a.from||"").toUpperCase().localeCompare(String(b.from||"").toUpperCase()));
+    saveDb(db);
+    render();
+  };
+
+  exportBtn.onclick = async () => {
+    const db = getDb();
+    const json = JSON.stringify(db, null, 2);
+    // Download
+    try{
+      const blob = new Blob([json], {type:"application/json"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,"-");
+      a.download = `STEELER_Abbreviations_${ts}.json`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 200);
+    }catch(e){}
+    // Clipboard (best effort)
+    try{
+      if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(json);
+    }catch(e){}
+    alert("Abbreviations JSON exported (downloaded and copied to clipboard).");
+  };
+
+  importBtn.onclick = () => { importFile.value=""; importFile.click(); };
+
+  importFile.addEventListener("change", (ev) => {
+    const f = (ev.target && ev.target.files && ev.target.files[0]) ? ev.target.files[0] : null;
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try{
+        const obj = JSON.parse(String(reader.result||""));
+        // Accept either flat (rules[]) or legacy (groups)
+        if (obj && Array.isArray(obj.rules)) {
+          saveDb({ ...getDb(), ...obj, rules: obj.rules });
+        } else {
+          // Store raw and let loadAbbrDb normalise on next call
+          localStorage.setItem(ABBR_DB_KEY, JSON.stringify(obj));
+          loadAbbrDb(); // normalise + save
+        }
+        render();
+        rebuildPreview();
+        alert("Abbreviations DB imported.");
+      }catch(e){
+        alert("Import failed: invalid JSON.");
+      }
+    };
+    reader.readAsText(f);
+  });
+
+  resetBtn.onclick = () => {
+    if (!confirm("Reset abbreviations to shipped defaults? This will overwrite your current rules.")) return;
+    const db = loadAbbrDb({forceReset:true});
+    saveDb(db);
+    render();
+    rebuildPreview();
+  };
+
+  clearBtn.onclick = () => {
+    if (!confirm("Clear all abbreviation rules?")) return;
+    const db = getDb();
+    db.rules = [];
+    saveDb(db);
+    render();
+    rebuildPreview();
+  };
+
+  prevProvider.onchange = rebuildPreview;
+  prevCat.onchange = rebuildPreview;
+  prevIn.oninput = rebuildPreview;
+
+  // Initial render
+  render();
+  rebuildPreview();
+}
+
+
 // --- Initial load --------------------------------------------------
 
 if (new URLSearchParams(location.search).has("reset")) {
@@ -5692,6 +6210,10 @@ if (new URLSearchParams(location.search).has("reset")) {
   setupTidePasteModal();
   refreshPortUI();
   applyTheme(localStorage.getItem(THEME_KEY) || "day");
+
+  // CL-081: Settings block order + Weather Shorthand editor
+  try { reorderSettingsBlocksAndInjectWx(); } catch (e) { console.warn('reorderSettingsBlocksAndInjectWx failed', e); }
+
 
   // Settings: Reset PWA Cache button (keeps log data)
   const resetBtn = document.getElementById("resetPwaCacheBtn");
