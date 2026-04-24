@@ -258,7 +258,7 @@
             <button id="importBackupBtn" class="btn btn-secondary">Restore</button>
             <input id="importFileInput" type="file" accept="application/json,.json" hidden>
           </div>
-          <p class="hint">Restore replaces current data on this device.</p>
+          <p class="hint">Backup/Restore now applies to passages only. Ports are managed separately below.</p>
         </div>
 
         <div class="settings-card">
@@ -266,7 +266,12 @@
           <div class="settings-row">
             <button id="managePortsBtn" class="btn btn-secondary">Manage Ports</button>
           </div>
-          <p class="hint">Add/remove ports and (optionally) store lat/long for Sunrise/Sunset calculations.</p>
+          <div class="backup-row" style="margin-top:0.6rem;">
+            <button id="exportPortsBtn" class="btn btn-secondary">Export Ports</button>
+            <button id="importPortsBtn" class="btn btn-secondary">Import Ports</button>
+            <input id="importPortsFileInput" type="file" accept="application/json,.json" hidden>
+          </div>
+          <p class="hint">Ports, coordinates and Comms / Pilotage are stored separately from passage backups. Import merges by port name.</p>
         </div>
 
         <div class="settings-card">

@@ -4,7 +4,404 @@ const STORAGE_KEY = "steeler_logbook_passages_v5";
 const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 
-const APP_VERSION = "0.7.8";
+const APP_VERSION = "0.9.0";
+
+// --- Safety / Emergency Info (v0.7.16) ----------------------------
+
+const SAFETY_INFO_KEY = "steeler_safety_emergency_info_v1";
+
+function loadSafetyInfo(){
+  try{
+    const raw = localStorage.getItem(SAFETY_INFO_KEY);
+    return raw ? JSON.parse(raw) : null;
+  }catch{ return null; }
+}
+
+function saveSafetyInfo(obj){
+  try{
+    localStorage.setItem(SAFETY_INFO_KEY, JSON.stringify(obj));
+  }catch(e){
+    console.warn("Failed to save safety info", e);
+  }
+}
+
+function getSafetyInfo(){
+  let s = loadSafetyInfo();
+  if (!s){
+    s = {
+						vessel: {
+								boatName: "STEELER",
+								boatType: "Motor Yacht",
+								boatModel: "",
+								callsign: "",
+								mmsi: "",
+								ukSsr: "",
+								marineTrafficShipId: "",
+								homePort: "",        
+        length: "",
+        beam: "",
+        draft: ""
+      },
+      appearanceSafety: {
+        topsides: "",
+        hull: "",
+        superstructure: "",
+        liferaft: "",
+        dinghy: "",
+        lifejackets: "",
+        epirb: "",
+        safetyEquip: "",
+        rnEquip: ""
+      },
+      owner: {
+        names: "",
+        tel: "",
+        email: "",
+        address: ""
+      },
+      emergencyContacts: [
+        {
+          id: "ec_default",
+          name: "Emergency Contact",
+          tel: "07715005323",
+          email: "",
+          notes: "",
+          isDefault: true
+        }
+      ],
+      defaults: {
+        overdueHours: 2,
+        engineToSlipMins: 7,
+        detailsPageUrl: "",
+        includeDetailsUrlInSms: true,
+        includeMarineTrafficInSms: true
+      }
+    };
+    saveSafetyInfo(s);
+  }
+  return s;
+}
+
+// --- Emergency Contact Settings (CL-085) ----------------------------
+
+const EC_SETTINGS_KEY = "steeler_ec_settings_v1";
+
+function loadEcSettings(){
+  try{
+    const raw = localStorage.getItem(EC_SETTINGS_KEY);
+    return raw ? JSON.parse(raw) : null;
+  }catch{ return null; }
+}
+
+function saveEcSettings(obj){
+  try{
+    localStorage.setItem(EC_SETTINGS_KEY, JSON.stringify(obj));
+  }catch(e){
+    console.warn("Failed to save EC settings", e);
+  }
+}
+
+function getEcSettings(){
+  let s = loadEcSettings();
+  if (!s){
+    s = {
+      emergencyContact: {
+        name:"Emergency Contact",
+        tel:"07715005323",
+        email:"",
+        overdueHours:2
+      },
+      vesselProfile: {
+        boatName:"STEELER",
+        boatType:"Motor Yacht",
+        callsign:"",
+        mmsi:"",
+        detailsUrl:""
+      },
+      passageDefaults: {
+        engineToSlipMins:7
+      }
+    };
+    saveEcSettings(s);
+  }
+  return s;
+}
+
+// --- Safety Info helpers ------------------------------------------
+
+function getDefaultEmergencyContact(){
+  const s = getSafetyInfo();
+  const list = s.emergencyContacts || [];
+  if (!list.length) return null;
+
+  const def = list.find(c => c.isDefault);
+  return def || list[0];
+}
+
+function getEmergencyContacts(){
+  const s = getSafetyInfo();
+  if (!Array.isArray(s.emergencyContacts)) s.emergencyContacts = [];
+  if (!s.emergencyContacts.length){
+    s.emergencyContacts = [{
+      id: "ec_" + Date.now(),
+      name: "Emergency Contact",
+      tel: "",
+      email: "",
+      notes: "",
+      isDefault: true
+    }];
+    saveSafetyInfo(s);
+  }
+  return s.emergencyContacts;
+}
+
+function createBlankEmergencyContact(){
+  return {
+    id: "ec_" + Date.now() + "_" + Math.random().toString(36).slice(2,8),
+    name: "",
+    tel: "",
+    email: "",
+    notes: "",
+    isDefault: false
+  };
+}
+
+function setDefaultEmergencyContact(contactId){
+  const s = getSafetyInfo();
+  const list = Array.isArray(s.emergencyContacts) ? s.emergencyContacts : [];
+  list.forEach(c => { c.isDefault = String(c.id) === String(contactId); });
+  saveSafetyInfo(s);
+}
+
+function deleteEmergencyContact(contactId){
+  const s = getSafetyInfo();
+  let list = Array.isArray(s.emergencyContacts) ? s.emergencyContacts : [];
+  list = list.filter(c => String(c.id) !== String(contactId));
+
+  if (!list.length){
+    list = [createBlankEmergencyContact()];
+    list[0].name = "Emergency Contact";
+    list[0].isDefault = true;
+  } else if (!list.some(c => c.isDefault)) {
+    list[0].isDefault = true;
+  }
+
+  s.emergencyContacts = list;
+  saveSafetyInfo(s);
+}
+
+function loadEmergencyContactIntoSettingsForm(contact){
+  const c = contact || createBlankEmergencyContact();
+
+  const idEl = document.getElementById("seiEcId");
+  if (idEl) idEl.value = c.id || "";
+
+  const nameEl = document.getElementById("seiEcName");
+  const telEl = document.getElementById("seiEcTel");
+  const emailEl = document.getElementById("seiEcEmail");
+  const notesEl = document.getElementById("seiEcNotes");
+
+  if (nameEl) nameEl.value = c.name || "";
+  if (telEl) telEl.value = c.tel || "";
+  if (emailEl) emailEl.value = c.email || "";
+  if (notesEl) notesEl.value = c.notes || "";
+}
+
+function renderEmergencyContactsManager(){
+  const listEl = document.getElementById("seiEcList");
+  if (!listEl) return;
+
+  const contacts = getEmergencyContacts();
+  listEl.innerHTML = "";
+
+  contacts.forEach(c => {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex; gap:8px; justify-content:space-between; align-items:flex-start; padding:8px 10px; border:1px solid var(--line); border-radius:12px; margin-top:8px;";
+
+    const left = document.createElement("div");
+    left.style.flex = "1";
+    left.innerHTML = `
+      <div style="font-weight:600;">${escapeHtml(c.name || "(unnamed contact)")} ${c.isDefault ? '<span style="opacity:0.7;">[default]</span>' : ''}</div>
+      <div style="opacity:0.85;">${escapeHtml(c.tel || "")}</div>
+      ${c.email ? `<div style="opacity:0.75;">${escapeHtml(c.email)}</div>` : ""}
+      ${c.notes ? `<div style="opacity:0.75;">${escapeHtml(c.notes)}</div>` : ""}
+    `;
+
+    const right = document.createElement("div");
+    right.style.cssText = "display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;";
+
+    const editBtn = document.createElement("button");
+    editBtn.type = "button";
+    editBtn.className = "btn btn-secondary btn-small";
+    editBtn.textContent = "Edit";
+    editBtn.addEventListener("click", () => loadEmergencyContactIntoSettingsForm(c));
+
+    const defBtn = document.createElement("button");
+    defBtn.type = "button";
+    defBtn.className = "btn btn-secondary btn-small";
+    defBtn.textContent = "Make Default";
+    defBtn.disabled = !!c.isDefault;
+    defBtn.addEventListener("click", () => {
+      setDefaultEmergencyContact(c.id);
+      renderEmergencyContactsManager();
+      loadEmergencyContactIntoSettingsForm(getDefaultEmergencyContact());
+    });
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "btn btn-secondary btn-small";
+    delBtn.textContent = "Delete";
+    delBtn.addEventListener("click", () => {
+      if (!confirm(`Delete emergency contact "${c.name || c.tel || "this contact"}"?`)) return;
+      deleteEmergencyContact(c.id);
+      renderEmergencyContactsManager();
+      loadEmergencyContactIntoSettingsForm(getDefaultEmergencyContact());
+    });
+
+    right.appendChild(editBtn);
+    right.appendChild(defBtn);
+    right.appendChild(delBtn);
+
+    row.appendChild(left);
+    row.appendChild(right);
+    listEl.appendChild(row);
+  });
+}
+
+function chooseEmergencyContactForNotification(){
+  const contacts = getEmergencyContacts();
+
+  const lines = contacts.map((c, i) => {
+    const mark = c.isDefault ? " [default]" : "";
+    return `${i+1}. ${c.name || "(unnamed)"} – ${c.tel || "(no number)"}${mark}`;
+  }).join("\n");
+
+  const choice = prompt(
+    "Notify Emergency Contact\n\n" +
+    "Enter a saved contact number, or type NEW for a one-off contact.\n\n" +
+    lines,
+    ""
+  );
+
+  if (choice == null) return null;
+
+  const raw = String(choice).trim();
+  if (!raw) return null;
+
+  if (raw.toUpperCase() === "NEW"){
+    const name = prompt("One-off EC name:", "") || "";
+    const tel = prompt("One-off EC telephone number:", "") || "";
+    if (!String(tel).trim()) return null;
+    const email = prompt("One-off EC email (optional):", "") || "";
+    const notes = prompt("One-off EC notes / relationship (optional):", "") || "";
+    return { id: "oneoff", name: name.trim(), tel: tel.trim(), email: email.trim(), notes: notes.trim(), isDefault: false };
+  }
+
+  const idx = parseInt(raw, 10);
+  if (Number.isFinite(idx) && idx >= 1 && idx <= contacts.length){
+    return contacts[idx - 1];
+  }
+
+  return null;
+}
+
+function migrateLegacyEcSettingsIntoSafetyInfo(){
+  const legacy = loadEcSettings();
+  const safety = getSafetyInfo();
+
+  let changed = false;
+
+  if (legacy?.vesselProfile){
+    const vp = legacy.vesselProfile;
+    if (!safety.vessel.boatName && vp.boatName) { safety.vessel.boatName = vp.boatName; changed = true; }
+    if (!safety.vessel.boatType && vp.boatType) { safety.vessel.boatType = vp.boatType; changed = true; }
+    if (!safety.vessel.callsign && vp.callsign) { safety.vessel.callsign = vp.callsign; changed = true; }
+    if (!safety.vessel.mmsi && vp.mmsi) { safety.vessel.mmsi = vp.mmsi; changed = true; }
+    if (!safety.defaults.detailsPageUrl && vp.detailsUrl) { safety.defaults.detailsPageUrl = vp.detailsUrl; changed = true; }
+  }
+
+  if (legacy?.passageDefaults){
+    if ((!safety.defaults.engineToSlipMins || safety.defaults.engineToSlipMins === 7) && legacy.passageDefaults.engineToSlipMins != null) {
+      safety.defaults.engineToSlipMins = Number(legacy.passageDefaults.engineToSlipMins || 7);
+      changed = true;
+    }
+    if ((!safety.defaults.overdueHours || safety.defaults.overdueHours === 2) && legacy.emergencyContact?.overdueHours != null) {
+      safety.defaults.overdueHours = Number(legacy.emergencyContact.overdueHours || 2);
+      changed = true;
+    }
+  }
+
+  if (legacy?.emergencyContact){
+    const ec0 = (safety.emergencyContacts && safety.emergencyContacts[0]) ? safety.emergencyContacts[0] : null;
+    if (ec0){
+      if (!ec0.name && legacy.emergencyContact.name) { ec0.name = legacy.emergencyContact.name; changed = true; }
+      if (!ec0.tel && legacy.emergencyContact.tel) { ec0.tel = legacy.emergencyContact.tel; changed = true; }
+      if (!ec0.email && legacy.emergencyContact.email) { ec0.email = legacy.emergencyContact.email; changed = true; }
+    }
+  }
+
+  if (changed) saveSafetyInfo(safety);
+}
+
+function saveSafetyInfoFromSettingsFields(){
+  const s = getSafetyInfo();
+
+  s.vessel.boatName  = (document.getElementById("seiBoatName")?.value || "").trim();
+  s.vessel.boatType  = (document.getElementById("seiBoatType")?.value || "").trim();
+  s.vessel.boatModel = (document.getElementById("seiBoatModel")?.value || "").trim();
+		s.vessel.callsign  = (document.getElementById("seiCallsign")?.value || "").trim();
+		s.vessel.mmsi      = (document.getElementById("seiMmsi")?.value || "").trim();
+		s.vessel.ukSsr     = (document.getElementById("seiUkSsr")?.value || "").trim();
+		s.vessel.marineTrafficShipId = (document.getElementById("seiMarineTrafficShipId")?.value || "").trim();		s.vessel.homePort  = (document.getElementById("seiHomePort")?.value || "").trim();  s.vessel.length    = (document.getElementById("seiLength")?.value || "").trim();
+  s.vessel.beam      = (document.getElementById("seiBeam")?.value || "").trim();
+  s.vessel.draft     = (document.getElementById("seiDraft")?.value || "").trim();
+
+  s.appearanceSafety.topsides       = (document.getElementById("seiTopsides")?.value || "").trim();
+  s.appearanceSafety.hull           = (document.getElementById("seiHull")?.value || "").trim();
+  s.appearanceSafety.superstructure = (document.getElementById("seiSuperstructure")?.value || "").trim();
+  s.appearanceSafety.liferaft       = (document.getElementById("seiLiferaft")?.value || "").trim();
+  s.appearanceSafety.dinghy         = (document.getElementById("seiDinghy")?.value || "").trim();
+  s.appearanceSafety.lifejackets    = (document.getElementById("seiLifejackets")?.value || "").trim();
+  s.appearanceSafety.epirb          = (document.getElementById("seiEpirb")?.value || "").trim();
+  s.appearanceSafety.safetyEquip    = (document.getElementById("seiSafetyEquip")?.value || "").trim();
+  s.appearanceSafety.rnEquip        = (document.getElementById("seiRnEquip")?.value || "").trim();
+
+  s.owner.names   = (document.getElementById("seiOwnerNames")?.value || "").trim();
+  s.owner.tel     = (document.getElementById("seiOwnerTel")?.value || "").trim();
+  s.owner.email   = (document.getElementById("seiOwnerEmail")?.value || "").trim();
+  s.owner.address = (document.getElementById("seiOwnerAddr")?.value || "").trim();
+
+  s.defaults.overdueHours = Number(document.getElementById("seiOverdueHours")?.value || 2);
+  s.defaults.engineToSlipMins = Number(document.getElementById("seiEngineToSlip")?.value || 7);
+  s.defaults.detailsPageUrl = (document.getElementById("seiDetailsUrl")?.value || "").trim();
+  s.defaults.includeDetailsUrlInSms = !!document.getElementById("seiIncludeDetailsUrl")?.checked;
+  s.defaults.includeMarineTrafficInSms = !!document.getElementById("seiIncludeMarineTraffic")?.checked;
+
+		if (!Array.isArray(s.emergencyContacts) || !s.emergencyContacts.length){
+				s.emergencyContacts = [createBlankEmergencyContact()];
+				s.emergencyContacts[0].name = "Emergency Contact";
+				s.emergencyContacts[0].isDefault = true;
+		}
+		
+		const selectedId = (document.getElementById("seiEcId")?.value || "").trim();
+		let ec = s.emergencyContacts.find(c => String(c.id) === String(selectedId));
+		
+		if (!ec){
+				ec = createBlankEmergencyContact();
+				ec.isDefault = !s.emergencyContacts.some(c => c.isDefault);
+				s.emergencyContacts.push(ec);
+		}
+		
+		ec.name  = (document.getElementById("seiEcName")?.value || "").trim();
+		ec.tel   = (document.getElementById("seiEcTel")?.value || "").trim();
+		ec.email = (document.getElementById("seiEcEmail")?.value || "").trim();
+		ec.notes = (document.getElementById("seiEcNotes")?.value || "").trim();
+		
+		if (!s.emergencyContacts.some(c => c.isDefault)) ec.isDefault = true;
+
+  saveSafetyInfo(s);
+  alert("Safety / Emergency Info saved.");
+}
 
 // ---------------------------------------------------------------------------
 // Emergency reset hook
@@ -445,34 +842,19 @@ const lookupBtn = document.createElement("button");
     lookupBtn.className = "ports-mini";
     lookupBtn.textContent = "Lookup";
     lookupBtn.addEventListener("click", async () => {
-      try {
-        const q = encodeURIComponent(normalisePortQuery(name) + " harbour");
-        const viewbox = "-6.8,53.5,3.5,45.5"; // UK + Channel + N France (down to La Rochelle)
-        const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=3&countrycodes=gb,fr,gg,je&viewbox=${viewbox}&bounded=1&q=${q}`;
-        const res = await fetch(url, { headers: { "Accept": "application/json", "Accept-Language":"en" } });
-        if (!res.ok) throw new Error("Lookup failed");
-        const data = await res.json();
-        if (!data || !data.length) {
-          alert("No match found. Try manual lat/lon.");
-          return;
-        }
-        let lat = NaN, lon = NaN;
-        for (const it of data){
-          const la = parseFloat(it.lat);
-          const lo = parseFloat(it.lon);
-          if (!isNaN(la) && !isNaN(lo) && saneForSteeler(la, lo)) { lat = la; lon = lo; break; }
-        }
-        if (isNaN(lat) || isNaN(lon)) {
-          alert("Lookup returned invalid coordinates.");
-          return;
-        }
-        latInput.value = lat.toFixed(6);
-        lonInput.value = lon.toFixed(6);
-      } catch (e) {
-        console.error(e);
-        alert("Could not look up that port (offline or blocked). You can enter lat/lon manually.");
-      }
-    });
+						try {
+								const hit = await lookupPortCoordsOnline(name);
+								if (!hit) {
+										alert(`Couldn’t find a reliable place match for "${name}". You can enter coordinates manually.`);
+										return;
+								}
+								latInput.value = hit.lat.toFixed(6);
+								lonInput.value = hit.lon.toFixed(6);
+						} catch (e) {
+								console.error(e);
+								alert("Could not look up that port (offline or blocked). You can enter coordinates manually.");
+						}
+				});
 
     coords.appendChild(latInput);
     coords.appendChild(lonInput);
@@ -629,6 +1011,7 @@ function setupTidePasteModal(){
       stations[idx].lw1h = (parsed.lwH && parsed.lwH[0]) ? parsed.lwH[0] : "";
       stations[idx].lw2h = (parsed.lwH && parsed.lwH[1]) ? parsed.lwH[1] : "";
       stations[idx].events = parsed.events || [];
+      if (parsed.stationName) stations[idx].name = parsed.stationName;
 
       // If the paste contains a French Coef and the plan field is empty, populate it.
       try {
@@ -666,11 +1049,22 @@ function parseTidePaste(text, isoDate){
       const monShort = d.toLocaleString("en-GB",{month:"short", timeZone:"UTC"});
       const monLong  = d.toLocaleString("en-GB",{month:"long", timeZone:"UTC"});
       const yr = String(d.getUTCFullYear());
-      const re = new RegExp(`(?:^|\\n).*\\b${day2}\\s+(?:${monShort}|${monLong})\\s+${yr}\\b[\\s\\S]*?(?=\\n\\s*\\w+\\,\\s*\\d{2}\\s+(?:${monShort}|${monLong})\\s+\\d{4}\b|$)`, "i");
+      const re = new RegExp(`(?:^|\\n).*\\b${day2}\\s+(?:${monShort}|${monLong})\\s+${yr}\\b[\\s\\S]*?(?=\\n\\s*\\w+\\,\\s*\\d{2}\\s+(?:${monShort}|${monLong})\\s+\\d{4}\\b|$)`, "i");
       const m = raw.match(re);
       if (m && m[0]) block = m[0];
     }
   }
+
+  const stationName = raw.split("\n")
+    .map(s => s.trim())
+    .find(s => s
+      && !/^\w+\s*,\s*\d{1,2}\s+[A-Za-z]+\s+\d{4}$/i.test(s)
+      && !/^(BST|UTC|GMT)$/i.test(s)
+      && !/^[▲▼]/.test(s)
+      && !/^Coef\b/i.test(s)
+      && !/^\(?\d+(?:[\.,]\d+)?m\)?$/i.test(s)
+      && !/[0-9]+°.*[0-9]+[’'′]/.test(s)
+    ) || "";
 
   const events = [];
   const lineRe = /([▲▼])\s*([0-2]?\d:[0-5]\d)\s*([0-9]+(?:[\.,][0-9]+)?)\s*m/gi;
@@ -686,15 +1080,12 @@ function parseTidePaste(text, isoDate){
     return { ok:false, message:"Couldn't find ▲/▼ tide lines with time + height. Make sure you copied the Day Table." };
   }
 
-  // Coefficient (French)
   let coeff = "";
   const cm = block.match(/\bCoef\s+([0-9]{1,3}(?:\s*,\s*[0-9]{1,3})*)/i);
   if (cm && cm[1]) coeff = cm[1].replace(/\s+/g," ").trim();
 
-  // Normalise + sort by time
   events.sort((a,b) => (a.time > b.time ? 1 : (a.time < b.time ? -1 : 0)));
 
-  // Also provide first two HW + first two LW times/heights for convenience fields
   const hwEv = events.filter(e => e.type==="HW").slice(0,2);
   const lwEv = events.filter(e => e.type==="LW").slice(0,2);
   const hw = hwEv.map(e => e.time);
@@ -702,10 +1093,8 @@ function parseTidePaste(text, isoDate){
   const hwH = hwEv.map(e => (typeof e.height === "number" ? String(e.height) : ""));
   const lwH = lwEv.map(e => (typeof e.height === "number" ? String(e.height) : ""));
 
-  return { ok:true, events, hw, lw, hwH, lwH, coeff, source:"imray", raw };
+  return { ok:true, events, hw, lw, hwH, lwH, coeff, stationName, source:"imray", raw };
 }
-
-
 
 
 // --- Storage helpers -----------------------------------------------
@@ -832,42 +1221,62 @@ function rememberPort(name) {
 // --- Coordinate formatting/parsing + sanity checks (CL-073) --------
 function formatDMM(lat, lon){
   function one(val, isLat){
-    const hemi = isLat ? (val>=0 ? "N" : "S") : (val>=0 ? "E" : "W");
+    const hemi = isLat ? (val >= 0 ? "N" : "S") : (val >= 0 ? "E" : "W");
     const a = Math.abs(val);
     const deg = Math.floor(a);
     const min = (a - deg) * 60;
-    // 3 decimals on minutes
-    return `${deg}°${min.toFixed(3)}'${hemi}`;
+    const minutesStr = min.toFixed(3).padStart(6, "0");
+    return `${deg}º${minutesStr}'${hemi}`;
   }
   if (isNaN(lat) || isNaN(lon)) return "";
-  return one(lat,true) + "  " + one(lon,false);
+  return `${one(lat, true)}, ${one(lon, false)}`;
 }
 
 function parseCoordPart(s, isLat){
   if (!s) return NaN;
   const t = String(s).trim().toUpperCase();
-  // decimal
-  if (/^-?\d+(\.\d+)?$/.test(t)) return parseFloat(t);
 
-  // DMM forms like 50°45.123'N or 50 45.123 N
-  const m = t.match(/^(\d{1,3})\s*(?:°|\s)\s*(\d{1,2}(?:\.\d+)?)\s*(?:'|\s)?\s*([NSEW])$/);
+  // Plain decimal
+  if (/^-?\d+(?:\.\d+)?$/.test(t)) return parseFloat(t);
+
+  // Flexible DDM:
+  // 50º45.123'N
+  // 50°45.123'N
+  // 50 45.123 N
+  // 001º18.456'W
+  const m = t.match(/^(\d{1,3})\s*(?:º|°|\s)\s*(\d{1,2}(?:\.\d+)?)\s*(?:'|’|′|\s)?\s*([NSEW])$/);
   if (!m) return NaN;
-  const deg = parseInt(m[1],10);
+
+  const deg = parseInt(m[1], 10);
   const mins = parseFloat(m[2]);
   const hemi = m[3];
-  let val = deg + (mins/60);
+
+  if (!Number.isFinite(deg) || !Number.isFinite(mins)) return NaN;
+  let val = deg + (mins / 60);
   if (hemi === "S" || hemi === "W") val *= -1;
-  // basic range sanity
+
   if (isLat && (val < -90 || val > 90)) return NaN;
   if (!isLat && (val < -180 || val > 180)) return NaN;
+
   return val;
 }
-
 function parseLatLon(latStr, lonStr){
   const lat = parseCoordPart(latStr,true);
   const lon = parseCoordPart(lonStr,false);
   if (!isNaN(lat) && !isNaN(lon)) return {lat, lon};
   return null;
+}
+
+function parseSingleLatLonField(val){
+  const s = String(val || "").trim();
+  if (!s) return null;
+  const m = s.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if (!m) return null;
+  const lat = parseFloat(m[1]);
+  const lon = parseFloat(m[2]);
+  if (!isFinite(lat) || !isFinite(lon)) return null;
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+  return { lat, lon };
 }
 
 // Haversine distance in km
@@ -1201,15 +1610,239 @@ function updatePlanCommsFromPorts(){
   } catch (e) {}
 }
 
+// --- EC SMS Builders (CL-085) -------------------------------------
+
+function buildWpList(p){
+  const wps = p?.plan?.detailed?.waypoints || [];
+  const out = [];
+
+  for (let i = 0; i < wps.length && i < 10; i++){
+    const wp = wps[i];
+    const la = Number(wp?.lat);
+    const lo = Number(wp?.lon);
+    if (!Number.isFinite(la) || !Number.isFinite(lo)) continue;
+
+    const dmm = formatDMM(la, lo);
+    out.push(`WP${i+1} ${dmm}`);
+  }
+
+  if (wps.length > 10) out.push("… + more");
+  return out.join("\n");
+}
+
+function buildPorList(p){
+  const fromDetailed = String(p?.plan?.detailed?.portsOfRefuge || "").trim();
+  if (fromDetailed) return fromDetailed;
+
+  const ts = p?.plan?.tideStations || [];
+  const names = ts.map(t => t.name).filter(Boolean);
+  return names.join(", ");
+}
+
+function getMarineTrafficLink(vessel){
+  const shipId = String(vessel?.marineTrafficShipId || "").trim();
+  if (shipId){
+    return `https://www.marinetraffic.com/en/ais/home/shipid:${shipId}/zoom:14`;
+  }
+
+  const m = String(vessel?.mmsi || "").trim();
+  if (m){
+    return `https://www.marinetraffic.com/en/ais/details/ships/mmsi:${m}`;
+  }
+
+  return "";
+}
+
+function getPassageEtaInfo(p){
+  const wps = p?.plan?.detailed?.waypoints || [];
+  if (!wps.length) return { etaText: "", overdueText: "" };
+
+  const last = wps[wps.length - 1];
+  const eta = String(last?.time || "").trim();
+  if (!eta) return { etaText: "", overdueText: "" };
+
+  const planDate = String(p?.plan?.date || "").trim();
+  let etaDateText = planDate;
+
+  try {
+    const totalMinutes = durationHHMMToMinutes(calcDetailedPassagePlanTotals(wps).duration || "00:00");
+    const startMins = hhmmToMinutes(String(wps[0]?.time || "").trim());
+    const endMins   = hhmmToMinutes(eta);
+
+    let dayOffset = 0;
+    if (Number.isFinite(totalMinutes) && totalMinutes >= 1440) {
+      dayOffset = Math.floor(totalMinutes / 1440);
+    } else if (Number.isFinite(startMins) && Number.isFinite(endMins) && endMins < startMins) {
+      dayOffset = 1;
+    }
+
+    if (planDate && dayOffset > 0) {
+      const d = new Date(planDate + "T12:00:00");
+      if (!isNaN(d.getTime())) {
+        d.setDate(d.getDate() + dayOffset);
+        etaDateText = d.toISOString().slice(0,10);
+      }
+    }
+  } catch(e) {}
+
+  const etaText = etaDateText ? `${eta} on ${etaDateText}` : eta;
+
+  const overdueHours = Number(getSafetyInfo()?.defaults?.overdueHours || 2);
+  const base = hhmmToMinutes(eta);
+  const overdueText = Number.isFinite(base)
+    ? `If you have not heard from us by around ${minutesToHHMM(base + overdueHours * 60)}, please try to contact us. If you cannot reach us, call 999 or 112 and ask for the Coastguard.`
+    : "";
+
+  return { etaText, overdueText };
+}
+
+function buildEcStartSms(p){
+  const sOld = getEcSettings(); // fallback
+  const sNew = getSafetyInfo();
+
+  const vessel = sNew.vessel || sOld.vesselProfile || {};
+  const origin = String(p?.plan?.from || "").trim();
+  const destination = String(p?.plan?.to || "").trim();
+
+  const mmsi = String(vessel.mmsi || "").trim();
+  const mtLink = getMarineTrafficLink(vessel);
+  const por = buildPorList(p);
+  const etaInfo = getPassageEtaInfo(p);
+
+  const intro = `LOOKOUT REQUEST
+
+Thanks for agreeing to look out for us during ${vessel.boatName || "our vessel"}'s passage from ${origin || "our origin"} to ${destination || "our destination"} today. ${etaInfo.etaText ? `We expect to arrive around ${etaInfo.etaText}. ` : ""}We'll message you once we've completed the passage to confirm our arrival.`;
+
+  const vesselBlock = `VESSEL
+Boat Name: ${vessel.boatName || ""}
+Boat Type: ${vessel.boatType || ""}
+Callsign: ${vessel.callsign || ""}
+MMSI: ${mmsi}`;
+
+  const passageLines = [
+    `Origin: ${origin || ""}`,
+    `Destination: ${destination || ""}`,
+    `Intended Routing:\n${buildWpList(p) || "(no waypoints set)"}`,
+    etaInfo.etaText ? `ETA: ${etaInfo.etaText}` : "",
+    por ? `Possible Ports of Refuge:\n${por}` : ""
+  ].filter(Boolean);
+
+  const sections = [
+    intro,
+    (mtLink && sNew.defaults?.includeMarineTrafficInSms) ? `Our latest position (when in range) is: ${mtLink}` : "",
+    etaInfo.overdueText,
+    "The following information may be of interest and should also be passed on to the Coastguard in case of emergency.",
+    vesselBlock,
+    `PASSAGE DETAILS\n${passageLines.join("\n\n")}`,
+    (sNew.defaults?.includeDetailsUrlInSms && sNew.defaults?.detailsPageUrl) ? `FULL VESSEL DETAILS:\n${sNew.defaults.detailsPageUrl}` : ""
+  ];
+
+  return sections.filter(Boolean).join("\n\n").trim();
+}
+
+function buildEcEndSms(p){
+  const destination = String(p?.plan?.to || "").trim();
+  return destination
+    ? `Thanks for looking out for us during our passage to ${destination} today. We've arrived safely and our passage plan is now ended.`
+    : `Thanks for looking out for us during our passage today. We've arrived safely and our passage plan is now ended.`;
+}
+
+function launchSms(number, message){
+  if (!number){
+    alert("No Emergency Contact number set.");
+    return;
+  }
+  window.location.href = `sms:${number}?body=${encodeURIComponent(message)}`;
+}
+
+function chooseEmergencyContactAndSend(message){
+  const contacts = getEmergencyContacts ? getEmergencyContacts() : (getSafetyInfo().emergencyContacts || []);
+  const usableContacts = contacts.filter(c => (c.tel || "").trim());
+
+  const options = usableContacts.map(c => `
+    <option value="${escapeHtml(c.id)}"${c.isDefault ? " selected" : ""}>
+      ${escapeHtml(c.name || "(unnamed contact)")} — ${escapeHtml(c.tel || "")}${c.isDefault ? " [default]" : ""}
+    </option>
+  `).join("");
+
+  showModal({
+    title: "Notify Emergency Contact",
+    okText: "Send SMS",
+    cancelText: "Cancel",
+    bodyHtml: `
+      <div style="display:grid; gap:12px;">
+        <div>
+          <label>
+            Saved Emergency Contact
+            <select id="notifyEcSelect" style="width:100%; padding:8px; border-radius:10px;">
+              ${options || `<option value="">No saved contacts with telephone numbers</option>`}
+            </select>
+          </label>
+        </div>
+
+        <div style="border-top:1px solid var(--line); padding-top:10px;">
+          <div style="font-weight:600; margin-bottom:6px;">Or use a one-off contact</div>
+          <input id="notifyEcOneOffName" placeholder="One-off EC name" style="width:100%; margin-bottom:6px;">
+          <input id="notifyEcOneOffTel" placeholder="One-off EC telephone" style="width:100%;">
+          <div style="font-size:0.9em; opacity:0.75; margin-top:6px;">
+            One-off details are used for this message only and are not saved.
+          </div>
+        </div>
+      </div>
+    `,
+    onOk: () => {
+      const oneOffTel = (document.getElementById("notifyEcOneOffTel")?.value || "").trim();
+      if (oneOffTel){
+        launchSms(oneOffTel, message);
+        return true;
+      }
+
+      const selectedId = (document.getElementById("notifyEcSelect")?.value || "").trim();
+      const selected = usableContacts.find(c => String(c.id) === String(selectedId));
+
+      if (!selected || !selected.tel){
+        alert("Please choose a saved EC with a telephone number, or enter a one-off telephone number.");
+        return false;
+      }
+
+      launchSms(selected.tel, message);
+      return true;
+    }
+  });
+}
+
 function quote(value) {
   if (value == null) return '""';
   const s = String(value).replace(/"/g, '""');
   return `"${s}"`;
 }
 
+function localDateTimeInputValue(d = new Date()) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function timeOnlyFromIso(iso) {
-  if (!iso || iso.length < 16) return iso || "";
-  return iso.slice(11, 16);
+  const s = String(iso || "").trim();
+  if (!s) return "";
+  const m = s.match(/(?:T|\s)?(\d{2}:\d{2})(?::\d{2})?$/);
+  return m ? m[1] : s;
+}
+
+function normalizeEntryTimeInput(raw, existingValue = "", fallbackDate = "") {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+
+  let m = s.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::\d{2})?$/);
+  if (m) return `${m[1]}T${m[2]}`;
+
+  m = s.match(/^(\d{2}:\d{2})(?::\d{2})?$/);
+  if (m) {
+    const baseDate = String(existingValue || "").slice(0, 10) || fallbackDate || localDateTimeInputValue().slice(0, 10);
+    return `${baseDate}T${m[1]}`;
+  }
+
+  return s;
 }
 
 function switchToTab(tabId) {
@@ -1234,6 +1867,7 @@ function switchToTab(tabId) {
           try { ensureAutoTideStations(p); } catch {}
         }
         if (typeof readDailySummariesFromForm === "function") p.plan.dailySummaries = readDailySummariesFromForm();
+        if (typeof readDetailedPassagePlanFromForm === "function") p.plan.detailed = readDetailedPassagePlanFromForm();
         try { savePassages(); } catch {}
       }
     }
@@ -1450,6 +2084,9 @@ const homePassageList   = document.getElementById("homePassageList");
 const exportBackupBtn = document.getElementById("exportBackupBtn");
 const importBackupBtn = document.getElementById("importBackupBtn");
 const importFileInput = document.getElementById("importFileInput");
+const exportPortsBtn = document.getElementById("exportPortsBtn");
+const importPortsBtn = document.getElementById("importPortsBtn");
+const importPortsFileInput = document.getElementById("importPortsFileInput");
 
 const planForm = document.getElementById("planForm");
 const planDate = document.getElementById("planDate");
@@ -1482,6 +2119,7 @@ const tideStationsContainer = document.getElementById("tideStationsContainer");
 const addTideStationBtn = document.getElementById("addTideStationBtn");
 const dailySummariesContainer = document.getElementById("dailySummariesContainer");
 const addDailySummaryBtn = document.getElementById("addDailySummaryBtn");
+let dppGpxFileInput = null;
 
 const addEntryBtn = document.getElementById("addEntryBtn");
 const logEntriesContainer = document.getElementById("logEntriesContainer");
@@ -1684,38 +2322,108 @@ async function lookupPortCoordsOnline(name){
   const n = normalisePortDisplay(name);
   if (!n || !navigator.onLine) return null;
 
-  const viewbox = "-6.8,53.5,3.5,45.5"; // UK + Channel + N France (down to La Rochelle)
   const base = "https://nominatim.openstreetmap.org/search";
+  const viewbox = "-6.8,58.8,7.5,45.5"; // UK, CI, IoM, FR, BE, NL
+  const countrycodes = "gb,fr,be,nl,gg,je,im";
 
-  // Try a small set of increasingly relaxed marine-sane queries.
   const q0 = normalisePortQuery(n);
+
+  // Keep this simple and fast: plain place lookup first, then a light marine-biased variant.
   const queries = [
-    `${q0} harbour`,
+    q0,
     `${q0} port`,
-    `port de ${q0}`,
-    `${q0} marina`,
-    `${q0}, france`,
-    `${q0}, uk`,
-    `${q0}, guernsey`,
-    `${q0}, jersey`
+    `${q0} harbour`
   ].map(q => q.trim()).filter(Boolean);
+
+  function normaliseLoose(s){
+    return String(s || "")
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function tokenise(s){
+    return normaliseLoose(s).split(/\s+/).filter(Boolean);
+  }
+
+  function scoreResult(item){
+    const cls = String(item.class || "").toLowerCase();
+    const typ = String(item.type || "").toLowerCase();
+    const addrt = String(item.addresstype || "").toLowerCase();
+    const dn = String(item.display_name || "");
+    const dnNorm = normaliseLoose(dn);
+    const qNorm = normaliseLoose(n);
+
+    let score = 0;
+
+    // Strong preference for proper places
+    if (cls === "place") score += 60;
+    if (["city","town","village","hamlet","locality","suburb","island"].includes(typ)) score += 40;
+    if (["city","town","village","hamlet","locality","suburb","island"].includes(addrt)) score += 30;
+
+    // Exact whole-name style match
+    if (dnNorm === qNorm) score += 120;
+    if (dnNorm.startsWith(qNorm + " ")) score += 80;
+
+    const qTokens = tokenise(n);
+    const dnTokens = tokenise(dn);
+
+    if (qTokens.length){
+      let matched = 0;
+      qTokens.forEach(t => { if (dnTokens.includes(t)) matched += 1; });
+      score += matched * 18;
+      if (matched === qTokens.length) score += 35;
+    }
+
+    // Marine / coastal hints are a bonus, but not mandatory
+    if (/\b(port|harbour|harbor|marina|quay|dock|pier|haven)\b/i.test(dn)) score += 24;
+
+    // Hard penalties for obvious junk
+    if (/\b(road|street|avenue|lane|close|drive|way|court|terrace|house|farm|cottage|chateau|office|business park|industrial estate)\b/i.test(dn)) score -= 140;
+    if (cls === "highway") score -= 180;
+    if (["road","house","building","commercial","industrial"].includes(addrt)) score -= 120;
+
+    // If the matched string only appears as part of another word, penalise
+    const wholeWord = new RegExp(`\\b${qNorm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+    if (!wholeWord.test(dnNorm) && dnNorm.includes(qNorm)) score -= 30;
+
+    // Light postcode/address penalty
+    if (/\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b/i.test(dn)) score -= 25;
+
+    return score;
+  }
 
   for (const q of queries){
     try{
-      const url = `${base}?format=jsonv2&limit=5&countrycodes=gb,fr,gg,je&viewbox=${viewbox}&bounded=1&q=${encodeURIComponent(q)}`;
+      const url = `${base}?format=jsonv2&limit=8&countrycodes=${countrycodes}&viewbox=${viewbox}&bounded=1&q=${encodeURIComponent(q)}`;
       const res = await fetch(url, {
-        headers: { "Accept":"application/json", "Accept-Language":"en,fr" }
+        headers: { "Accept":"application/json", "Accept-Language":"en,fr,nl" }
       });
       if (!res.ok) continue;
-      const data = await res.json();
-      if (!data || !data.length) continue;
 
-      for (const item of data){
-        const la = parseFloat(item.lat);
-        const lo = parseFloat(item.lon);
-        if (!isNaN(la) && !isNaN(lo) && saneForSteeler(la, lo)){
-          return { lat: la, lon: lo, displayName: item.display_name || "" };
-        }
+      const data = await res.json();
+      if (!Array.isArray(data) || !data.length) continue;
+
+      const ranked = data
+        .map(item => {
+          const lat = parseFloat(item.lat);
+          const lon = parseFloat(item.lon);
+          return { item, lat, lon, score: scoreResult(item) };
+        })
+        .filter(x => isFinite(x.lat) && isFinite(x.lon) && saneForSteeler(x.lat, x.lon))
+        .sort((a,b) => b.score - a.score);
+
+      if (ranked.length){
+        const best = ranked[0];
+        return {
+          lat: best.lat,
+          lon: best.lon,
+          displayName: best.item.display_name || "",
+          googleMapsUrl: `https://www.google.com/maps?q=${best.lat},${best.lon}`
+        };
       }
     }catch(e){
       // try next query
@@ -1725,43 +2433,36 @@ async function lookupPortCoordsOnline(name){
   return null;
 }
 
-function showPortConfirmModal({ name, lat, lon, displayName }){
+function showPortConfirmModal({ name, lat, lon, displayName, googleMapsUrl }){
   return new Promise((resolve) => {
     const n = normalisePortDisplay(name);
     const dmm = formatDMM(lat, lon);
-
     const safeDisplay = escapeHtml(displayName || "");
+    const safeMaps = escapeHtml(googleMapsUrl || `https://www.google.com/maps?q=${lat},${lon}`);
+
     const body = `
       <p><strong>${escapeHtml(n)}</strong> isn’t in your saved ports yet.</p>
-      ${safeDisplay ? `<p class="muted" style="margin-top:6px">Match: ${safeDisplay}</p>` : ""}
+      ${safeDisplay ? `<p class="muted" style="margin-top:6px">Suggested match: ${safeDisplay}</p>` : ""}
       <div style="margin-top:10px; padding:10px; border:1px solid var(--line); border-radius:12px;">
         <div><strong>Lat/Lon</strong>: ${lat.toFixed(6)}, ${lon.toFixed(6)}</div>
         <div style="margin-top:4px">${escapeHtml(dmm)}</div>
+        <div style="margin-top:8px"><a href="${safeMaps}" target="_blank" rel="noopener noreferrer">Check on Google Maps</a></div>
       </div>
-      <p style="margin-top:10px" class="muted">Save this as a port for future lookups?</p>
+      <p style="margin-top:10px" class="muted">Please check this suggested location before saving.</p>
+      <div style="margin-top:10px">
+        <label class="muted" for="pcManualCoords" style="display:block; margin-bottom:4px">Correct coordinates manually (optional)</label>
+        <input id="pcManualCoords" type="text" placeholder="e.g. 49.710, -1.880" style="width:100%; border:1px solid var(--line); border-radius:12px; padding:8px; background:var(--panel); color:var(--fg);">
+      </div>
       <div style="margin-top:10px">
         <label class="muted" for="pcCommsPilotage" style="display:block; margin-bottom:4px">Comms / Pilotage (optional)</label>
         <textarea id="pcCommsPilotage" rows="2" style="width:100%; border:1px solid var(--line); border-radius:12px; padding:8px; background:var(--panel); color:var(--fg);"></textarea>
       </div>
       <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px">
         <button id="pcSave" class="btn">Save port</button>
-        <button id="pcManual" class="btn">Enter manually</button>
         <button id="pcSkip" class="btn secondary">Not now</button>
-      </div>
-      <div id="pcManualWrap" class="hidden" style="margin-top:10px">
-        <div style="display:flex; gap:8px; flex-wrap:wrap">
-          <input id="pcLat" type="number" step="0.0001" inputmode="decimal" placeholder="Lat" style="flex:1; min-width:120px">
-          <input id="pcLon" type="number" step="0.0001" inputmode="decimal" placeholder="Lon" style="flex:1; min-width:120px">
-        </div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px">
-          <button id="pcManualSave" class="btn">Save coords</button>
-          <button id="pcManualCancel" class="btn secondary">Cancel</button>
-        </div>
-        <p class="muted" style="margin-top:6px">Tip: decimal degrees (e.g. 49.710, -1.880).</p>
       </div>
     `;
 
-    // Render into the existing modal chrome but hide default OK/Cancel.
     showModal({
       title: "Save port coordinates",
       bodyHtml: body,
@@ -1770,7 +2471,6 @@ function showPortConfirmModal({ name, lat, lon, displayName }){
     });
 
     const finish = (result) => {
-      // close + resolve
       modalOverlay.classList.add("hidden");
       modalBody.innerHTML = "";
       if (modalOkBtn) modalOkBtn.style.display = "";
@@ -1778,41 +2478,31 @@ function showPortConfirmModal({ name, lat, lon, displayName }){
       resolve(result);
     };
 
-    const btnSave = document.getElementById("pcSave");
-    const btnManual = document.getElementById("pcManual");
-    const btnSkip = document.getElementById("pcSkip");
-    const manualWrap = document.getElementById("pcManualWrap");
-    const manualSave = document.getElementById("pcManualSave");
-    const manualCancel = document.getElementById("pcManualCancel");
+    document.getElementById("pcSave")?.addEventListener("click", () => {
+      const manualRaw = (document.getElementById("pcManualCoords")?.value || "").trim();
+      let finalLat = lat;
+      let finalLon = lon;
 
-    btnSave?.addEventListener("click", () => {
-      const c = (document.getElementById("pcCommsPilotage")?.value || "").trim();
-      finish({ action: "save", lat, lon, commsPilotage: c });
-    });
-    btnSkip?.addEventListener("click", () => finish({ action: "skip" }));
-    btnManual?.addEventListener("click", () => {
-      manualWrap?.classList.remove("hidden");
-    });
-    manualCancel?.addEventListener("click", () => {
-      manualWrap?.classList.add("hidden");
-    });
-    manualSave?.addEventListener("click", () => {
-      const latIn = document.getElementById("pcLat")?.value;
-      const lonIn = document.getElementById("pcLon")?.value;
-      const parsed = parseLatLon(latIn, lonIn);
-      if (!parsed){
-        alert("Please enter valid decimal lat and lon.");
-        return;
+      if (manualRaw){
+        const parsed = parseSingleLatLonField(manualRaw);
+        if (!parsed){
+          alert("Please enter coordinates as decimal lat, lon — for example: 49.710, -1.880");
+          return;
+        }
+        if (!saneForSteeler(parsed.lat, parsed.lon)){
+          alert("Those coordinates look outside your normal cruising range. Please double-check.");
+          return;
+        }
+        finalLat = parsed.lat;
+        finalLon = parsed.lon;
       }
-      if (!saneForSteeler(parsed.lat, parsed.lon)){
-        alert("Those coordinates look outside your normal UK/Channel/N France range.");
-        return;
-      }
+
       const c = (document.getElementById("pcCommsPilotage")?.value || "").trim();
-      finish({ action: "save", lat: parsed.lat, lon: parsed.lon, commsPilotage: c });
+      finish({ action: "save", lat: finalLat, lon: finalLon, commsPilotage: c });
     });
 
-    // Clicking outside should behave like skip.
+    document.getElementById("pcSkip")?.addEventListener("click", () => finish({ action: "skip" }));
+
     document.getElementById("modalOverlay")?.addEventListener("click", (e) => {
       if (e.target === modalOverlay) finish({ action: "skip" });
     }, { once: true });
@@ -1823,12 +2513,12 @@ function showPortNoMatchModal(name){
   return new Promise((resolve) => {
     const n = normalisePortDisplay(name);
     const body = `
-      <p>Couldn’t find a marine-sane match for <strong>${escapeHtml(n)}</strong>.</p>
-      <p class="muted" style="margin-top:6px">You can enter coordinates manually, or skip for now (the passage can still be saved).</p>
+      <p>Couldn’t find a reliable place match for <strong>${escapeHtml(n)}</strong>.</p>
+      <p class="muted" style="margin-top:6px">Enter coordinates manually if you want to save it now.</p>
       <div style="margin-top:10px; padding:10px; border:1px solid var(--line); border-radius:12px;">
-        <div style="display:flex; gap:8px; flex-wrap:wrap">
-          <input id="pnmLat" type="number" step="0.0001" inputmode="decimal" placeholder="Lat" style="flex:1; min-width:120px">
-          <input id="pnmLon" type="number" step="0.0001" inputmode="decimal" placeholder="Lon" style="flex:1; min-width:120px">
+        <div>
+          <label class="muted" for="pnmCoords" style="display:block; margin-bottom:4px">Coordinates</label>
+          <input id="pnmCoords" type="text" placeholder="e.g. 49.710, -1.880" style="width:100%; border:1px solid var(--line); border-radius:12px; padding:8px; background:var(--panel); color:var(--fg);">
         </div>
         <div style="margin-top:10px">
           <label class="muted" for="pnmComments" style="display:block; margin-bottom:4px">Comms / Pilotage (optional)</label>
@@ -1838,7 +2528,6 @@ function showPortNoMatchModal(name){
           <button id="pnmSave" class="btn">Save coords</button>
           <button id="pnmSkip" class="btn secondary">Not now</button>
         </div>
-        <p class="muted" style="margin-top:6px">Tip: decimal degrees (e.g. 49.710, -1.880).</p>
       </div>
     `;
 
@@ -1854,15 +2543,14 @@ function showPortNoMatchModal(name){
 
     document.getElementById("pnmSkip")?.addEventListener("click", () => finish({ action: "skip" }));
     document.getElementById("pnmSave")?.addEventListener("click", () => {
-      const latIn = document.getElementById("pnmLat")?.value;
-      const lonIn = document.getElementById("pnmLon")?.value;
-      const parsed = parseLatLon(latIn, lonIn);
+      const raw = document.getElementById("pnmCoords")?.value || "";
+      const parsed = parseSingleLatLonField(raw);
       if (!parsed){
-        alert("Please enter valid decimal lat and lon.");
+        alert("Please enter coordinates as decimal lat, lon — for example: 49.710, -1.880");
         return;
       }
       if (!saneForSteeler(parsed.lat, parsed.lon)){
-        alert("Those coordinates look outside your normal UK/Channel/N France range.");
+        alert("Those coordinates look outside your normal cruising range. Please double-check.");
         return;
       }
       const c = (document.getElementById("pnmComments")?.value || "").trim();
@@ -1874,7 +2562,6 @@ function showPortNoMatchModal(name){
     }, { once: true });
   });
 }
-
 async function maybeSaveNewPort(name){
   const n = normalisePortDisplay(name);
   if (!isLikelyRealPortName(n)) return null;
@@ -1900,7 +2587,13 @@ async function maybeSaveNewPort(name){
     return null;
   }
 
-  const decision = await showPortConfirmModal({ name: n, lat: hit.lat, lon: hit.lon, displayName: hit.displayName });
+  const decision = await showPortConfirmModal({
+				name: n,
+				lat: hit.lat,
+				lon: hit.lon,
+				displayName: hit.displayName,
+				googleMapsUrl: hit.googleMapsUrl
+			});
   if (decision && decision.action === "save"){
     upsertPortItem(n, decision.lat, decision.lon, (decision.commsPilotage ?? decision.comments) ?? null);
     cleanPortsInPlace();
@@ -2017,18 +2710,124 @@ function showModal({ title, bodyHtml, onOk, onCancel, okText = "OK", cancelText 
   };
 }
 
+// --- Safety / Emergency Info export --------------------------------
+
+function buildVesselDetailsHtml(){
+  const s = getSafetyInfo();
+  const v = s.vessel || {};
+  const a = s.appearanceSafety || {};
+  const o = s.owner || {};
+
+  function row(label, value){
+    const val = String(value || "").trim();
+    if (!val) return "";
+    return `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(val).replace(/\n/g, "<br>")}</td></tr>`;
+  }
+
+  const generatedAt = new Date().toLocaleString("en-GB");
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(v.boatName || "Vessel")} – Safety / Emergency Details</title>
+<style>
+  body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; background: #f5f5f5; color: #111; }
+  main { max-width: 900px; margin: 0 auto; padding: 24px; }
+  header { background: #111827; color: white; padding: 22px 24px; border-radius: 16px; margin-bottom: 18px; }
+  h1 { margin: 0; font-size: 1.6rem; }
+  h2 { margin-top: 28px; border-bottom: 2px solid #ddd; padding-bottom: 6px; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: 14px; overflow: hidden; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid #eee; }
+  th { width: 34%; background: #fafafa; }
+  .note { margin-top: 18px; font-size: 0.95rem; color: #444; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>${escapeHtml(v.boatName || "Vessel")} – Safety / Emergency Details</h1>
+  <div>Generated: ${escapeHtml(generatedAt)}</div>
+</header>
+
+<h2>Vessel</h2>
+<table>
+${row("Boat Name", v.boatName)}
+${row("Boat Type", v.boatType)}
+${row("Callsign", v.callsign)}
+${row("MMSI", v.mmsi)}
+${row("UK SSR", v.ukSsr)}
+${row("Boat Model", v.boatModel)}
+${row("Length (m)", v.length)}
+${row("Beam (m)", v.beam)}
+${row("Draft (m)", v.draft)}
+${row("Home Port", v.homePort)}
+</table>
+
+<h2>Appearance</h2>
+<table>
+${row("Hull Colour (topsides)", a.topsides)}
+${row("Hull Colour (lower)", a.hull)}
+${row("Superstructure Colour", a.superstructure)}
+</table>
+
+<h2>Safety Equipment</h2>
+<table>
+${row("Liferaft Details", a.liferaft)}
+${row("Dinghy Details", a.dinghy)}
+${row("Lifejacket Details", a.lifejackets)}
+${row("EPIRB Details", a.epirb)}
+${row("Other Safety Equipment", a.safetyEquip)}
+${row("Radio / Navigation Equipment", a.rnEquip)}
+</table>
+
+<h2>Owner / Emergency Reference</h2>
+<table>
+${row("Owner Names", o.names)}
+${row("Owner Tel", o.tel)}
+${row("Owner Email", o.email)}
+</table>
+
+<p class="note">
+This page is a reference copy of vessel safety information exported from the STEELER Logbook app.
+In an emergency, pass this information to HM Coastguard.
+</p>
+</main>
+</body>
+</html>`;
+}
+
+function exportVesselDetailsHtml(){
+  const s = getSafetyInfo();
+  const boat = (s.vessel?.boatName || "STEELER").replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "");
+  const html = buildVesselDetailsHtml();
+  const blob = new Blob([html], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+
+  const filename = `${boat || "vessel"}-safety-emergency-details.html`;
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 // --- Backup / Restore ----------------------------------------------
 
 function exportBackup() {
   const payload = {
     format: "steeler-logbook-backup",
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     data: {
-      passages,
-      knownPorts: { all: knownPorts, recent: recentPorts },
-      theme: localStorage.getItem(THEME_KEY) || "day"
-    }
+						passages,
+						theme: localStorage.getItem(THEME_KEY) || "day",
+						safetyInfo: getSafetyInfo()
+				}
   };
 
   const json = JSON.stringify(payload, null, 2);
@@ -2052,6 +2851,37 @@ function exportBackup() {
   URL.revokeObjectURL(url);
 }
 
+function exportPortsBackup() {
+  const payload = {
+    format: "steeler-ports-backup",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    data: {
+      knownPorts: { all: knownPorts, recent: recentPorts }
+    }
+  };
+
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+
+  const d = new Date();
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const da = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const filename = `STEELER-Ports-backup-${y}${mo}${da}${hh}${mm}.json`;
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function importBackupFile(file) {
   const reader = new FileReader();
   reader.onload = () => {
@@ -2061,34 +2891,31 @@ function importBackupFile(file) {
         alert("That file doesn’t look like a STEELER Logbook backup.");
         return;
       }
-      if (!Array.isArray(obj.data.passages) || !obj.data.knownPorts) {
-        alert("Backup file is missing expected data.");
+      if (!Array.isArray(obj.data.passages)) {
+        alert("Backup file is missing expected passage data.");
         return;
       }
-      const ok = confirm("Restore backup? This will REPLACE the current logbook data on this device.");
+      const ok = confirm("Restore backup? This will REPLACE the current passages and Safety / Emergency Info on this device if present in the backup. Ports will be left unchanged.");
       if (!ok) return;
 
       passages = obj.data.passages;
-
-      // Support both legacy (array) and current (object with {all,recent}) port backup formats (CL-071)
-      const portsPayload = obj.data.knownPorts;
-      if (Array.isArray(portsPayload)) {
-        knownPorts = portsPayload;
-        recentPorts = portsPayload.slice(0, 6);
-      } else {
-        knownPorts = Array.isArray(portsPayload.all) ? portsPayload.all : [];
-        recentPorts = Array.isArray(portsPayload.recent) ? portsPayload.recent : [];
-      }
-
       localStorage.setItem(STORAGE_KEY, JSON.stringify(passages));
-      localStorage.setItem(PORTS_KEY, JSON.stringify({ all: knownPorts, recent: recentPorts }));
-
+						if (obj.data.safetyInfo) {
+								try {
+										localStorage.setItem(SAFETY_INFO_KEY, JSON.stringify(obj.data.safetyInfo));
+								} catch(e) {
+										console.warn("Failed to restore Safety / Emergency Info", e);
+								}
+						}
+      // Legacy support: if an older full backup still contains ports, preserve current ports.
+      // Ports are now managed separately via Export/Import Ports.
       applyTheme(obj.data.theme || "day");
 
       refreshHomePassageList();
       currentPassageId = passages[0]?.id || null;
       loadPassageIntoUI();
-      alert("Backup restored successfully.");
+      try { injectSafetyEmergencySettingsBlock(); } catch(e) {}
+      alert("Backup restored successfully. Ports were left unchanged.");
     } catch (e) {
       console.error(e);
       alert("Could not restore that file (invalid JSON).");
@@ -2097,6 +2924,60 @@ function importBackupFile(file) {
   reader.readAsText(file);
 }
 
+function importPortsBackupFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const obj = JSON.parse(reader.result);
+      const portsPayload = obj?.data?.knownPorts;
+      const valid = obj && obj.format === "steeler-ports-backup" && portsPayload;
+      if (!valid) {
+        alert("That file doesn’t look like a STEELER Ports backup.");
+        return;
+      }
+
+      const importedAll = Array.isArray(portsPayload.all) ? portsPayload.all : [];
+      const importedRecent = Array.isArray(portsPayload.recent) ? portsPayload.recent : [];
+      const ok = confirm("Import Ports? Matching port names will be updated; new ports will be added.");
+      if (!ok) return;
+
+      const byName = new Map();
+      (knownPorts || []).forEach(p => {
+        const name = portName(p).trim();
+        if (name) byName.set(name, p);
+      });
+
+      importedAll.forEach(p => {
+        const name = portName(p).trim();
+        if (!name) return;
+        byName.set(name, p);
+      });
+
+      knownPorts = Array.from(byName.values()).map(p => ensurePortId(p));
+      knownPorts.sort((a,b) => portName(a).localeCompare(portName(b)));
+
+      const mergedRecent = [];
+      const pushRecent = (name) => {
+        const n = String(name || "").trim();
+        if (!n || mergedRecent.includes(n)) return;
+        mergedRecent.push(n);
+      };
+      importedRecent.forEach(pushRecent);
+      recentPorts.forEach(pushRecent);
+      recentPorts = mergedRecent.slice(0, PORTS_RECENT_LIMIT);
+
+      cleanPortsInPlace();
+      savePorts();
+      refreshPortUI();
+      try { updatePlanSummaryPanel(); } catch(e) {}
+      alert("Ports imported successfully.");
+    } catch (e) {
+      console.error(e);
+      alert("Could not import that file (invalid JSON).");
+    }
+  };
+  reader.readAsText(file);
+}
 
 exportBackupBtn?.addEventListener("click", exportBackup);
 importBackupBtn?.addEventListener("click", () => importFileInput?.click());
@@ -2104,6 +2985,15 @@ importFileInput?.addEventListener("change", (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
   importBackupFile(file);
+  e.target.value = "";
+});
+
+exportPortsBtn?.addEventListener("click", exportPortsBackup);
+importPortsBtn?.addEventListener("click", () => importPortsFileInput?.click());
+importPortsFileInput?.addEventListener("change", (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  importPortsBackupFile(file);
   e.target.value = "";
 });
 
@@ -2334,7 +3224,7 @@ function ensureAutoTideStations(p) {
   const now = Date.now();
   const makeBlank = (name, role, i) => ({
     id: `ts_${now}_${role}_${i}`,
-    name,
+    name: "",
     role,
     hw1: "", hw2: "", lw1: "", lw2: "",
     hw1h: "", hw2h: "", lw1h: "", lw2h: "",
@@ -2356,7 +3246,8 @@ function ensureAutoTideStations(p) {
   const autos = route.map((r, idx) => {
     let st = byRole.get(r.role);
     if (!st) st = makeBlank(r.name, r.role, idx);
-    st = { ...st, name: r.name, role: r.role, auto:true };
+    const preservedName = String((st && st.name) || "").trim();
+    st = { ...st, name: preservedName, role: r.role, auto:true };
     st.id = st.id || `ts_${now}_${r.role}`;
     st.hw1 = st.hw1 || ""; st.hw2 = st.hw2 || "";
     st.lw1 = st.lw1 || ""; st.lw2 = st.lw2 || "";
@@ -2485,7 +3376,13 @@ function createPassage() {
       fuelStartPercent: "",
       dailySummaries: [
         { id: "ds_" + Date.now(), date: today, fee: "", notes: "" }
-      ]
+      ],
+      detailed: {
+        waypoints: [],
+        hazards: "",
+        portsOfRefuge: "",
+        crewWelfare: ""
+      }
     },
     entries: [],
     finish: {
@@ -2541,6 +3438,7 @@ planVessel.value = p.plan.vessel || "STEELER";
   updatePlanCommsFromPorts();
 renderTideStations(p);
   renderDailySummaries(p);
+  renderDetailedPassagePlan(p);
 }
 
 function renderTideStations(p) {
@@ -2558,6 +3456,8 @@ function renderTideStations(p) {
 
     // keep events around for backwards compatibility, but Plan inputs are the editable truth
     row.dataset.events = JSON.stringify(st.events || []);
+    row.dataset.raw = st.raw || "";
+    row.dataset.source = st.source || "";
     row.innerHTML = `
       <div class="row">
         <label>
@@ -2660,6 +3560,8 @@ function readTideStationsFromForm() {
       hw1, hw2, lw1, lw2,
       hw1h, hw2h, lw1h, lw2h,
       events,
+      raw: row.dataset.raw || "",
+      source: row.dataset.source || "",
       auto: row.dataset.auto === "true"
     });
   });
@@ -2794,6 +3696,710 @@ function readDailySummariesFromForm() {
   return days;
 }
 
+function ensureDetailedPassagePlan(p){
+  if (!p || !p.plan) return;
+  if (!p.plan.detailed || typeof p.plan.detailed !== "object") {
+    p.plan.detailed = { waypoints: [], hazards: "", portsOfRefuge: "", crewWelfare: "" };
+  }
+  if (!Array.isArray(p.plan.detailed.waypoints)) p.plan.detailed.waypoints = [];
+  if (typeof p.plan.detailed.hazards !== "string") p.plan.detailed.hazards = "";
+  if (typeof p.plan.detailed.portsOfRefuge !== "string") p.plan.detailed.portsOfRefuge = "";
+  if (typeof p.plan.detailed.crewWelfare !== "string") p.plan.detailed.crewWelfare = "";
+}
+
+function normalisePassagePlanTimeInput(val){
+  const raw = String(val || "").trim();
+  if (!raw) return "";
+
+  const digits = raw.replace(/[^\d]/g, "");
+  if (!digits) return "";
+
+  let hh = 0;
+  let mm = 0;
+
+  if (raw.includes(":")) {
+    const parts = raw.split(":");
+    hh = parseInt(parts[0] || "0", 10);
+    mm = parseInt(parts[1] || "0", 10);
+  } else if (digits.length === 1) {
+    hh = parseInt(digits, 10);
+    mm = 0;
+  } else if (digits.length === 2) {
+    hh = parseInt(digits, 10);
+    mm = 0;
+  } else if (digits.length === 3) {
+    hh = parseInt(digits.slice(0,1), 10);
+    mm = parseInt(digits.slice(1), 10);
+  } else {
+    hh = parseInt(digits.slice(0,2), 10);
+    mm = parseInt(digits.slice(2,4), 10);
+  }
+
+  if (!Number.isFinite(hh)) hh = 0;
+  if (!Number.isFinite(mm)) mm = 0;
+  hh = Math.max(0, Math.min(23, hh));
+  mm = Math.max(0, Math.min(59, mm));
+
+  return `${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}`;
+}
+
+function hhmmToMinutes(hhmm){
+  const m = String(hhmm || "").match(/^(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  return parseInt(m[1],10) * 60 + parseInt(m[2],10);
+}
+
+function minutesToHHMM(mins){
+  if (mins == null || !Number.isFinite(mins)) return "";
+  let m = Math.round(mins);
+  while (m < 0) m += 1440;
+  m = m % 1440;
+  const hh = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}`;
+}
+
+function hoursToDurationHHMM(hours){
+  if (hours == null || !Number.isFinite(hours)) return "";
+  const mins = Math.round(hours * 60);
+  const hh = Math.floor(mins / 60);
+  const mm = mins % 60;
+  return `${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}`;
+}
+
+function durationHHMMToMinutes(hhmm){
+  const m = String(hhmm || "").match(/^(\d{2,}):(\d{2})$/);
+  if (!m) return 0;
+  return parseInt(m[1],10) * 60 + parseInt(m[2],10);
+}
+
+function calcDetailedPassagePlanTotals(wps){
+  const arr = Array.isArray(wps) ? wps : [];
+  let totalNm = 0;
+  let totalMinutes = 0;
+  let totalFuel = 0;
+
+  arr.forEach(wp => {
+    const nm = parseFloat(wp?.distToNext);
+    if (Number.isFinite(nm)) totalNm += nm;
+
+    totalMinutes += durationHHMMToMinutes(wp?.timeToNext);
+
+    const fuel = parseFloat(wp?.fuelToNext);
+    if (Number.isFinite(fuel)) totalFuel += fuel;
+  });
+
+  return {
+    totalNm: Number(totalNm.toFixed(1)),
+    totalDuration: minutesToHHMM(totalMinutes),
+    totalFuel: Number(totalFuel.toFixed(1))
+  };
+}
+
+function parseDetailedWaypointCoords(val){
+  const s = String(val || "").trim();
+  if (!s) return null;
+
+  // Decimal pair first
+  const single = parseSingleLatLonField(s);
+  if (single) return single;
+
+  // Flexible DDM pair split on comma first
+  let parts = s.split(",").map(x => x.trim()).filter(Boolean);
+
+  // If no comma, try to split a pair like:
+  // 50º45.123'N 001º18.456'W
+  if (parts.length !== 2) {
+    const m = s.match(/^(.+?[NS])[\s]+(.+?[EW])$/i);
+    if (m) parts = [m[1].trim(), m[2].trim()];
+  }
+
+  if (parts.length !== 2) return null;
+
+  const lat = parseCoordPart(parts[0], true);
+  const lon = parseCoordPart(parts[1], false);
+  if (isNaN(lat) || isNaN(lon)) return null;
+
+  return { lat, lon };
+}
+
+function formatDetailedWaypointCoords(lat, lon){
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return "";
+  return formatDMM(lat, lon);
+}
+
+function nmBetween(lat1, lon1, lat2, lon2){
+  if (![lat1, lon1, lat2, lon2].every(Number.isFinite)) return null;
+  return distanceKm(lat1, lon1, lat2, lon2) * 0.539956803;
+}
+
+const STEELER_FUEL_CURVE = [
+  { speed: 3.0,  lph: 1.5 },
+  { speed: 3.5,  lph: 2.0 },
+  { speed: 4.0,  lph: 2.2 },
+  { speed: 4.5,  lph: 3.0 },
+  { speed: 5.0,  lph: 3.8 },
+  { speed: 5.5,  lph: 4.8 },
+  { speed: 6.0,  lph: 6.5 },
+  { speed: 6.5,  lph: 8.0 },
+  { speed: 7.0,  lph: 8.5 },
+  { speed: 7.5,  lph: 10.0 },
+  { speed: 8.0,  lph: 14.0 },
+  { speed: 8.5,  lph: 18.0 },
+  { speed: 9.0,  lph: 21.0 },
+  { speed: 9.5,  lph: 27.0 },
+  { speed: 10.0, lph: 33.0 },
+  { speed: 10.5, lph: 37.0 },
+  { speed: 11.0, lph: 40.0 },
+  { speed: 11.5, lph: 42.0 },
+  { speed: 12.0, lph: 47.0 },
+  { speed: 12.5, lph: 49.0 },
+  { speed: 13.0, lph: 51.0 },
+  { speed: 13.5, lph: 53.0 },
+  { speed: 14.0, lph: 52.0 },
+  { speed: 14.5, lph: 55.0 },
+  { speed: 15.0, lph: 57.0 },
+  { speed: 15.5, lph: 60.0 },
+  { speed: 16.0, lph: 62.0 },
+  { speed: 16.5, lph: 62.0 },
+  { speed: 17.0, lph: 62.0 },
+  { speed: 17.5, lph: 64.0 },
+  { speed: 18.0, lph: 65.0 },
+  { speed: 18.5, lph: 68.0 },
+  { speed: 19.0, lph: 70.0 },
+  { speed: 19.5, lph: 70.0 }
+];
+
+function estimateSteelerFuelLph(speed){
+  const s = parseFloat(speed);
+  if (!Number.isFinite(s) || s <= 0) return null;
+
+  const curve = STEELER_FUEL_CURVE;
+  if (!curve.length) return null;
+
+  if (s <= curve[0].speed) return curve[0].lph;
+  if (s >= curve[curve.length - 1].speed) return curve[curve.length - 1].lph;
+
+  for (let i = 0; i < curve.length - 1; i++) {
+    const a = curve[i];
+    const b = curve[i + 1];
+    if (s >= a.speed && s <= b.speed) {
+      const span = b.speed - a.speed;
+      const t = span === 0 ? 0 : (s - a.speed) / span;
+      return a.lph + (b.lph - a.lph) * t;
+    }
+  }
+  return null;
+}
+
+function recalcDetailedPassagePlan(p){
+  ensureDetailedPassagePlan(p);
+  const wps = p.plan.detailed.waypoints;
+
+  for (let i = 0; i < wps.length; i++) {
+    const wp = wps[i];
+    const next = wps[i + 1] || null;
+
+    wp.distToNext = "";
+    wp.timeToNext = "";
+    wp.fuelToNext = "";
+
+    if (next && Number.isFinite(wp.lat) && Number.isFinite(wp.lon) && Number.isFinite(next.lat) && Number.isFinite(next.lon)) {
+      const nm = nmBetween(wp.lat, wp.lon, next.lat, next.lon);
+      if (nm != null && Number.isFinite(nm)) {
+        wp.distToNext = Number(nm.toFixed(1));
+
+        const spd = parseFloat(wp.plannedSpeed);
+        if (Number.isFinite(spd) && spd > 0) {
+          const hours = nm / spd;
+          wp.timeToNext = hoursToDurationHHMM(hours);
+
+          const lph = estimateSteelerFuelLph(spd);
+          if (Number.isFinite(lph)) {
+            wp.fuelToNext = Number((hours * lph).toFixed(1));
+          }
+        }
+      }
+    }
+  }
+
+  for (let i = 1; i < wps.length; i++) {
+    const prev = wps[i - 1];
+    const prevTimeMins = hhmmToMinutes(prev.time);
+    const prevSpeed = parseFloat(prev.plannedSpeed);
+    const prevDist = parseFloat(prev.distToNext);
+
+    if (prevTimeMins != null && Number.isFinite(prevSpeed) && prevSpeed > 0 && Number.isFinite(prevDist) && prevDist >= 0) {
+      const legMinutes = Math.round((prevDist / prevSpeed) * 60);
+      wps[i].time = minutesToHHMM(prevTimeMins + legMinutes);
+    } else if (i > 0 && (!wps[i].time || !String(wps[i].time).trim())) {
+      wps[i].time = "";
+    }
+  }
+}
+
+function getDetailedPassagePlanMount(){
+  let mount = document.getElementById("detailedPassagePlanSection");
+  if (mount) return mount;
+
+  mount = document.createElement("div");
+  mount.id = "detailedPassagePlanSection";
+  mount.className = "card";
+
+  const anchor = addDailySummaryBtn;
+  if (anchor && anchor.parentNode) {
+    anchor.parentNode.insertBefore(mount, anchor.nextSibling);
+  } else if (dailySummariesContainer && dailySummariesContainer.parentNode) {
+    dailySummariesContainer.parentNode.appendChild(mount);
+  } else if (planForm) {
+    planForm.appendChild(mount);
+  }
+
+  return mount;
+}
+
+function renderDetailedPassagePlan(p){
+  if (!p) return;
+  ensureDetailedPassagePlan(p);
+  recalcDetailedPassagePlan(p);
+
+  const mount = getDetailedPassagePlanMount();
+  const detailed = p.plan.detailed;
+  const wps = detailed.waypoints;
+  const dppTotals = calcDetailedPassagePlanTotals(wps);
+
+  mount.innerHTML = `
+    <h3>Detailed Passage Plan</h3>
+    <div style="overflow-x:auto;">
+      <table class="log-table" style="min-width:1120px;">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Waypoint</th>
+            <th>WP Lat/Lon</th>
+            <th>Dist to Next (NM)</th>
+            <th>Planned Speed to Next</th>
+            <th>Time to Next</th>
+            <th>Fuel to Next (L)</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${wps.map((wp, idx) => `
+            <tr data-dpp-row="${idx}">
+              <td><input type="text" class="dpp-time" value="${escapeHtml(wp.time || "")}" placeholder="HH:MM" style="width:72px"></td>
+              <td><input type="text" class="dpp-name" value="${escapeHtml(wp.name || "")}" placeholder="Waypoint"></td>
+              <td><input type="text" class="dpp-coords" value="${escapeHtml(wp.coordsText || formatDetailedWaypointCoords(wp.lat, wp.lon))}" placeholder="50º45.123'N, 001º18.456'W or 50.752, -1.308" style="min-width:260px"></td>
+              <td>${wp.distToNext !== "" ? escapeHtml(String(wp.distToNext)) : "–"}</td>
+              <td><input type="number" step="0.1" inputmode="decimal" class="dpp-speed" value="${escapeHtml(wp.plannedSpeed || "")}" placeholder="kt" style="width:82px"></td>
+              <td>${wp.timeToNext ? escapeHtml(wp.timeToNext) : "–"}</td>
+              <td>${wp.fuelToNext !== "" && wp.fuelToNext != null ? escapeHtml(String(wp.fuelToNext)) : "–"}</td>
+              <td style="white-space:nowrap;">
+                <button type="button" class="btn btn-secondary btn-small dpp-up">↑</button>
+                <button type="button" class="btn btn-secondary btn-small dpp-down">↓</button>
+                <button type="button" class="btn btn-secondary btn-small dpp-del">✕</button>
+              </td>
+            </tr>
+          `).join("")}
+          <tr class="dpp-totals-row">
+            <td colspan="3" style="text-align:right; font-weight:700;">TOTAL</td>
+            <td style="font-weight:700;">${escapeHtml(String(dppTotals.totalNm || 0))}</td>
+            <td></td>
+            <td style="font-weight:700;">${escapeHtml(dppTotals.totalDuration || "00:00")}</td>
+            <td style="font-weight:700;">${escapeHtml(String(dppTotals.totalFuel || 0))}</td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="margin-top:0.6rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
+      <button type="button" class="btn btn-secondary btn-small" id="dppAddWaypointBtn">+ Add Waypoint</button>
+      <button type="button" class="btn btn-secondary btn-small" id="dppRecalcBtn">Recalculate Passage Plan</button>
+      <button type="button" class="btn btn-secondary btn-small" id="dppImportGpxBtn">Import GPX</button>
+      <button type="button" class="btn btn-secondary btn-small" id="dppReverseBtn">Reverse Route</button>
+    </div>
+
+    <div style="margin-top:0.85rem;">
+      <label>
+        Hazards
+        <textarea id="dppHazards" rows="2">${escapeHtml(detailed.hazards || "")}</textarea>
+      </label>
+    </div>
+
+    <div style="margin-top:0.6rem;">
+      <label>
+        Ports of Refuge
+        <textarea id="dppPortsOfRefuge" rows="2">${escapeHtml(detailed.portsOfRefuge || "")}</textarea>
+      </label>
+    </div>
+
+    <div style="margin-top:0.6rem;">
+      <label>
+        Crew Welfare
+        <textarea id="dppCrewWelfare" rows="2">${escapeHtml(detailed.crewWelfare || "")}</textarea>
+      </label>
+    </div>
+  `;
+
+  mount.querySelector("#dppAddWaypointBtn")?.addEventListener("click", () => {
+    p.plan.detailed = readDetailedPassagePlanFromForm();
+    ensureDetailedPassagePlan(p);
+
+    p.plan.detailed.waypoints.push({
+      id: "wp_" + Date.now() + "_" + Math.random().toString(36).slice(2),
+      time: "",
+      name: "",
+      coordsText: "",
+      lat: null,
+      lon: null,
+      distToNext: "",
+      plannedSpeed: "",
+      timeToNext: "",
+      fuelToNext: ""
+    });
+
+    savePassages();
+    renderDetailedPassagePlan(p);
+    updatePlanSummaryPanel();
+  });
+
+  mount.querySelector("#dppRecalcBtn")?.addEventListener("click", () => {
+    p.plan.detailed = readDetailedPassagePlanFromForm();
+    ensureDetailedPassagePlan(p);
+    recalcDetailedPassagePlan(p);
+    savePassages();
+    renderDetailedPassagePlan(p);
+    updatePlanSummaryPanel();
+  });
+
+  mount.querySelector("#dppImportGpxBtn")?.addEventListener("click", () => {
+    importDetailedPassagePlanGpx(p);
+  });
+
+  mount.querySelector("#dppReverseBtn")?.addEventListener("click", () => {
+    p.plan.detailed = readDetailedPassagePlanFromForm();
+    ensureDetailedPassagePlan(p);
+
+    const arr = p.plan.detailed.waypoints || [];
+    if (arr.length < 2) return;
+
+    const firstTime = arr[0]?.time || "";
+    arr.reverse();
+
+    if (arr.length) arr[0].time = firstTime;
+    for (let i = 1; i < arr.length; i++) {
+      arr[i].time = "";
+    }
+
+    recalcDetailedPassagePlan(p);
+    savePassages();
+    renderDetailedPassagePlan(p);
+    updatePlanSummaryPanel();
+  });
+
+  mount.querySelectorAll("[data-dpp-row]").forEach(row => {
+    const idx = parseInt(row.dataset.dppRow, 10);
+    const wp = p.plan.detailed.waypoints[idx];
+    if (!wp) return;
+
+    const dppTimeEl = row.querySelector(".dpp-time");
+    dppTimeEl?.addEventListener("input", () => {
+      wp.time = dppTimeEl.value || "";
+      savePassages();
+    });
+
+    row.querySelector(".dpp-name")?.addEventListener("input", (e) => {
+      wp.name = e.target.value.trim();
+      savePassages();
+      updatePlanSummaryPanel();
+    });
+
+    const dppCoordsEl = row.querySelector(".dpp-coords");
+    dppCoordsEl?.addEventListener("input", () => {
+      const raw = dppCoordsEl.value || "";
+      const parsed = parseDetailedWaypointCoords(raw);
+
+      if (parsed) {
+        wp.lat = parsed.lat;
+        wp.lon = parsed.lon;
+        wp.coordsText = formatDetailedWaypointCoords(parsed.lat, parsed.lon);
+      } else if (!String(raw).trim()) {
+        wp.lat = null;
+        wp.lon = null;
+        wp.coordsText = "";
+      } else {
+        wp.coordsText = raw;
+      }
+
+      savePassages();
+    });
+
+    const dppSpeedEl = row.querySelector(".dpp-speed");
+    dppSpeedEl?.addEventListener("input", () => {
+      wp.plannedSpeed = (dppSpeedEl.value || "").trim();
+      savePassages();
+    });
+
+    row.querySelector(".dpp-up")?.addEventListener("click", () => {
+      p.plan.detailed = readDetailedPassagePlanFromForm();
+      ensureDetailedPassagePlan(p);
+
+      if (idx <= 0) return;
+      const arr = p.plan.detailed.waypoints;
+      [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
+      recalcDetailedPassagePlan(p);
+      savePassages();
+      renderDetailedPassagePlan(p);
+      updatePlanSummaryPanel();
+    });
+
+    row.querySelector(".dpp-down")?.addEventListener("click", () => {
+      p.plan.detailed = readDetailedPassagePlanFromForm();
+      ensureDetailedPassagePlan(p);
+
+      const arr = p.plan.detailed.waypoints;
+      if (idx >= arr.length - 1) return;
+      [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
+      recalcDetailedPassagePlan(p);
+      savePassages();
+      renderDetailedPassagePlan(p);
+      updatePlanSummaryPanel();
+    });
+
+    row.querySelector(".dpp-del")?.addEventListener("click", () => {
+      p.plan.detailed = readDetailedPassagePlanFromForm();
+      ensureDetailedPassagePlan(p);
+
+      p.plan.detailed.waypoints.splice(idx, 1);
+      recalcDetailedPassagePlan(p);
+      savePassages();
+      renderDetailedPassagePlan(p);
+      updatePlanSummaryPanel();
+    });
+  });
+
+  mount.querySelector("#dppHazards")?.addEventListener("input", (e) => {
+    p.plan.detailed.hazards = e.target.value;
+    savePassages();
+    updatePlanSummaryPanel();
+  });
+
+  mount.querySelector("#dppPortsOfRefuge")?.addEventListener("input", (e) => {
+    p.plan.detailed.portsOfRefuge = e.target.value;
+    savePassages();
+    updatePlanSummaryPanel();
+  });
+
+  mount.querySelector("#dppCrewWelfare")?.addEventListener("input", (e) => {
+    p.plan.detailed.crewWelfare = e.target.value;
+    savePassages();
+    updatePlanSummaryPanel();
+  });
+}
+function readDetailedPassagePlanFromForm(){
+  const p = getCurrentPassage();
+  const fallback = (p && p.plan && p.plan.detailed) ? p.plan.detailed : { waypoints: [], hazards: "", portsOfRefuge: "", crewWelfare: "" };
+  const mount = document.getElementById("detailedPassagePlanSection");
+  if (!mount) return fallback;
+
+  const rows = mount.querySelectorAll("[data-dpp-row]");
+  const waypoints = [];
+  rows.forEach((row, idx) => {
+    const time = normalisePassagePlanTimeInput(row.querySelector(".dpp-time")?.value || "");
+    const name = (row.querySelector(".dpp-name")?.value || "").trim();
+    const coordsRaw = row.querySelector(".dpp-coords")?.value || "";
+    const parsed = parseDetailedWaypointCoords(coordsRaw);
+
+    waypoints.push({
+      id: fallback.waypoints[idx]?.id || ("wp_" + Date.now() + "_" + Math.random().toString(36).slice(2)),
+      time,
+      name,
+      coordsText: parsed ? formatDetailedWaypointCoords(parsed.lat, parsed.lon) : coordsRaw,
+      lat: parsed ? parsed.lat : null,
+      lon: parsed ? parsed.lon : null,
+      distToNext: "",
+      plannedSpeed: (row.querySelector(".dpp-speed")?.value || "").trim(),
+      timeToNext: "",
+      fuelToNext: ""
+    });
+  });
+
+  const detailed = {
+    waypoints,
+    hazards: mount.querySelector("#dppHazards")?.value || "",
+    portsOfRefuge: mount.querySelector("#dppPortsOfRefuge")?.value || "",
+    crewWelfare: mount.querySelector("#dppCrewWelfare")?.value || ""
+  };
+
+  const fakePassage = { plan: { detailed } };
+  recalcDetailedPassagePlan(fakePassage);
+  return detailed;
+}
+
+function ensureDppGpxFileInput(){
+  if (dppGpxFileInput) return dppGpxFileInput;
+
+  const input = document.createElement("input");
+  input.type = "file";
+  // Leave accept unset so iPad Files doesn't grey out valid GPX files
+  input.style.display = "none";
+  document.body.appendChild(input);
+  dppGpxFileInput = input;
+  return input;
+}
+
+function parseDppGpxText(xmlText){
+  const parser = new DOMParser();
+  const xml = parser.parseFromString(String(xmlText || ""), "application/xml");
+
+  const parserErr = xml.querySelector("parsererror");
+  if (parserErr) {
+    throw new Error("That GPX file could not be parsed.");
+  }
+
+  const pickName = (node, fallback) => {
+    const nm = node.querySelector("name");
+    const txt = (nm?.textContent || "").trim();
+    return txt || fallback;
+  };
+
+  const points = [];
+
+  // Priority 1: route points
+  const rtepts = Array.from(xml.getElementsByTagName("rtept"));
+  if (rtepts.length) {
+    rtepts.forEach((pt, idx) => {
+      const lat = parseFloat(pt.getAttribute("lat"));
+      const lon = parseFloat(pt.getAttribute("lon"));
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+      points.push({
+        name: pickName(pt, `WP${idx + 1}`),
+        lat,
+        lon
+      });
+    });
+    return points;
+  }
+
+  // Priority 2: standalone waypoints
+  const wpts = Array.from(xml.getElementsByTagName("wpt"));
+  if (wpts.length) {
+    wpts.forEach((pt, idx) => {
+      const lat = parseFloat(pt.getAttribute("lat"));
+      const lon = parseFloat(pt.getAttribute("lon"));
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+      points.push({
+        name: pickName(pt, `WP${idx + 1}`),
+        lat,
+        lon
+      });
+    });
+    return points;
+  }
+
+  // Ignore tracks for now
+  return [];
+}
+
+function gpxPointsToDetailedWaypoints(points){
+  return (points || []).map((pt, idx) => ({
+    id: "wp_" + Date.now() + "_" + idx + "_" + Math.random().toString(36).slice(2),
+    time: "",
+    name: (pt.name || `WP${idx + 1}`).trim(),
+    coordsText: formatDetailedWaypointCoords(pt.lat, pt.lon),
+    lat: pt.lat,
+    lon: pt.lon,
+    distToNext: "",
+    plannedSpeed: "",
+    timeToNext: "",
+    fuelToNext: ""
+  }));
+}
+
+function importDetailedPassagePlanGpx(p){
+  if (!p) return;
+
+  const input = ensureDppGpxFileInput();
+  input.value = "";
+
+  input.onchange = () => {
+    const file = input.files?.[0];
+    if (!file) return;
+
+    const lowerName = String(file.name || "").toLowerCase();
+    const declaredType = String(file.type || "").toLowerCase();
+    const looksLikeXml =
+      lowerName.endsWith(".gpx") ||
+      lowerName.endsWith(".xml") ||
+      declaredType.includes("xml") ||
+      declaredType.includes("gpx") ||
+      declaredType === "";
+
+    if (!looksLikeXml) {
+      alert("Please choose a GPX/XML file.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        // First sync current form state so we don't lose unsaved edits
+        p.plan.detailed = readDetailedPassagePlanFromForm();
+        ensureDetailedPassagePlan(p);
+
+        const points = parseDppGpxText(reader.result);
+        if (!points.length) {
+          alert("No route points or waypoints were found in that GPX file.");
+          return;
+        }
+
+        const imported = gpxPointsToDetailedWaypoints(points);
+
+        const mode = confirm(
+          "Import GPX waypoints?\n\n" +
+          "OK = Replace current waypoint rows\n" +
+          "Cancel = Append imported rows to the existing waypoint rows"
+        ) ? "replace" : "append";
+
+        if (mode === "replace") {
+          p.plan.detailed.waypoints = imported;
+        } else {
+          p.plan.detailed.waypoints = [
+            ...(p.plan.detailed.waypoints || []),
+            ...imported
+          ];
+        }
+
+        recalcDetailedPassagePlan(p);
+        savePassages();
+        renderDetailedPassagePlan(p);
+        updatePlanSummaryPanel();
+      } catch (err) {
+        console.error(err);
+        alert(err?.message || "Could not import that GPX file.");
+      }
+    };
+
+    reader.readAsText(file);
+  };
+
+  input.click();
+}
+
+function bindDppCommitEvents(inputEl, commitFn){
+  if (!inputEl) return;
+  inputEl.addEventListener("blur", commitFn);
+  inputEl.addEventListener("change", commitFn);
+  inputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitFn();
+      inputEl.blur();
+    }
+  });
+}
+
 addDailySummaryBtn.addEventListener("click", () => {
   const p = getCurrentPassage();
   if (!p) return;
@@ -2801,6 +4407,8 @@ addDailySummaryBtn.addEventListener("click", () => {
   p.plan.dailySummaries.push({ id: "ds_" + Date.now(), date: "", fee: "", notes: "" });
   renderDailySummaries(p);
 });
+
+window.addEventListener("DOMContentLoaded", () => { try { const p = getCurrentPassage(); if (p) renderDetailedPassagePlan(p); } catch(e){} });
 
 // Sync auto tide stations on input (not just change)
 let tideSyncTimer = null;
@@ -4597,58 +6205,75 @@ function updatePlanSummaryPanel() {
     return;
   }
 
-  const tidalCoeff = p.plan.tidalCoeff || "";
+  p.plan.tideStations = readTideStationsFromForm();
+  p.plan.dailySummaries = readDailySummariesFromForm();
+  if (typeof readDetailedPassagePlanFromForm === "function") p.plan.detailed = readDetailedPassagePlanFromForm();
+		ensureDetailedPassagePlan(p);
+		recalcDetailedPassagePlan(p);
+
   const sunriseSet = p.plan.sunriseSet || "";
-  const moonPhase = (p.plan.moonPhase || "").trim() || (p.plan.date ? getMoonPhaseLabel(p.plan.date) : "");
+  const moonPhase = p.plan.moonPhase || "";
   const moonRiseSet = p.plan.moonRiseSet || "";
-  const currents = p.plan.currents || "";
-  const weather  = p.plan.weather || "";
-  const comms    = p.plan.comms || "";
+  const tidalCoeff = p.plan.tidalCoeff || "";
   const tideStations = p.plan.tideStations || [];
-  const dailySummaries = p.plan.dailySummaries || [];
+  const currents = p.plan.currents || "";
+  const weather = p.plan.weather || "";
+		const comms = p.plan.comms || "";
+		const dailySummaries = p.plan.dailySummaries || [];
+		const detailed = p.plan.detailed || { waypoints: [], hazards: "", portsOfRefuge: "", crewWelfare: "" };
+		const detailedWpHtml = (detailed.waypoints || []).length
+				? detailed.waypoints.map(wp => {
+								const bits = [];
+								if (wp.time) bits.push(escapeHtml(wp.time));
+								if (wp.name) bits.push(escapeHtml(wp.name));
+								return `<div class="daily-summary-item">${bits.join(" – ") || "–"}</div>`;
+						}).join("")
+				: "<p><em>–</em></p>";
+		const detailedHazardsHtml = detailed.hazards ? escapeHtml(detailed.hazards).replace(/\n/g, "<br>") : "<em>–</em>";
+		const detailedRefugeHtml = detailed.portsOfRefuge ? escapeHtml(detailed.portsOfRefuge).replace(/\n/g, "<br>") : "<em>–</em>";
+		const detailedWelfareHtml = detailed.crewWelfare ? escapeHtml(detailed.crewWelfare).replace(/\n/g, "<br>") : "<em>–</em>";
 
-  const tideStationsHtml = tideStations.length
-    ? tideStations.map(ts => {
-        const stationName = (ts.name || "Station");
-        const name = escapeHtml(stationName);
+  const tideStationsBlocks = tideStations.map(ts => {
+    const stationName = (ts.name || "").trim();
+    const nameHtml = stationName ? `<p><strong>${escapeHtml(stationName)}</strong></p>` : "";
 
-        // Build events list (prefer stored events; otherwise build from fields)
-        let ev = Array.isArray(ts.events) ? ts.events.slice() : [];
-        if (!ev.length){
-          const pushEv = (type, time, heightStr) => {
-            if (!time) return;
-            const h = parseFloat(String(heightStr || "").replace(",", "."));
-            ev.push({ type, time, height: isNaN(h) ? null : h });
-          };
-          pushEv("HW", ts.hw1, ts.hw1h);
-          pushEv("LW", ts.lw1, ts.lw1h);
-          pushEv("HW", ts.hw2, ts.hw2h);
-          pushEv("LW", ts.lw2, ts.lw2h);
-        }
-        ev.sort((a,b) => (a.time||"").localeCompare(b.time||""));
+    const ev = Array.isArray(ts.events) && ts.events.length
+      ? ts.events.slice()
+      : [
+          ts.hw1 ? { type:"HW", time:ts.hw1, height: ts.hw1h } : null,
+          ts.lw1 ? { type:"LW", time:ts.lw1, height: ts.lw1h } : null,
+          ts.hw2 ? { type:"HW", time:ts.hw2, height: ts.hw2h } : null,
+          ts.lw2 ? { type:"LW", time:ts.lw2, height: ts.lw2h } : null,
+        ].filter(Boolean);
 
-        if (!ev.length) return `<div class="tide-row">${name} – <em>–</em></div>`;
+    ev.sort((a,b) => (a.time||"").localeCompare(b.time||""));
 
-        const rowsHtml = ev.map(e => {
-          const sym = (e.type === "HW") ? "▲" : "▼";
-          const hRaw = (e && (e.height ?? e.ht ?? e.h ?? e.Ht ?? e.height_m ?? e.heightM));
-          const hh = (typeof hRaw === "number") ? hRaw : parseFloat(String(hRaw ?? "").replace(",", "."));
-          const h = (!isNaN(hh)) ? `${hh.toFixed(1)}m` : "";
-          return `<tr><td class="tide-sym">${sym}</td><td>${escapeHtml(e.time || "")}</td><td>${escapeHtml(h)}</td></tr>`;
-        }).join("");
+    if (!ev.length) {
+      return stationName ? `<div class="tide-station-block">${nameHtml}<div class="tide-empty"><em>–</em></div></div>` : "";
+    }
 
-        return `
-          <div class="tide-station-block">
-            <div class="tide-station-name">${name}</div>
-            <table class="tide-table">
-              <thead><tr><th></th><th>Time</th><th>Ht</th></tr></thead>
-              <tbody>${rowsHtml}</tbody>
-            </table>
-          </div>
-        `;
-      }).join("")
+    const rowsHtml = ev.map(e => {
+      const sym = (e.type === "HW") ? "▲" : "▼";
+      const hRaw = (e && (e.height ?? e.ht ?? e.h ?? e.Ht ?? e.height_m ?? e.heightM));
+      const hh = (typeof hRaw === "number") ? hRaw : parseFloat(String(hRaw ?? "").replace(",", "."));
+      const h = (!isNaN(hh)) ? `${hh.toFixed(1)}m` : "";
+      return `<tr><td class="tide-sym">${sym}</td><td>${escapeHtml(e.time || "")}</td><td>${escapeHtml(h)}</td></tr>`;
+    }).join("");
+
+    return `
+      <div class="tide-station-block">
+        ${nameHtml}
+        <table class="tide-table">
+          <thead><tr><th></th><th>Time</th><th>Ht</th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+    `;
+  }).filter(Boolean);
+
+  const tideStationsHtml = tideStationsBlocks.length
+    ? tideStationsBlocks.join("")
     : "<p><em>–</em></p>";
-
 
   const dailySummaryHtml = dailySummaries.length
     ? dailySummaries.map(ds => {
@@ -4657,11 +6282,11 @@ function updatePlanSummaryPanel() {
         const notesLabel = ds.notes ? ` – ${escapeHtml(ds.notes)}` : "";
         return `<div class="daily-summary-item plan-link" data-goto="dailySummariesContainer">${escapeHtml(dateLabel)}${feeLabel}${notesLabel}</div>`;
       }).join("")
-    : "<p class=\"plan-link\" data-goto=\"dailySummariesContainer\"><em>–</em></p>";
+    : '<p class="plan-link" data-goto="dailySummariesContainer"><em>–</em></p>';
 
   planSummaryPanel.innerHTML = `
     <div class="plan-summary-grid">
-      <div class="col">
+      <div class="col plan-summary-col plan-summary-col-left">
         <div class="block plan-link" data-goto="planSunriseSet">
           <p class="section-title">SUN &amp; MOON</p>
           <p><strong>Sunrise / Sunset:</strong> ${sunriseSet ? escapeHtml(sunriseSet) : "–"}</p>
@@ -4672,7 +6297,6 @@ function updatePlanSummaryPanel() {
         <div class="block plan-link" data-goto="planTidalCoeff">
           <p class="section-title">TIDES</p>
           <p>${tidalCoeff ? `<strong>Coeff:</strong> ${escapeHtml(tidalCoeff)}` : "<strong>Coeff:</strong> –"}</p>
-          <p><strong>Tide stations:</strong></p>
           <div class="tide-stations-grid">${tideStationsHtml}</div>
         </div>
 
@@ -4684,22 +6308,40 @@ function updatePlanSummaryPanel() {
         <div class="block plan-link" data-goto="planComms">
           <p class="section-title">COMMS / PILOTAGE</p>
           <p>${comms ? escapeHtml(comms).replace(/\n/g, "<br>") : "<em>–</em>"}</p>
-                  </div>
-      </div>
-
-      <div class="col">
-        <div class="block plan-link" data-goto="planWeather">
-          <p class="section-title">WEATHER</p>
-          <p>${weather ? weatherTextToHtmlForPlanPanel(weather) : "<em>–</em>"}</p>
         </div>
 
         <div class="block">
           <p class="section-title">DAILY SUMMARY</p>
           ${dailySummaryHtml}
         </div>
+
+        <div class="block plan-link" data-goto="detailedPassagePlanSection">
+          <p class="section-title">PASSAGE PLAN</p>
+          ${detailedWpHtml}
+          <p style="margin-top:0.5rem;"><strong>Hazards:</strong> ${detailedHazardsHtml}</p>
+          <p><strong>Ports of Refuge:</strong> ${detailedRefugeHtml}</p>
+          <p><strong>Crew Welfare:</strong> ${detailedWelfareHtml}</p>
+        </div>
+      </div>
+
+      <div class="col plan-summary-col plan-summary-col-right">
+        <div class="block plan-link" data-goto="planWeather">
+          <p class="section-title">WEATHER</p>
+          <p>${weather ? weatherTextToHtmlForPlanPanel(weather) : "<em>–</em>"}</p>
+        </div>
       </div>
     </div>
   `;
+
+  try { setupPlanSummaryIndependentScroll(); } catch (e) {}
+}
+
+function setupPlanSummaryIndependentScroll(){
+  const grid = planSummaryPanel.querySelector('.plan-summary-grid');
+  if (!grid) return;
+  grid.querySelectorAll('.plan-summary-col').forEach(col => {
+    col.style.overflowY = 'auto';
+  });
 }
 
 planSummaryPanel.addEventListener("click", (e) => {
@@ -4781,6 +6423,478 @@ async function maybeCapturePositionForEntry(entry) {
     });
   });
 }
+let __scrollLogToNewestOnRender = false;
+
+function requestScrollToNewestLogEntry() {
+  __scrollLogToNewestOnRender = true;
+}
+
+function inferEntryType(entry) {
+  if (entry?.entryType) return entry.entryType;
+  const note = String(entry?.notes || '').toLowerCase();
+  if (note.startsWith('engine start')) return 'engine-start';
+  if (note.startsWith('shutdown')) return 'shutdown';
+  if (note.startsWith('slipped lines')) return 'slip';
+  if (note.startsWith('alongside') || note.startsWith('docked')) return 'dock';
+  return 'manual';
+}
+
+function parseEngineStartFromNotes(entry) {
+  const note = String(entry?.notes || '');
+  const env = entry.engineStartEnv || {};
+  const mEh = note.match(/EH\s+([0-9.]+)/i);
+  const mFuelR = note.match(/Fuel\s+([0-9.]+)%/i);
+  const mFuelC = note.match(/FuelC\s+([0-9.]+)%/i);
+  const mEnv = note.match(/Env\s+([^|]+)/i);
+  const mNotes = note.match(/Notes:\s*(.+)$/i);
+  return {
+    engineHoursStart: entry.engineHoursStart ?? (mEh ? mEh[1] : ''),
+    fuelStartPercentR: entry.fuelStartPercentR ?? (mFuelR ? mFuelR[1] : ''),
+    fuelStartPercentC: entry.fuelStartPercentC ?? (mFuelC ? mFuelC[1] : ''),
+    airPressureMb: env.airPressureMb || ((mEnv && /([0-9.]+)mb/i.test(mEnv[1])) ? RegExp.$1 : ''),
+    humidityPct: env.humidityPct || ((mEnv && /([0-9.]+)%RH/i.test(mEnv[1])) ? RegExp.$1 : ''),
+    airTempC: env.airTempC || ((mEnv && /Air\s+([0-9.]+)°C/i.test(mEnv[1])) ? RegExp.$1 : ''),
+    seaTempC: env.seaTempC || ((mEnv && /Sea\s+([0-9.]+)°C/i.test(mEnv[1])) ? RegExp.$1 : ''),
+    windDir: env.windDir || ((mEnv && /Wind\s+([A-Z]+)/i.test(mEnv[1])) ? RegExp.$1 : ''),
+    windBft: env.windBft || ((mEnv && /Wind\s+[A-Z]*\s*([0-9]+)/i.test(mEnv[1])) ? RegExp.$1 : ''),
+    notes: env.notes || (mNotes ? mNotes[1] : ''),
+  };
+}
+
+function buildEngineStartNotes(data) {
+  const startBits = [];
+  if (data.engineHoursStart) startBits.push(`EH ${data.engineHoursStart}`);
+  if (data.fuelStartPercentR) startBits.push(`Fuel ${data.fuelStartPercentR}%`);
+  if (data.fuelStartPercentC) startBits.push(`FuelC ${data.fuelStartPercentC}%`);
+
+  const envParts = [];
+  if (data.airPressureMb) envParts.push(`${data.airPressureMb}mb`);
+  if (data.humidityPct) envParts.push(`${data.humidityPct}%RH`);
+  if (data.airTempC) envParts.push(`Air ${data.airTempC}°C`);
+  if (data.seaTempC) envParts.push(`Sea ${data.seaTempC}°C`);
+  if (data.windDir || data.windBft) envParts.push(`Wind ${(data.windDir || '')}${(data.windBft || '')}`.trim());
+  if (envParts.length) startBits.push(`Env ${envParts.join(', ')}`);
+  if (data.notes) startBits.push(`Notes: ${data.notes}`);
+  return startBits.length ? `Engine start — ${startBits.join(' | ')}` : 'Engine start';
+}
+
+function parseShutdownFromNotes(entry) {
+  const note = String(entry?.notes || '');
+  const mEh = note.match(/EH\s+([0-9.]+)/i);
+  const mFuelR = note.match(/Fuel\s+([0-9.]+)%/i);
+  const mFuelC = note.match(/FuelC\s+([0-9.]+)%/i);
+  const mNotes = note.match(/Shutdown \/ alongside(?:\s+—\s+[^—]+)?(?:\s+—\s+(.+))?$/i);
+  return {
+    engineHoursEnd: entry.engineHoursEnd ?? (mEh ? mEh[1] : ''),
+    fuelEndPercentR: entry.fuelEndPercentR ?? (mFuelR ? mFuelR[1] : ''),
+    fuelEndPercentC: entry.fuelEndPercentC ?? (mFuelC ? mFuelC[1] : ''),
+    waterLog: entry.waterLog || '',
+    groundLog: entry.groundLog || '',
+    fuelUsed: entry.fuelUsed || '',
+    notes: entry.shutdownNotes ?? (mNotes && mNotes[1] ? mNotes[1] : ''),
+  };
+}
+
+function buildShutdownNotes(data) {
+  const shutBits = [];
+  if (data.engineHoursEnd) shutBits.push(`EH ${data.engineHoursEnd}`);
+  if (data.fuelEndPercentR) shutBits.push(`Fuel ${data.fuelEndPercentR}%`);
+  if (data.fuelEndPercentC) shutBits.push(`FuelC ${data.fuelEndPercentC}%`);
+  if (data.waterLog) shutBits.push(`W ${data.waterLog}`);
+  if (data.groundLog) shutBits.push(`G ${data.groundLog}`);
+  if (data.fuelUsed) shutBits.push(`Fuel used ${data.fuelUsed}`);
+  const shutPrefix = shutBits.length ? `Shutdown / alongside — ${shutBits.join(' | ')}` : 'Shutdown / alongside';
+  return data.notes ? `${shutPrefix} — ${data.notes}` : shutPrefix;
+}
+
+function getDialogFieldValues(fieldIds) {
+  const out = {};
+  for (const id of fieldIds) out[id] = (document.getElementById(id)?.value || '').trim();
+  return out;
+}
+
+function dialogSection(title, inner) {
+  return `<div class="entry-dialog-section"><div class="entry-dialog-section-title">${escapeHtml(title)}</div>${inner}</div>`;
+}
+
+function dialogField(label, id, value, opts = {}) {
+  const type = opts.type || 'text';
+  const inputMode = opts.inputMode ? ` inputmode="${opts.inputMode}"` : '';
+  const step = opts.step ? ` step="${opts.step}"` : '';
+  const min = opts.min !== undefined ? ` min="${opts.min}"` : '';
+  const max = opts.max !== undefined ? ` max="${opts.max}"` : '';
+  const cls = opts.className ? ` ${opts.className}` : '';
+  if (opts.tag === 'textarea') {
+    return `<label class="entry-dialog-field entry-dialog-field-full${cls}"><span>${escapeHtml(label)}</span><textarea id="${id}" rows="${opts.rows || 3}" class="modal-notes" style="resize:vertical;">${escapeHtml(value || '')}</textarea></label>`;
+  }
+  if (opts.tag === 'select') {
+    const options = (opts.options || []).map(opt => `<option value="${escapeHtml(opt)}" ${String(value||'')===String(opt)?'selected':''}>${escapeHtml(opt)}</option>`).join('');
+    return `<label class="entry-dialog-field${cls}"><span>${escapeHtml(label)}</span><select id="${id}"><option value=""></option>${options}</select></label>`;
+  }
+  return `<label class="entry-dialog-field${cls}"><span>${escapeHtml(label)}</span><input id="${id}" type="${type}"${inputMode}${step}${min}${max} value="${escapeHtml(value || '')}"></label>`;
+}
+
+async function openManualEntryDialog(entry, { isNew = false, passage = null } = {}) {
+  return await new Promise((resolve) => {
+    const existingPos = ((entry.lat || '').trim() && (entry.lon || '').trim())
+      ? `${String(entry.lat).trim()}, ${String(entry.lon).trim()}`
+      : ((entry.lat || '').trim() || (entry.lon || '').trim() || '');
+
+    showModal({
+      title: isNew ? 'New Log Entry' : 'Edit Log Entry',
+      okText: isNew ? 'Add entry' : 'Save changes',
+      bodyHtml: `
+        <div class="entry-dialog-grid entry-dialog-grid-two">
+          ${dialogSection('Navigation',
+            dialogField('Time', 'dlgTime', entry.time ? timeOnlyFromIso(entry.time) : '', { inputMode: 'numeric' }) +
+            dialogField('Lat/Lon', 'dlgPosition', existingPos, { className: 'entry-dialog-field-full' }) +
+            dialogField('COG', 'dlgCourse', entry.course || '', { inputMode: 'numeric' }) +
+            dialogField('SPD', 'dlgSpeed', entry.speed || '', { inputMode: 'decimal', step: '0.1' })
+          )}
+          ${dialogSection('Engine',
+            dialogField('RPM', 'dlgRpm', entry.rpm || '', { inputMode: 'numeric' }) +
+            dialogField('ENG T/P', 'dlgEngTP', entry.engTP || '', { inputMode: 'decimal', step: '0.1' })
+          )}
+          ${dialogSection('Logs',
+            dialogField('W Log', 'dlgWaterLog', entry.waterLog || '', { inputMode: 'decimal', step: '0.1' }) +
+            dialogField('G Log', 'dlgGroundLog', entry.groundLog || '', { inputMode: 'decimal', step: '0.1' })
+          )}
+          ${dialogSection('Fuel',
+            dialogField('Fuel Used', 'dlgFuelUsed', entry.fuelUsed || '', { inputMode: 'decimal', step: '0.1' })
+          )}
+        </div>
+        ${dialogField('Notes', 'dlgNotes', entry.notes || '', { tag: 'textarea', rows: 4 })}
+      `,
+      onOk: () => {
+        const vals = getDialogFieldValues([
+          'dlgTime',
+          'dlgPosition',
+          'dlgCourse',
+          'dlgSpeed',
+          'dlgRpm',
+          'dlgEngTP',
+          'dlgWaterLog',
+          'dlgGroundLog',
+          'dlgFuelUsed',
+          'dlgNotes'
+        ]);
+
+        entry.time = normalizeEntryTimeInput(
+          vals.dlgTime,
+          entry.time,
+          (passage?.plan?.date || getCurrentPassage()?.plan?.date || '')
+        );
+
+        const pos = parseAndFormatPositionInput(vals.dlgPosition, entry.lat, entry.lon);
+        entry.lat = pos.lat;
+        entry.lon = pos.lon;
+        entry.course = vals.dlgCourse;
+        entry.speed = vals.dlgSpeed;
+        entry.rpm = vals.dlgRpm;
+        entry.engTP = vals.dlgEngTP;
+        entry.waterLog = vals.dlgWaterLog;
+        entry.groundLog = vals.dlgGroundLog;
+        entry.fuelUsed = vals.dlgFuelUsed;
+        entry.notes = vals.dlgNotes;
+        entry.entryType = 'manual';
+
+        if (!isNew) {
+          savePassages();
+          renderLogEntries();
+          refreshHomePassageList();
+        }
+
+        resolve(true);
+      },
+      onCancel: () => resolve(false)
+    });
+
+    // CL-083: Prefill Lat/Lon for NEW manual entries
+    if (isNew) {
+      const posInput = document.getElementById('dlgPosition');
+      if (posInput && !String(posInput.value || '').trim()) {
+        posInput.value = 'n/a';
+
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              // Only replace fallback if user hasn't typed over it
+              if (document.getElementById('dlgPosition') && document.getElementById('dlgPosition').value === 'n/a') {
+                document.getElementById('dlgPosition').value =
+                  `${formatLatFromDecimal(pos.coords.latitude)}, ${formatLonFromDecimal(pos.coords.longitude)}`;
+              }
+            },
+            () => {
+              const el = document.getElementById('dlgPosition');
+              if (el && !String(el.value || '').trim()) el.value = 'n/a';
+            },
+            { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+          );
+        }
+      }
+    }
+  });
+}
+
+async function openEngineStartEntryDialog(p, legIdx, entry = null) {
+  const existing = entry ? parseEngineStartFromNotes(entry) : {};
+  let prefillEh = existing.engineHoursStart || '';
+  let prefillFuR = existing.fuelStartPercentR || '';
+  if (!entry) {
+    if (legIdx === 0) {
+      prefillEh = (p.plan && p.plan.engineHoursStart) ? String(p.plan.engineHoursStart) : '';
+      prefillFuR = (p.plan && p.plan.fuelStartPercent) ? String(p.plan.fuelStartPercent) : '';
+    } else {
+      const legEnds = Array.isArray(p.legEnds) ? p.legEnds : [];
+      const prevEnd = legEnds[legIdx - 1] || {};
+      prefillEh = prevEnd.engineHoursEnd ? String(prevEnd.engineHoursEnd) : '';
+      prefillFuR = prevEnd.fuelEndPercent ? String(prevEnd.fuelEndPercent) : '';
+    }
+  }
+  const prevEnv = existing.engineHoursStart ? existing : ((p.plan && p.plan.engineStartEnv) ? { ...p.plan.engineStartEnv } : {});
+
+  return await new Promise((resolve) => {
+    showModal({
+      title: 'Engine Start',
+      okText: entry ? 'Save changes' : 'Add entry',
+      bodyHtml: `
+        <div class="entry-dialog-grid entry-dialog-grid-two">
+          ${dialogSection('Start values',
+											dialogField('Time', 'esTime', entry?.time ? timeOnlyFromIso(entry.time) : timeOnlyFromIso(localDateTimeInputValue(new Date())), { inputMode: 'numeric' }) +
+											dialogField('POB', 'esPob', entry?.pob || p.pob || '', { type: 'number', inputMode: 'numeric', step: '1', min: '1' }) +
+											dialogField('Fuel %(R)', 'esFuelR', prefillFuR, { type: 'number', inputMode: 'numeric', step: '1' }) +
+											dialogField('Fuel %(C)', 'esFuelC', existing.fuelStartPercentC || '', { type: 'number', inputMode: 'numeric', step: '1' }) +
+											dialogField('Engine hours at start', 'esEh', prefillEh, { type: 'number', inputMode: 'decimal', step: '0.1' })
+          )}
+          ${dialogSection('Environment (optional)',
+            dialogField('Air pressure (mb)', 'esAirPress', prevEnv.airPressureMb || '', { type: 'number', inputMode: 'numeric', step: '1' }) +
+            dialogField('Humidity (%)', 'esHumidity', prevEnv.humidityPct || '', { type: 'number', inputMode: 'numeric', step: '1' }) +
+            dialogField('Air temp (°C)', 'esAirTemp', prevEnv.airTempC || '', { type: 'number', inputMode: 'decimal', step: '0.1' }) +
+            dialogField('Sea temp (°C)', 'esSeaTemp', prevEnv.seaTempC || '', { type: 'number', inputMode: 'decimal', step: '0.1' }) +
+            dialogField('Wind dir', 'esWindDir', prevEnv.windDir || '', { tag: 'select', options: ['N','NE','E','SE','S','SW','W','NW'] }) +
+            dialogField('Wind (Bft)', 'esWindBft', prevEnv.windBft || '', { type: 'number', inputMode: 'numeric', step: '1', min: '0', max: '12' })
+          )}
+        </div>
+        ${dialogField('Notes (optional)', 'esNotes', prevEnv.notes || '', { tag: 'textarea', rows: 3 })}
+      `,
+      onOk: () => {
+        const vals = getDialogFieldValues(['esTime','esPob','esFuelR','esFuelC','esEh','esAirPress','esHumidity','esAirTemp','esSeaTemp','esWindDir','esWindBft','esNotes']);
+        if (entry) {
+          entry.time = normalizeEntryTimeInput(vals.esTime, entry.time, (p.plan?.date || ''));
+          if (legIdx === 0) { p.plan.engineHoursStart = vals.esEh; p.plan.fuelStartPercent = vals.esFuelR; }
+          p.plan.engineStartEnv = {
+            airPressureMb: vals.esAirPress, humidityPct: vals.esHumidity, airTempC: vals.esAirTemp,
+            seaTempC: vals.esSeaTemp, windDir: vals.esWindDir, windBft: vals.esWindBft, notes: vals.esNotes
+          };
+										entry.fuelStartPercentR = vals.esFuelR;
+										entry.fuelStartPercentC = vals.esFuelC;
+										entry.engineHoursStart = vals.esEh;
+										entry.pob = vals.esPob;
+										p.pob = vals.esPob;
+										entry.engineStartEnv = {
+												airPressureMb: vals.esAirPress, humidityPct: vals.esHumidity, airTempC: vals.esAirTemp,
+												seaTempC: vals.esSeaTemp, windDir: vals.esWindDir, windBft: vals.esWindBft, notes: vals.esNotes
+										};
+          entry.notes = buildEngineStartNotes({
+            engineHoursStart: vals.esEh, fuelStartPercentR: vals.esFuelR, fuelStartPercentC: vals.esFuelC,
+            airPressureMb: vals.esAirPress, humidityPct: vals.esHumidity, airTempC: vals.esAirTemp,
+            seaTempC: vals.esSeaTemp, windDir: vals.esWindDir, windBft: vals.esWindBft, notes: vals.esNotes
+          });
+          savePassages(); renderLogEntries(); refreshHomePassageList(); updateLogSummary(); updatePlanSummaryPanel();
+          resolve(true); return;
+        }
+
+        if (legIdx === 0) {
+          p.plan.engineHoursStart = vals.esEh;
+          p.plan.fuelStartPercent = vals.esFuelR;
+        }
+        p.plan.engineStartEnv = {
+          airPressureMb: vals.esAirPress, humidityPct: vals.esHumidity, airTempC: vals.esAirTemp,
+          seaTempC: vals.esSeaTemp, windDir: vals.esWindDir, windBft: vals.esWindBft, notes: vals.esNotes
+        };
+        const startNotes = buildEngineStartNotes({
+          engineHoursStart: vals.esEh, fuelStartPercentR: vals.esFuelR, fuelStartPercentC: vals.esFuelC,
+          airPressureMb: vals.esAirPress, humidityPct: vals.esHumidity, airTempC: vals.esAirTemp,
+          seaTempC: vals.esSeaTemp, windDir: vals.esWindDir, windBft: vals.esWindBft, notes: vals.esNotes
+        });
+								const newEntry = {
+										id: 'e_' + Date.now(), time: normalizeEntryTimeInput(vals.esTime, '', (p.plan?.date || '')), leg: legIdx,
+										lat: '', lon: '', course: '', speed: '', rpm: '', engTP: '', waterLog: '', groundLog: '', fuelUsed: '',
+										notes: startNotes, entryType: 'engine-start', fuelStartPercentR: vals.esFuelR, fuelStartPercentC: vals.esFuelC,
+										engineHoursStart: vals.esEh, pob: vals.esPob, engineStartEnv: p.plan.engineStartEnv
+								};
+								p.entries.unshift(newEntry);
+								p.pob = vals.esPob;
+								p.flags.engineStart = true;
+								
+								// CL-085: retime WP1 from Engine Start + configured allowance
+								try {
+										// Pull the live DPP rows back into passage data first
+										if (typeof readDetailedPassagePlanFromForm === "function") {
+												p.plan.detailed = readDetailedPassagePlanFromForm();
+										}
+										if (typeof ensureDetailedPassagePlan === "function") {
+												ensureDetailedPassagePlan(p);
+										}
+								
+										const settings = getSafetyInfo();
+										const minsToAdd = Number(settings?.defaults?.engineToSlipMins || 7);
+								
+										function addMinutesToHHMM(hhmm, mins){
+												const m = String(hhmm || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+												if (!m) return hhmm || "";
+												let total = (parseInt(m[1], 10) * 60) + parseInt(m[2], 10) + mins;
+												total = ((total % 1440) + 1440) % 1440;
+												const hh = String(Math.floor(total / 60)).padStart(2, "0");
+												const mm = String(total % 60).padStart(2, "0");
+												return `${hh}:${mm}`;
+										}
+								
+										if (p.plan?.detailed?.waypoints?.length) {
+												const wp1 = p.plan.detailed.waypoints[0];
+												const startTime = String(vals.esTime || "").trim();
+												wp1.time = addMinutesToHHMM(startTime, minsToAdd);
+										}
+								
+										if (typeof recalcDetailedPassagePlan === "function") {
+												recalcDetailedPassagePlan(p);
+										}
+								} catch (e) {
+										console.warn("WP1 retime failed", e);
+								}								
+								savePassages();
+								requestScrollToNewestLogEntry();
+								renderLogEntries();
+								refreshHomePassageList();
+								if (typeof renderDetailedPassagePlan === "function") renderDetailedPassagePlan(p);
+								updatePlanSummaryPanel();
+								updateLogSummary();								
+								try{
+																if (confirm("Notify Emergency Contact now?")){
+																																const msg = buildEcStartSms(p);
+																																setTimeout(() => chooseEmergencyContactAndSend(msg), 80);
+																}
+								}catch(e){
+																console.warn("EC notify failed", e);
+																alert("EC notify failed: " + (e && e.message ? e.message : e));
+								}								       
+        resolve(true);
+      },
+      onCancel: () => resolve(false)
+    });
+  });
+}
+
+async function openShutdownEntryDialog(p, legIdx, isFinalLeg, entry = null) {
+  p.legEnds = Array.isArray(p.legEnds) ? p.legEnds : [];
+  const prev = entry ? parseShutdownFromNotes(entry) : (p.legEnds[legIdx] || {});
+  return await new Promise((resolve) => {
+    showModal({
+      title: isFinalLeg ? 'Shutdown (final leg)' : 'Shutdown (end of leg)',
+      okText: entry ? 'Save changes' : 'Add entry',
+      bodyHtml: `
+        <div class="entry-dialog-grid entry-dialog-grid-two">
+          ${dialogSection('Shutdown values',
+            dialogField('Time', 'shTime', entry?.time ? timeOnlyFromIso(entry.time) : timeOnlyFromIso(localDateTimeInputValue(new Date())), { inputMode: 'numeric' }) +
+            dialogField('Fuel %(R)', 'shFuelR', prev.fuelEndPercentR || prev.fuelEndPercent || '', { type: 'number', inputMode: 'numeric', step: '1' }) +
+            dialogField('Fuel %(C)', 'shFuelC', prev.fuelEndPercentC || '', { type: 'number', inputMode: 'numeric', step: '1' }) +
+            dialogField('Engine hours (end)', 'shEh', prev.engineHoursEnd || '', { type: 'number', inputMode: 'decimal', step: '0.1' })
+          )}
+          ${dialogSection('Logs / fuel',
+            dialogField('W Log', 'shWLog', prev.waterLog || '', { inputMode: 'decimal', step: '0.1' }) +
+            dialogField('G Log', 'shGLog', prev.groundLog || '', { inputMode: 'decimal', step: '0.1' }) +
+            dialogField('Fuel Used', 'shFuelUsed', prev.fuelUsed || '', { inputMode: 'decimal', step: '0.1' })
+          )}
+        </div>
+        ${dialogField('Notes / defects', 'shNotes', prev.notes || '', { tag: 'textarea', rows: 3 })}
+      `,
+      onOk: () => {
+        const vals = getDialogFieldValues(['shTime','shFuelR','shFuelC','shEh','shWLog','shGLog','shFuelUsed','shNotes']);
+        const builtNotes = buildShutdownNotes({
+          engineHoursEnd: vals.shEh, fuelEndPercentR: vals.shFuelR, fuelEndPercentC: vals.shFuelC,
+          waterLog: vals.shWLog, groundLog: vals.shGLog, fuelUsed: vals.shFuelUsed, notes: vals.shNotes
+        });
+        p.legEnds[legIdx] = {
+          engineHoursEnd: vals.shEh, fuelEndPercent: vals.shFuelR, fuelEndPercentC: vals.shFuelC,
+          waterLog: vals.shWLog, groundLog: vals.shGLog, fuelUsed: vals.shFuelUsed, notes: vals.shNotes,
+          at: new Date().toISOString(),
+        };
+        if (isFinalLeg) {
+          p.finish = p.finish || {};
+          p.finish.engineHoursEnd = vals.shEh;
+          p.finish.fuelEndPercent = vals.shFuelR;
+          p.finish.notes = vals.shNotes;
+          p.finish.shutdownLogged = true;
+        }
+        if (entry) {
+          entry.time = normalizeEntryTimeInput(vals.shTime, entry.time, (p.plan?.date || ''));
+          entry.notes = builtNotes;
+          entry.entryType = 'shutdown';
+          entry.engineHoursEnd = vals.shEh;
+          entry.fuelEndPercentR = vals.shFuelR;
+          entry.fuelEndPercentC = vals.shFuelC;
+          entry.waterLog = vals.shWLog;
+          entry.groundLog = vals.shGLog;
+          entry.fuelUsed = vals.shFuelUsed;
+          entry.shutdownNotes = vals.shNotes;
+        } else {
+          p.entries.unshift({
+            id: 'e_' + Date.now(), time: normalizeEntryTimeInput(vals.shTime, '', (p.plan?.date || '')), leg: legIdx,
+            lat: '', lon: '', course: '', speed: '0', rpm: '', engTP: '',
+            waterLog: vals.shWLog, groundLog: vals.shGLog, fuelUsed: vals.shFuelUsed,
+            notes: builtNotes, entryType: 'shutdown', engineHoursEnd: vals.shEh,
+            fuelEndPercentR: vals.shFuelR, fuelEndPercentC: vals.shFuelC, shutdownNotes: vals.shNotes
+          });
+        }
+								savePassages(); requestScrollToNewestLogEntry(); renderLogEntries(); refreshHomePassageList(); updatePassageHeader(); updateLogSummary();
+								
+								try{
+																if (confirm("Notify Emergency Contact of safe arrival?")){
+																																const msg = buildEcEndSms(p);
+																																setTimeout(() => chooseEmergencyContactAndSend(msg), 80);
+																}
+								}catch(e){
+																console.warn("EC shutdown notify failed", e);
+																alert("EC shutdown notify failed: " + (e && e.message ? e.message : e));
+								}        
+        resolve(true);
+      },
+      onCancel: () => resolve(false)
+    });
+  });
+}
+
+function openSimpleSpecialEntryDialog(p, entry) {
+  const title = inferEntryType(entry) === 'slip' ? 'Slip' : 'Dock';
+  showModal({
+    title,
+    okText: 'Save changes',
+    bodyHtml: `
+      <div class="entry-dialog-grid entry-dialog-grid-two">
+        ${dialogSection('Entry', dialogField('Time', 'spTime', entry.time ? timeOnlyFromIso(entry.time) : '', { inputMode: 'numeric' }))}
+      </div>
+      ${dialogField('Notes', 'spNotes', entry.notes || '', { tag: 'textarea', rows: 3 })}
+    `,
+    onOk: () => {
+      const vals = getDialogFieldValues(['spTime','spNotes']);
+      entry.time = normalizeEntryTimeInput(vals.spTime, entry.time, (p.plan?.date || ''));
+      entry.notes = vals.spNotes;
+      savePassages(); renderLogEntries(); refreshHomePassageList();
+    }
+  });
+}
+
+function openEntryDialog(entry) {
+  const p = getCurrentPassage();
+  if (!p || !entry) return;
+  const entryType = inferEntryType(entry);
+  const legIdx = (typeof entry.leg === 'number') ? entry.leg : getCurrentLegIndex(p);
+  if (entryType === 'engine-start') return openEngineStartEntryDialog(p, legIdx, entry);
+  if (entryType === 'shutdown') return openShutdownEntryDialog(p, legIdx, legIdx >= (getLegCount(p) - 1), entry);
+  if (entryType === 'slip' || entryType === 'dock') return openSimpleSpecialEntryDialog(p, entry);
+  return openManualEntryDialog(entry, { isNew: false, passage: p });
+}
+
 function addSpecialEntry(noteText, notesOverride = null) {
   const p = getCurrentPassage();
   if (!p) return alert("No passage selected.");
@@ -4788,7 +6902,7 @@ function addSpecialEntry(noteText, notesOverride = null) {
   if (passageIsShutdown(p)) return alert("Shutdown already recorded – no further log entries allowed.");
 
   const now = new Date();
-  const timeStr = now.toISOString().slice(0, 16);
+  const timeStr = localDateTimeInputValue(now);
 
   const entry = {
     id: "e_" + Date.now(),
@@ -4810,6 +6924,7 @@ function addSpecialEntry(noteText, notesOverride = null) {
 
   p.entries.unshift(entry);
   savePassages();
+  requestScrollToNewestLogEntry();
   renderLogEntries();
   refreshHomePassageList();
 }
@@ -4822,12 +6937,11 @@ async function addLogEntry(){
   ensureFinish(p);
   ensureFlags(p);
 
-  // Always allow ad-hoc log entries, even after Shutdown (CL-076-1)
   const entry = {
     id: newId('e'),
-    time: new Date().toISOString().slice(0,16),
+    time: localDateTimeInputValue(new Date()),
     leg: getCurrentLegIndex(p),
-    cog: "",
+    course: "",
     speed: "",
     rpm: "",
     engTP: "",
@@ -4836,14 +6950,16 @@ async function addLogEntry(){
     fuelUsed: "",
     notes: "",
     lat: "",
-    lon: ""
+    lon: "",
+    entryType: "manual"
   };
 
-  // Ask whether to capture position for this ad-hoc entry (CL-076-6)
-  await maybeCapturePositionForEntry(entry, p);
+  const saved = await openManualEntryDialog(entry, { isNew: true, passage: p });
+  if (!saved) return;
 
   p.entries.unshift(entry);
   savePassages();
+  requestScrollToNewestLogEntry();
   renderLogEntries();
   refreshHomePassageList();
 }
@@ -4856,7 +6972,7 @@ function addDockEntry() {
   if (passageIsShutdown(p)) return alert("Shutdown already recorded – no further log entries allowed.");
 
   const now = new Date();
-  const timeStr = now.toISOString().slice(0, 16);
+  const timeStr = localDateTimeInputValue(now);
 
   const entry = {
     id: "e_" + Date.now(),
@@ -4876,6 +6992,7 @@ function addDockEntry() {
 
   p.entries.unshift(entry);
   savePassages();
+  requestScrollToNewestLogEntry();
   renderLogEntries();
   refreshHomePassageList();
 }
@@ -4957,6 +7074,7 @@ function handlePositionEdit(entry) {
       entry.lat = formatLatFromDecimal(pos.coords.latitude);
       entry.lon = formatLonFromDecimal(pos.coords.longitude);
       savePassages();
+      requestScrollToNewestLogEntry();
       renderLogEntries();
     },
     (err) => alert("Unable to get GPS position: " + err.message),
@@ -4965,141 +7083,14 @@ function handlePositionEdit(entry) {
 }
 
 // Engine start: numeric-friendly modal + only once
-engineStartBtn.addEventListener("click", () => {
+engineStartBtn.addEventListener("click", async () => {
   const p = getCurrentPassage();
   if (!p) return alert("No passage selected.");
   ensureFlags(p);
   if (passageIsShutdown(p)) return alert("Shutdown already recorded – no further log entries allowed.");
   const legIdx = getCurrentLegIndex(p);
   if (hasSpecialForLeg(p, 'engine start', legIdx)) return alert("Engine Start already recorded for this leg.");
-
-  // Prefill rules (CL-077):
-  // - Leg 1: use Plan start values (existing behaviour)
-  // - Leg 2+: use previous leg's Shutdown snapshot (NOT Plan start values)
-  let prefillEh = "";
-  let prefillFu = "";
-  if (legIdx === 0) {
-    prefillEh = (p.plan && p.plan.engineHoursStart) ? String(p.plan.engineHoursStart) : "";
-    prefillFu = (p.plan && p.plan.fuelStartPercent) ? String(p.plan.fuelStartPercent) : "";
-  } else {
-    const legEnds = Array.isArray(p.legEnds) ? p.legEnds : [];
-    const prevEnd = legEnds[legIdx - 1] || {};
-    prefillEh = prevEnd.engineHoursEnd ? String(prevEnd.engineHoursEnd) : "";
-    prefillFu = prevEnd.fuelEndPercent ? String(prevEnd.fuelEndPercent) : "";
-  }
-
-  // Persisted per-passage (not carried across passages)
-  const prevEnv = (p.plan && p.plan.engineStartEnv) ? p.plan.engineStartEnv : {};
-
-  showModal({
-    title: "Engine Start",
-    bodyHtml: `
-      <label style="display:flex;flex-direction:column;gap:0.25rem;">
-        Fuel % at start
-        <input id="fuelStart" type="number" inputmode="numeric" step="1" value="${escapeHtml(prefillFu)}">
-      </label>
-
-      <label style="display:flex;flex-direction:column;gap:0.25rem;margin-bottom:0.5rem;">
-        Engine hours at start
-        <input id="ehStart" type="number" inputmode="decimal" step="0.1" value="${escapeHtml(prefillEh)}">
-      </label>
-<div style="margin-top:0.75rem;border-top:1px solid #e6e6e6;padding-top:0.75rem;">
-        <div style="font-weight:600;margin-bottom:0.5rem;">Environment (optional)</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;">
-          <label style="display:flex;flex-direction:column;gap:0.25rem;">
-            Air pressure (mb)
-            <input id="airPress" type="number" inputmode="numeric" step="1" value="${escapeHtml(prevEnv.airPressureMb || "")}">
-          </label>
-          <label style="display:flex;flex-direction:column;gap:0.25rem;">
-            Humidity (%)
-            <input id="humidity" type="number" inputmode="numeric" step="1" value="${escapeHtml(prevEnv.humidityPct || "")}">
-          </label>
-          <label style="display:flex;flex-direction:column;gap:0.25rem;">
-            Air temp (°C)
-            <input id="airTemp" type="number" inputmode="decimal" step="0.1" value="${escapeHtml(prevEnv.airTempC || "")}">
-          </label>
-          <label style="display:flex;flex-direction:column;gap:0.25rem;">
-            Sea temp (°C)
-            <input id="seaTemp" type="number" inputmode="decimal" step="0.1" value="${escapeHtml(prevEnv.seaTempC || "")}">
-          </label>
-          <label style="display:flex;flex-direction:column;gap:0.25rem;grid-column:1 / span 1;">
-            Wind dir
-            <select id="windDir">
-              <option value="" ${!prevEnv.windDir ? "selected" : ""}></option>
-              <option value="N"  ${(prevEnv.windDir=="N")?"selected":""}>N</option>
-              <option value="NE" ${(prevEnv.windDir=="NE")?"selected":""}>NE</option>
-              <option value="E"  ${(prevEnv.windDir=="E")?"selected":""}>E</option>
-              <option value="SE" ${(prevEnv.windDir=="SE")?"selected":""}>SE</option>
-              <option value="S"  ${(prevEnv.windDir=="S")?"selected":""}>S</option>
-              <option value="SW" ${(prevEnv.windDir=="SW")?"selected":""}>SW</option>
-              <option value="W"  ${(prevEnv.windDir=="W")?"selected":""}>W</option>
-              <option value="NW" ${(prevEnv.windDir=="NW")?"selected":""}>NW</option>
-            </select>
-          </label>
-
-          <label style="display:flex;flex-direction:column;gap:0.25rem;grid-column:1 / span 1;">
-            Wind (Bft)
-            <input id="windBft" type="number" inputmode="numeric" step="1" min="0" max="12" value="${escapeHtml(prevEnv.windBft || "")}">
-          </label>
-        </div>
-        <label style="display:flex;flex-direction:column;gap:0.25rem;margin-top:0.75rem;">
-          Notes (optional)
-          <textarea id="esNotes" class="modal-notes" rows="3" style="resize:vertical;" placeholder="Anything notable at engine start…">${escapeHtml(prevEnv.notes || "")}</textarea>
-        </label>
-      </div>
-    `,
-    onOk: () => {
-      const eh = document.getElementById("ehStart").value.trim();
-      const fu = document.getElementById("fuelStart").value.trim();
-
-      const airPressureMb = document.getElementById("airPress").value.trim();
-      const humidityPct   = document.getElementById("humidity").value.trim();
-      const airTempC      = document.getElementById("airTemp").value.trim();
-      const seaTempC      = document.getElementById("seaTemp").value.trim();
-      const windDir       = document.getElementById("windDir").value.trim();
-      const windBft       = document.getElementById("windBft").value.trim();
-      const notesText     = document.getElementById("esNotes").value.trim();
-
-      // Only persist to Plan start values for Leg 1.
-      // For Leg 2+, we keep Plan values immutable and rely on the previous leg's Shutdown snapshot.
-      if (legIdx === 0) {
-        p.plan.engineHoursStart = eh;
-        p.plan.fuelStartPercent = fu;
-      }
-
-      // Persist the optional snapshot per-passage so it can be amended/reopened.
-      p.plan.engineStartEnv = {
-        airPressureMb,
-        humidityPct,
-        airTempC,
-        seaTempC,
-        windDir,
-        windBft,
-        notes: notesText,
-      };
-
-      const startBits = [];
-      if (eh) startBits.push(`EH ${eh}`);
-      if (fu) startBits.push(`Fuel ${fu}%`);
-
-      const envParts = [];
-      if (airPressureMb) envParts.push(`${airPressureMb}mb`);
-      if (humidityPct)   envParts.push(`${humidityPct}%RH`);
-      if (airTempC)      envParts.push(`Air ${airTempC}°C`);
-      if (seaTempC)      envParts.push(`Sea ${seaTempC}°C`);
-      if (windDir || windBft) envParts.push(`Wind ${windDir}${windBft}`.trim());
-      if (envParts.length) startBits.push(`Env ${envParts.join(", ")}`);
-      if (notesText) startBits.push(`Notes: ${notesText}`);
-
-      const startNotes = startBits.length ? `Engine start — ${startBits.join(" | ")}` : "Engine start";
-      addSpecialEntry("Engine start", startNotes);
-      p.flags.engineStart = true;
-
-      savePassages();
-      updatePlanSummaryPanel();
-      updateLogSummary();
-    }
-  });
+  await openEngineStartEntryDialog(p, legIdx, null);
 });
 
 // Slip: only once
@@ -5129,91 +7120,18 @@ dockLinesBtn.addEventListener("click", () => {
 });
 
 // Shutdown: once per leg (final leg sets passage completion)
-shutdownBtn.addEventListener("click", () => {
+shutdownBtn.addEventListener("click", async () => {
   const p = getCurrentPassage();
   if (!p) return alert("No passage selected.");
   ensureFlags(p);
 
-  // Once the final leg has shutdown, the passage is complete.
   if (passageIsShutdown(p)) return alert("Shutdown already recorded – no further log entries allowed.");
 
   const legIdx = getCurrentLegIndex(p);
   if (hasSpecialForLeg(p, 'shutdown', legIdx)) return alert("Shutdown already recorded for this leg.");
 
   const isFinalLeg = (legIdx >= (getLegCount(p) - 1));
-
-  // Per-leg end snapshots (used for leg summaries and for chaining starts).
-  p.legEnds = Array.isArray(p.legEnds) ? p.legEnds : [];
-  const prev = p.legEnds[legIdx] || {};
-
-  showModal({
-    title: isFinalLeg ? "Shutdown (final leg)" : "Shutdown (end of leg)",
-    bodyHtml: `
-      <label style="display:flex;flex-direction:column;gap:0.25rem;margin-bottom:0.5rem;">
-        Fuel % at end
-        <input id="fuelEnd" type="number" inputmode="numeric" step="1" value="${escapeHtml(prev.fuelEndPercent || (isFinalLeg ? (p.finish?.fuelEndPercent || "") : ""))}">
-      </label>
-      <label style="display:flex;flex-direction:column;gap:0.25rem;margin-bottom:0.5rem;">
-        Engine hours (end)
-        <input id="ehEnd" type="number" inputmode="decimal" step="0.1" value="${escapeHtml(prev.engineHoursEnd || (isFinalLeg ? (p.finish?.engineHoursEnd || "") : ""))}">
-      </label>
-      <label style="display:flex;flex-direction:column;gap:0.25rem;">
-        Notes / defects
-        <input id="shNotes" type="text" value="${escapeHtml(prev.notes || (isFinalLeg ? (p.finish?.notes || "") : ""))}">
-      </label>
-    `,
-    onOk: () => {
-      const notesVal = (document.getElementById("shNotes")?.value || "").trim();
-      const ehEndVal = (document.getElementById("ehEnd")?.value || "").trim();
-      const fuelEndVal = (document.getElementById("fuelEnd")?.value || "").trim();
-
-      // Persist per-leg end snapshot
-      p.legEnds[legIdx] = {
-        engineHoursEnd: ehEndVal,
-        fuelEndPercent: fuelEndVal,
-        notes: notesVal,
-        at: new Date().toISOString(),
-      };
-
-      // If this is the final leg, also persist the traditional passage end fields.
-      if (isFinalLeg) {
-        p.finish = p.finish || {};
-        p.finish.engineHoursEnd = ehEndVal;
-        p.finish.fuelEndPercent = fuelEndVal;
-        p.finish.notes = notesVal;
-        p.finish.shutdownLogged = true;
-      }
-
-      // Include key figures in the notes for quick scanability (CL-066)
-      const shutBits = [];
-      if (ehEndVal) shutBits.push(`EH ${ehEndVal}`);
-      if (fuelEndVal) shutBits.push(`Fuel ${fuelEndVal}%`);
-      const shutPrefix = shutBits.length ? `Shutdown / alongside — ${shutBits.join(" | ")}` : "Shutdown / alongside";
-      const note = notesVal ? `${shutPrefix} — ${notesVal}` : shutPrefix;
-
-      p.entries.unshift({
-        id: "e_" + Date.now(),
-        time: new Date().toISOString().slice(0, 16),
-        lat: "",
-        lon: "",
-        course: "",
-        speed: "0",
-        rpm: "",
-        engTP: "",
-        waterLog: "",
-        groundLog: "",
-        fuelUsed: "",
-        notes: note,
-        leg: legIdx
-      });
-
-      savePassages();
-      renderLogEntries();
-      refreshHomePassageList();
-      updatePassageHeader();
-      updateLogSummary();
-    }
-  });
+  await openShutdownEntryDialog(p, legIdx, isFinalLeg, null);
 });
 function renderLogEntries() {
   updateLegIndicator();
@@ -5231,59 +7149,38 @@ function renderLogEntries() {
 
   entries.forEach(entry => {
     const tr = document.createElement("tr");
+    tr.className = 'log-entry-row';
     attachSwipeToRow(tr, entry.id);
 
-    const tdTime = document.createElement("td");
-    tdTime.textContent = entry.time ? timeOnlyFromIso(entry.time) : "";
-    tdTime.classList.add("editable-cell");
-    tdTime.addEventListener("click", () => {
-      const val = prompt("Time (YYYY-MM-DD HH:MM or HH:MM):", entry.time || "");
-      if (val === null) return;
-      entry.time = val.trim();
-      savePassages();
-      renderLogEntries();
-    });
-    tr.appendChild(tdTime);
-
-    function addInputCell(value, opts) {
-      const td = document.createElement("td");
-      const inp = document.createElement("input");
-      inp.className = opts.className;
-      inp.type = opts.type || "text";
-      if (opts.inputMode) inp.inputMode = opts.inputMode;
-      if (opts.step) inp.step = opts.step;
-      inp.value = value || "";
-      inp.addEventListener("change", () => {
-        entry[opts.field] = inp.value.trim();
-        savePassages();
-        updateLogSummary();
+    function addDisplayCell(value, className, clickHandler) {
+      const td = document.createElement('td');
+      td.className = `log-display-cell ${className || ''}`.trim();
+      td.textContent = (value ?? '') === '' ? '—' : String(value);
+      td.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        clickHandler?.();
       });
-      td.appendChild(inp);
       tr.appendChild(td);
+      return td;
     }
 
-    addInputCell(entry.course, { field: "course", className: "log-input log-input-cog", type: "text", inputMode: "numeric" });
-    addInputCell(entry.speed,  { field: "speed",  className: "log-input log-input-speed", type: "text", inputMode: "decimal" });
-    addInputCell(entry.rpm,    { field: "rpm",    className: "log-input log-input-rpm", type: "text", inputMode: "numeric" });
-    addInputCell(entry.engTP,  { field: "engTP",  className: "log-input log-input-engtp", type: "text", inputMode: "decimal" });
+    addDisplayCell(entry.time ? timeOnlyFromIso(entry.time) : '', 'log-time-cell', () => openEntryDialog(entry));
+    addDisplayCell(entry.course || entry.cog || '', 'log-cog-cell', () => openEntryDialog(entry));
+    addDisplayCell(entry.speed || '', 'log-speed-cell', () => openEntryDialog(entry));
+    addDisplayCell(entry.rpm || '', 'log-rpm-cell', () => openEntryDialog(entry));
+    addDisplayCell(entry.engTP || '', 'log-engtp-cell', () => openEntryDialog(entry));
+    addDisplayCell(entry.waterLog || '', 'log-log-cell', () => openEntryDialog(entry));
+    addDisplayCell(entry.groundLog || '', 'log-log-cell', () => openEntryDialog(entry));
+    addDisplayCell(entry.fuelUsed || '', 'log-fuel-cell', () => openEntryDialog(entry));
 
-    addInputCell(entry.waterLog || "", { field: "waterLog", className: "log-input log-input-log", type: "text", inputMode: "decimal" });
-    addInputCell(entry.groundLog,      { field: "groundLog", className: "log-input log-input-log", type: "text", inputMode: "decimal" });
+    const tdNotes = document.createElement('td');
+    tdNotes.className = 'log-display-cell log-notes-cell';
+    tdNotes.addEventListener('click', (ev) => { ev.stopPropagation(); openEntryDialog(entry); });
 
-    addInputCell(entry.fuelUsed, { field: "fuelUsed", className: "log-input log-input-fuel", type: "text", inputMode: "decimal" });
-
-    const tdNotes = document.createElement("td");
-
-    const notesArea = document.createElement("textarea");
-    notesArea.className = "log-notes";
-    notesArea.rows = 2;
-    notesArea.placeholder = "Notes / actions";
-    notesArea.value = entry.notes || "";
-    notesArea.addEventListener("input", () => {
-      entry.notes = notesArea.value;
-      savePassages();
-    });
-    tdNotes.appendChild(notesArea);
+    const notesText = document.createElement('div');
+    notesText.className = 'log-notes-display';
+    notesText.textContent = entry.notes || '—';
+    tdNotes.appendChild(notesText);
 
     const actions = document.createElement("div");
     actions.className = "entry-actions";
@@ -5295,24 +7192,22 @@ function renderLogEntries() {
       posSpan.className = "pos-field";
       posSpan.textContent = (latStr.trim() && lonStr.trim()) ? `${latStr.trim()}, ${lonStr.trim()}` : (latStr.trim() || lonStr.trim());
       posSpan.title = "Position (tap to edit)";
-      posSpan.addEventListener("click", () => handlePositionEdit(entry));
+      posSpan.addEventListener("click", (ev) => { ev.stopPropagation(); handlePositionEdit(entry); });
       actions.appendChild(posSpan);
     }
 
     const delBtn = document.createElement("button");
     delBtn.className = "entry-del-btn";
     delBtn.textContent = "Del";
-    delBtn.addEventListener("click", () => deleteLogEntryById(entry.id));
+    delBtn.addEventListener("click", (ev) => { ev.stopPropagation(); deleteLogEntryById(entry.id); });
     actions.appendChild(delBtn);
 
     tdNotes.appendChild(actions);
     tr.appendChild(tdNotes);
+    tr.addEventListener('click', () => openEntryDialog(entry));
 
     logEntriesContainer.appendChild(tr);
 
-    // CL-077 (v0.6.4d): Presentation-only inline leg summary row.
-    // After each Shutdown entry, insert a display-only “LEG X SUMMARY” row.
-    // This must NOT touch logging logic or persist any data.
     if (typeof entry?.notes === "string" && entry.notes.toLowerCase().startsWith("shutdown")) {
       const legIdx = (typeof entry.leg === "number") ? entry.leg : 0;
       const s = computeLegLogSummary(p, legIdx);
@@ -5339,6 +7234,61 @@ function renderLogEntries() {
   });
 
   updateLogSummary();
+
+  if (__scrollLogToNewestOnRender) {
+    __scrollLogToNewestOnRender = false;
+    requestAnimationFrame(() => {
+      const wrapper = document.querySelector("#logLayout .log-table-wrapper");
+      const newestRow = logEntriesContainer.lastElementChild;
+      if (wrapper) {
+        wrapper.scrollTop = wrapper.scrollHeight;
+      }
+      if (newestRow && typeof newestRow.scrollIntoView === "function") {
+        newestRow.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    });
+  }
+}
+
+function ensureLogTableHeadingsVisible(targetEl){
+  const wrapper = document.querySelector('#logLayout .log-table-wrapper');
+  const logHeader = document.querySelector('#logTab .log-header');
+  const appHeader = document.querySelector('.app-header');
+  if (!wrapper || !targetEl) return;
+
+  const row = targetEl.closest('tr') || targetEl;
+  const thead = wrapper.querySelector('thead');
+  const stickyH = (thead ? thead.getBoundingClientRect().height : 0) + 8;
+  const rowTop = row.offsetTop || 0;
+  const desired = Math.max(0, rowTop - stickyH - 8);
+  if (Math.abs(wrapper.scrollTop - desired) > 4) wrapper.scrollTop = desired;
+
+  setTimeout(() => {
+    const appH = appHeader ? appHeader.getBoundingClientRect().height : 0;
+    const logH = logHeader ? logHeader.getBoundingClientRect().height : 0;
+    const desiredTop = appH + logH + 8;
+    const rect = wrapper.getBoundingClientRect();
+    if (rect.top < desiredTop || rect.top > desiredTop + 24) {
+      window.scrollBy({ top: rect.top - desiredTop, left: 0, behavior: 'auto' });
+    }
+  }, 80);
+}
+
+document.addEventListener('focusin', (e) => {
+  const t = e.target;
+  if (!(t instanceof HTMLElement)) return;
+  if (!t.closest('#logLayout .log-table-wrapper')) return;
+  setTimeout(() => ensureLogTableHeadingsVisible(t), 50);
+  setTimeout(() => ensureLogTableHeadingsVisible(t), 250);
+});
+
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.closest('#logLayout .log-table-wrapper')) {
+      setTimeout(() => ensureLogTableHeadingsVisible(active), 50);
+    }
+  });
 }
 
 function _num(v) {
@@ -6195,6 +8145,247 @@ function setupWeatherShorthandEditorUI(){
   rebuildPreview();
 }
 
+// --- Safety / Emergency Info Settings UI ---------------------------
+
+function injectSafetyEmergencySettingsBlock(){
+  const container = __wxAbbrFindSettingsContainer();
+  if (!container) return;
+
+  const portsBtn = document.getElementById("managePortsBtn");
+  const portsBlock = __wxAbbrBlockForEl(portsBtn, container);
+  if (!portsBlock) return;
+
+  let block = document.getElementById("safetyEmergencySettingsBlock");
+  if (!block){
+    block = document.createElement(portsBlock.tagName.toLowerCase());
+    block.id = "safetyEmergencySettingsBlock";
+    block.className = portsBlock.className || "";
+
+    block.innerHTML = `
+      <div class="settings-block-inner">
+								<div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+										<h3 style="margin:0;">Safety / Emergency Info</h3>
+										<button type="button" id="toggleSafetyEmergencyBtn" class="btn btn-secondary btn-small">Open</button>
+								</div>
+								<div id="safetyEmergencyFullPanel" style="display:none; gap:14px; margin-top:12px;">
+          <div>
+            <div style="font-weight:600; margin-bottom:6px;">Vessel</div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px;">
+              <input id="seiBoatName" placeholder="Boat Name">
+              <input id="seiBoatType" placeholder="Boat Type">
+														<input id="seiBoatModel" placeholder="Boat Model">
+														<input id="seiCallsign" placeholder="Callsign">
+														<input id="seiMmsi" placeholder="MMSI">
+														<input id="seiUkSsr" placeholder="UK SSR">
+														<input id="seiMarineTrafficShipId" placeholder="MarineTraffic Ship ID">														
+														<input id="seiHomePort" placeholder="Home Port">              
+														<input id="seiLength" placeholder="Length">
+              <input id="seiBeam" placeholder="Beam">
+              <input id="seiDraft" placeholder="Draft">
+            </div>
+          </div>
+
+          <div>
+            <div style="font-weight:600; margin-bottom:6px;">Appearance & Safety</div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px;">
+              <input id="seiTopsides" placeholder="Hull Colour (topsides)">
+              <input id="seiHull" placeholder="Hull Colour (lower)">
+              <input id="seiSuperstructure" placeholder="Superstructure Colour">
+              <input id="seiLiferaft" placeholder="Liferaft Details">
+              <input id="seiDinghy" placeholder="Dinghy Details">
+              <input id="seiLifejackets" placeholder="Lifejacket Details">
+              <input id="seiEpirb" placeholder="EPIRB Details">
+              <input id="seiSafetyEquip" placeholder="Other Safety Equipment">
+              <input id="seiRnEquip" placeholder="Radio / Navigation Equipment">
+            </div>
+          </div>
+
+          <div>
+            <div style="font-weight:600; margin-bottom:6px;">Owner Details</div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px;">
+              <input id="seiOwnerNames" placeholder="Owner Names">
+              <input id="seiOwnerTel" placeholder="Owner Tel">
+              <input id="seiOwnerEmail" placeholder="Owner Email">
+              <input id="seiOwnerAddr" placeholder="Owner Address">
+            </div>
+          </div>
+
+          <div>
+            <div style="font-weight:600; margin-bottom:6px;">Default Emergency Contact</div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px;">
+              <input id="seiEcName" placeholder="Contact Name">
+              <input id="seiEcTel" placeholder="Contact Tel">
+              <input id="seiEcEmail" placeholder="Contact Email">
+              <input id="seiEcNotes" placeholder="Relationship / Notes">
+            </div>
+            <div style="margin-top:6px; opacity:0.8; font-size:0.92em;">
+              Multiple contacts will follow in the next patch. This saves the default contact now.
+            </div>
+          </div>
+
+          <div>
+            <div style="font-weight:600; margin-bottom:6px;">Notification Defaults</div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px;">
+              <input id="seiOverdueHours" type="number" min="1" step="1" placeholder="Overdue hours">
+              <input id="seiEngineToSlip" type="number" min="0" step="1" placeholder="Engine Start → WP1 mins">
+              <input id="seiDetailsUrl" placeholder="Published details URL">
+              <label style="display:flex; align-items:center; gap:8px;"><input id="seiIncludeDetailsUrl" type="checkbox"> Include details URL in SMS</label>
+              <label style="display:flex; align-items:center; gap:8px;"><input id="seiIncludeMarineTraffic" type="checkbox"> Include MarineTraffic link in SMS</label>
+            </div>
+          </div>
+
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+            <button type="button" id="saveSafetyEmergencyBtn">Save Safety / Emergency Info</button>
+												<button type="button" id="exportVesselDetailsBtn">Export Vessel Details HTML</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  if (!block.parentElement){
+    container.insertBefore(block, container.firstChild);
+  }
+
+  const s = getSafetyInfo();
+  const ec = getDefaultEmergencyContact() || {};
+
+  document.getElementById("seiBoatName").value = s.vessel?.boatName || "";
+  document.getElementById("seiBoatType").value = s.vessel?.boatType || "";
+  document.getElementById("seiBoatModel").value = s.vessel?.boatModel || "";
+  document.getElementById("seiCallsign").value = s.vessel?.callsign || "";
+		document.getElementById("seiMmsi").value = s.vessel?.mmsi || "";
+		document.getElementById("seiUkSsr").value = s.vessel?.ukSsr || "";
+		document.getElementById("seiMarineTrafficShipId").value = s.vessel?.marineTrafficShipId || "";  document.getElementById("seiHomePort").value = s.vessel?.homePort || "";
+  document.getElementById("seiLength").value = s.vessel?.length || "";
+  document.getElementById("seiBeam").value = s.vessel?.beam || "";
+  document.getElementById("seiDraft").value = s.vessel?.draft || "";
+
+  document.getElementById("seiTopsides").value = s.appearanceSafety?.topsides || "";
+  document.getElementById("seiHull").value = s.appearanceSafety?.hull || "";
+  document.getElementById("seiSuperstructure").value = s.appearanceSafety?.superstructure || "";
+  document.getElementById("seiLiferaft").value = s.appearanceSafety?.liferaft || "";
+  document.getElementById("seiDinghy").value = s.appearanceSafety?.dinghy || "";
+  document.getElementById("seiLifejackets").value = s.appearanceSafety?.lifejackets || "";
+  document.getElementById("seiEpirb").value = s.appearanceSafety?.epirb || "";
+  document.getElementById("seiSafetyEquip").value = s.appearanceSafety?.safetyEquip || "";
+  document.getElementById("seiRnEquip").value = s.appearanceSafety?.rnEquip || "";
+
+  document.getElementById("seiOwnerNames").value = s.owner?.names || "";
+  document.getElementById("seiOwnerTel").value = s.owner?.tel || "";
+  document.getElementById("seiOwnerEmail").value = s.owner?.email || "";
+  document.getElementById("seiOwnerAddr").value = s.owner?.address || "";
+
+  document.getElementById("seiEcName").value = ec.name || "";
+  document.getElementById("seiEcTel").value = ec.tel || "";
+  document.getElementById("seiEcEmail").value = ec.email || "";
+  document.getElementById("seiEcNotes").value = ec.notes || "";
+
+  document.getElementById("seiOverdueHours").value = s.defaults?.overdueHours ?? 2;
+  document.getElementById("seiEngineToSlip").value = s.defaults?.engineToSlipMins ?? 7;
+  document.getElementById("seiDetailsUrl").value = s.defaults?.detailsPageUrl || "";
+  document.getElementById("seiIncludeDetailsUrl").checked = !!s.defaults?.includeDetailsUrlInSms;
+  document.getElementById("seiIncludeMarineTraffic").checked = !!s.defaults?.includeMarineTrafficInSms;
+
+		let ecIdEl = document.getElementById("seiEcId");
+		if (!ecIdEl){
+				ecIdEl = document.createElement("input");
+				ecIdEl.type = "hidden";
+				ecIdEl.id = "seiEcId";
+				block.appendChild(ecIdEl);
+		}
+		
+		let ecManager = document.getElementById("seiEcManager");
+		if (!ecManager){
+				ecManager = document.createElement("div");
+				ecManager.id = "seiEcManager";
+				ecManager.style.marginTop = "10px";
+				ecManager.innerHTML = `
+						<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+								<button type="button" id="seiEcNewBtn">New Contact</button>
+								<button type="button" id="seiEcSaveBtn">Save Contact</button>
+								<button type="button" id="seiEcDefaultBtn">Make Default</button>
+								<button type="button" id="seiEcDeleteBtn">Delete Contact</button>
+						</div>
+						<div id="seiEcList" style="margin-top:10px;"></div>
+				`;
+		
+				const defaultContactSection = document.getElementById("seiEcNotes")?.closest("div")?.parentElement;
+				if (defaultContactSection) {
+						defaultContactSection.appendChild(ecManager);
+				} else {
+						block.appendChild(ecManager);
+				}
+		}
+		
+		loadEmergencyContactIntoSettingsForm(getDefaultEmergencyContact());
+		renderEmergencyContactsManager();
+		
+		const newBtn = document.getElementById("seiEcNewBtn");
+		if (newBtn && !newBtn.dataset.bound){
+				newBtn.dataset.bound = "1";
+				newBtn.addEventListener("click", () => loadEmergencyContactIntoSettingsForm(createBlankEmergencyContact()));
+		}
+		
+		const saveEcBtn = document.getElementById("seiEcSaveBtn");
+		if (saveEcBtn && !saveEcBtn.dataset.bound){
+				saveEcBtn.dataset.bound = "1";
+				saveEcBtn.addEventListener("click", () => {
+						saveSafetyInfoFromSettingsFields();
+						renderEmergencyContactsManager();
+				});
+		}
+		
+		const makeDefBtn = document.getElementById("seiEcDefaultBtn");
+		if (makeDefBtn && !makeDefBtn.dataset.bound){
+				makeDefBtn.dataset.bound = "1";
+				makeDefBtn.addEventListener("click", () => {
+						saveSafetyInfoFromSettingsFields();
+						const id = (document.getElementById("seiEcId")?.value || "").trim();
+						if (id) setDefaultEmergencyContact(id);
+						renderEmergencyContactsManager();
+				});
+		}
+		
+		const delEcBtn = document.getElementById("seiEcDeleteBtn");
+		if (delEcBtn && !delEcBtn.dataset.bound){
+				delEcBtn.dataset.bound = "1";
+				delEcBtn.addEventListener("click", () => {
+						const id = (document.getElementById("seiEcId")?.value || "").trim();
+						if (!id) return;
+						deleteEmergencyContact(id);
+						renderEmergencyContactsManager();
+						loadEmergencyContactIntoSettingsForm(getDefaultEmergencyContact());
+				});
+		}
+
+		const toggleSafetyBtn = document.getElementById("toggleSafetyEmergencyBtn");
+		const safetyFullPanel = document.getElementById("safetyEmergencyFullPanel");
+		
+		if (toggleSafetyBtn && safetyFullPanel && !toggleSafetyBtn.dataset.bound){
+				toggleSafetyBtn.dataset.bound = "1";
+				toggleSafetyBtn.addEventListener("click", () => {
+						const isOpen = safetyFullPanel.style.display !== "none";
+						safetyFullPanel.style.display = isOpen ? "none" : "grid";
+						toggleSafetyBtn.textContent = isOpen ? "Open" : "Close";
+				});
+		}
+
+		const exportDetailsBtn = document.getElementById("exportVesselDetailsBtn");
+		if (exportDetailsBtn && !exportDetailsBtn.dataset.bound){
+				exportDetailsBtn.dataset.bound = "1";
+				exportDetailsBtn.addEventListener("click", () => {
+						saveSafetyInfoFromSettingsFields();
+						exportVesselDetailsHtml();
+				});
+		}
+
+  const saveBtn = document.getElementById("saveSafetyEmergencyBtn");
+  if (saveBtn && !saveBtn.dataset.bound){
+    saveBtn.dataset.bound = "1";
+    saveBtn.addEventListener("click", saveSafetyInfoFromSettingsFields);
+  }
+}
 
 // --- Initial load --------------------------------------------------
 
@@ -6213,7 +8404,8 @@ if (new URLSearchParams(location.search).has("reset")) {
 
   // CL-081: Settings block order + Weather Shorthand editor
   try { reorderSettingsBlocksAndInjectWx(); } catch (e) { console.warn('reorderSettingsBlocksAndInjectWx failed', e); }
-
+		try { migrateLegacyEcSettingsIntoSafetyInfo(); } catch (e) { console.warn('migrateLegacyEcSettingsIntoSafetyInfo failed', e); }
+		try { injectSafetyEmergencySettingsBlock(); } catch (e) { console.warn('injectSafetyEmergencySettingsBlock failed', e); }
 
   // Settings: Reset PWA Cache button (keeps log data)
   const resetBtn = document.getElementById("resetPwaCacheBtn");

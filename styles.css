@@ -309,6 +309,11 @@ body[data-theme="night"] .daily-summary-row{border-color:#333}
 .log-header{
   display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.4rem;
   margin-bottom:0.4rem;
+  position:sticky;
+  top:0;
+  z-index:20;
+  background:var(--bg);
+  padding-bottom:0.2rem;
 }
 
 .log-layout{
@@ -316,9 +321,10 @@ body[data-theme="night"] .daily-summary-row{border-color:#333}
   min-height:0;
   display:flex;
   gap:0.4rem;
+  overflow:hidden;
 }
-.log-layout.split .plan-summary{flex:0 0 50%;max-width:50%;min-width:0}
-.log-layout.split .log-table-wrapper{flex:0 0 50%;max-width:50%;min-width:0}
+.log-layout.split .plan-summary{flex:0 0 50%;max-width:50%;min-width:0;height:100%;align-self:stretch}
+.log-layout.split .log-table-wrapper{flex:0 0 50%;max-width:50%;min-width:0;height:100%;align-self:stretch}
 .log-layout.plan-only .plan-summary{display:block;flex:1 1 100%}
 .log-layout.plan-only .log-table-wrapper{display:none}
 .log-layout.log-only .plan-summary{display:none}
@@ -332,6 +338,8 @@ body[data-theme="night"] .daily-summary-row{border-color:#333}
   overflow:auto;
   background:var(--panel);
   min-height:0;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
 }
 
 /* Plan summary */
@@ -349,8 +357,9 @@ body[data-theme="night"] .daily-summary-row{border-color:#333}
 .plan-summary .plan-link:hover{background:rgba(0,0,0,0.03)}
 body[data-theme="night"] .plan-summary .plan-link:hover{background:rgba(255,255,255,0.05)}
 
-.plan-summary-grid{display:flex;gap:0.4rem}
-.plan-summary-grid .col{flex:1 1 0}
+.plan-summary-grid{display:flex;gap:0.4rem;height:100%;min-height:0}
+.plan-summary-grid .col{flex:1 1 0;min-height:0}
+.plan-summary-grid .plan-summary-col{overflow-y:auto;min-height:0;padding-right:0.2rem;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 
 /* Group C: CL-076-10 — Sunrise/Sunset moved out of header (kept for backwards compatibility) */
 #headerSunrise{display:none}
@@ -411,6 +420,61 @@ body[data-theme="night"] .log-table input.log-input{border-bottom-color:#555}
 
 
 
+.log-entry-row{cursor:pointer}
+.log-display-cell{
+  font-size:0.82rem;
+  line-height:1.25;
+  padding:0.22rem 0.28rem;
+  vertical-align:top;
+}
+.log-display-cell:not(.log-notes-cell){
+  text-align:right;
+  white-space:nowrap;
+}
+.log-notes-cell{
+  min-width:160px;
+}
+.log-notes-display{
+  white-space:pre-wrap;
+  word-break:break-word;
+}
+.entry-dialog-grid{
+  display:grid;
+  gap:0.75rem;
+}
+.entry-dialog-grid-two{
+  grid-template-columns:repeat(2,minmax(0,1fr));
+}
+.entry-dialog-section{
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:0.75rem;
+  background:var(--panel);
+}
+.entry-dialog-section-title{
+  font-weight:700;
+  margin-bottom:0.55rem;
+}
+.entry-dialog-field{
+  display:flex;
+  flex-direction:column;
+  gap:0.25rem;
+  margin-bottom:0.55rem;
+}
+.entry-dialog-field:last-child{margin-bottom:0}
+.entry-dialog-field input,
+.entry-dialog-field select,
+.entry-dialog-field textarea{
+  width:100%;
+  box-sizing:border-box;
+}
+.entry-dialog-field-full{
+  margin-top:0.75rem;
+}
+@media (max-width: 700px){
+  .entry-dialog-grid-two{grid-template-columns:1fr}
+}
+
 .log-table input.log-input-num{max-width:6ch}
 .log-table td:nth-child(2) .log-input-cog,
 .log-table td:nth-child(3) .log-input-num,
@@ -448,6 +512,10 @@ body[data-theme="night"] .leg-summary-row td{
   opacity:0.9;
   line-height:1.25;
 }
+
+.log-table-wrapper{display:flex;flex-direction:column;scroll-padding-top:5rem;position:relative}
+.log-table-wrapper .log-table{flex:0 0 auto}
+.plan-summary{scroll-padding-top:4rem;overflow:hidden}
 
 .log-summary{
   margin-top:0.45rem;
@@ -636,6 +704,7 @@ body.night .ports-delete { border-color: rgba(255,255,255,0.18); color: #fff; }
 .tide-station-block{margin:0.6rem 0 0.9rem;display:block;}
 
 .tide-station-name{font-weight:700;margin-bottom:0.35rem}
+.tide-empty{opacity:0.75}
 .tide-table{width:auto;max-width:100%;border-collapse:collapse;font-size:inherit}
 .tide-table th,.tide-table td{border:1px solid var(--border);padding:0.25rem 0.35rem;text-align:left}
 .tide-table th{background:var(--soft)}
