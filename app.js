@@ -4,7 +4,7 @@ const STORAGE_KEY = "steeler_logbook_passages_v5";
 const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 
-const APP_VERSION = "0.9.0";
+const APP_VERSION = "0.9.1.17";
 
 // --- Safety / Emergency Info (v0.7.16) ----------------------------
 
@@ -140,7 +140,20 @@ function getDefaultEmergencyContact(){
 
 function getEmergencyContacts(){
   const s = getSafetyInfo();
+
   if (!Array.isArray(s.emergencyContacts)) s.emergencyContacts = [];
+
+  s.emergencyContacts = s.emergencyContacts
+    .filter(c => c && typeof c === "object")
+    .map((c, idx) => ({
+      id: c.id || ("ec_" + Date.now() + "_" + idx),
+      name: String(c.name || "").trim(),
+      tel: String(c.tel || "").trim(),
+      email: String(c.email || "").trim(),
+      notes: String(c.notes || "").trim(),
+      isDefault: !!c.isDefault
+    }));
+
   if (!s.emergencyContacts.length){
     s.emergencyContacts = [{
       id: "ec_" + Date.now(),
@@ -150,8 +163,22 @@ function getEmergencyContacts(){
       notes: "",
       isDefault: true
     }];
-    saveSafetyInfo(s);
   }
+
+  let defaultSeen = false;
+  s.emergencyContacts.forEach(c => {
+    if (c.isDefault && !defaultSeen) {
+      defaultSeen = true;
+    } else {
+      c.isDefault = false;
+    }
+  });
+
+  if (!defaultSeen && s.emergencyContacts.length) {
+    s.emergencyContacts[0].isDefault = true;
+  }
+
+  saveSafetyInfo(s);
   return s.emergencyContacts;
 }
 
@@ -448,6 +475,12 @@ function setAppVersionBadge(){
   if (el) el.textContent = APP_VERSION;
 }
 window.addEventListener("DOMContentLoaded", setAppVersionBadge);
+document.addEventListener("click", (e) => {
+  if (e.target.closest(".entry-del-btn, .passage-delete-btn")) return;
+  if (e.target.closest("tr.show-delete, .passage-card.show-delete")) return;
+  hideAllSwipeDeleteButtons();
+});
+window.addEventListener("DOMContentLoaded", applyLogReadabilityPolish);
 window.addEventListener("DOMContentLoaded", function(){ try{ loadAbbrDb(); }catch(e){} });
 
 
@@ -993,9 +1026,9 @@ function setupTidePasteModal(){
       const stations = readTideStationsFromForm();
       if (!stations[idx]) return;
 
-      const text = (ta ? ta.value : "") || "";
-      const dateStr = (planDate && planDate.value) ? planDate.value : "";
-      const parsed = parseTidePaste(text, dateStr);
+						const text = (ta ? ta.value : "") || "";
+						const dateStr = (planDate && planDate.value) ? planDate.value : "";
+						const parsed = parseTidePaste(text, dateStr);
 
       if (!parsed.ok){
         alert(parsed.message || "Couldn't find HW/LW times in that text. Try pasting a different export.");
@@ -1219,6 +1252,21 @@ function rememberPort(name) {
 // --- Small helpers -------------------------------------------------
 
 // --- Coordinate formatting/parsing + sanity checks (CL-073) --------
+
+function formatDateShort(isoDate){
+  if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return isoDate || "";
+
+  try {
+    const d = new Date(isoDate + "T12:00:00");
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const day = d.toLocaleDateString("en-GB", { weekday: "short" }).toUpperCase();
+    return `${dd}/${mm} ${day}`;
+  } catch(e) {
+    return isoDate;
+  }
+}
+
 function formatDMM(lat, lon){
   function one(val, isLat){
     const hemi = isLat ? (val >= 0 ? "N" : "S") : (val >= 0 ? "E" : "W");
@@ -1612,22 +1660,38 @@ function updatePlanCommsFromPorts(){
 
 // --- EC SMS Builders (CL-085) -------------------------------------
 
-function buildWpList(p){
+function roundHHMMToNearest5(hhmm){
+  const mins = hhmmToMinutes(String(hhmm || "").trim());
+  if (!Number.isFinite(mins)) return String(hhmm || "").trim();
+  return minutesToHHMM(Math.round(mins / 5) * 5);
+}
+
+function formatSmsWpCoord(wp){
+  const la = Number(wp?.lat);
+  const lo = Number(wp?.lon);
+  if (!Number.isFinite(la) || !Number.isFinite(lo)) return "";
+  return formatDMM(la, lo);
+}
+
+function buildSmsRouteList(p){
   const wps = p?.plan?.detailed?.waypoints || [];
+  if (wps.length <= 2) return "Direct / no intermediate waypoints set.";
+
   const out = [];
 
-  for (let i = 0; i < wps.length && i < 10; i++){
+  for (let i = 1; i < wps.length - 1 && i < 10; i++){
     const wp = wps[i];
-    const la = Number(wp?.lat);
-    const lo = Number(wp?.lon);
-    if (!Number.isFinite(la) || !Number.isFinite(lo)) continue;
+    const coord = formatSmsWpCoord(wp);
+    if (!coord) continue;
 
-    const dmm = formatDMM(la, lo);
-    out.push(`WP${i+1} ${dmm}`);
+    const name = String(wp?.name || `WP${i + 1}`).trim();
+
+    out.push(`${name}\n${coord}`);
   }
 
-  if (wps.length > 10) out.push("… + more");
-  return out.join("\n");
+  if (wps.length > 11) out.push("… + more");
+
+  return out.length ? out.join("\n") : "Direct / no intermediate waypoints set.";
 }
 
 function buildPorList(p){
@@ -1658,16 +1722,18 @@ function getPassageEtaInfo(p){
   if (!wps.length) return { etaText: "", overdueText: "" };
 
   const last = wps[wps.length - 1];
-  const eta = String(last?.time || "").trim();
-  if (!eta) return { etaText: "", overdueText: "" };
+  const etaRaw = String(last?.time || "").trim();
+  if (!etaRaw) return { etaText: "", overdueText: "" };
+
+  const eta = roundHHMMToNearest5(etaRaw);
 
   const planDate = String(p?.plan?.date || "").trim();
   let etaDateText = planDate;
 
   try {
-    const totalMinutes = durationHHMMToMinutes(calcDetailedPassagePlanTotals(wps).duration || "00:00");
+    const totalMinutes = durationHHMMToMinutes(calcDetailedPassagePlanTotals(wps).totalDuration || "00:00");
     const startMins = hhmmToMinutes(String(wps[0]?.time || "").trim());
-    const endMins   = hhmmToMinutes(eta);
+    const endMins = hhmmToMinutes(String(last?.time || "").trim());
 
     let dayOffset = 0;
     if (Number.isFinite(totalMinutes) && totalMinutes >= 1440) {
@@ -1689,8 +1755,10 @@ function getPassageEtaInfo(p){
 
   const overdueHours = Number(getSafetyInfo()?.defaults?.overdueHours || 2);
   const base = hhmmToMinutes(eta);
-  const overdueText = Number.isFinite(base)
-    ? `If you have not heard from us by around ${minutesToHHMM(base + overdueHours * 60)}, please try to contact us. If you cannot reach us, call 999 or 112 and ask for the Coastguard.`
+  const overdue = Number.isFinite(base) ? roundHHMMToNearest5(minutesToHHMM(base + overdueHours * 60)) : "";
+
+  const overdueText = overdue
+    ? `If you have not heard from us by around ${overdue}, please try to contact us. If you cannot reach us, call 999 or 112 and ask for the Coastguard.`
     : "";
 
   return { etaText, overdueText };
@@ -1703,40 +1771,71 @@ function buildEcStartSms(p){
   const vessel = sNew.vessel || sOld.vesselProfile || {};
   const origin = String(p?.plan?.from || "").trim();
   const destination = String(p?.plan?.to || "").trim();
+  const wps = p?.plan?.detailed?.waypoints || [];
+
+  const firstWp = wps[0] || null;
+  const lastWp = wps.length ? wps[wps.length - 1] : null;
+
+  const originCoord = formatSmsWpCoord(firstWp);
+  const destCoord = formatSmsWpCoord(lastWp);
 
   const mmsi = String(vessel.mmsi || "").trim();
   const mtLink = getMarineTrafficLink(vessel);
   const por = buildPorList(p);
   const etaInfo = getPassageEtaInfo(p);
+  const pob = p.pob || "?";
 
   const intro = `LOOKOUT REQUEST
 
 Thanks for agreeing to look out for us during ${vessel.boatName || "our vessel"}'s passage from ${origin || "our origin"} to ${destination || "our destination"} today. ${etaInfo.etaText ? `We expect to arrive around ${etaInfo.etaText}. ` : ""}We'll message you once we've completed the passage to confirm our arrival.`;
 
   const vesselBlock = `VESSEL
+Persons on Board: ${pob}
 Boat Name: ${vessel.boatName || ""}
 Boat Type: ${vessel.boatType || ""}
 Callsign: ${vessel.callsign || ""}
 MMSI: ${mmsi}`;
 
-  const passageLines = [
-    `Origin: ${origin || ""}`,
-    `Destination: ${destination || ""}`,
-    `Intended Routing:\n${buildWpList(p) || "(no waypoints set)"}`,
-    etaInfo.etaText ? `ETA: ${etaInfo.etaText}` : "",
-    por ? `Possible Ports of Refuge:\n${por}` : ""
-  ].filter(Boolean);
+		const passageLines = [
+				`Origin: ${origin || ""}`,
+				originCoord,
+		
+				"",
+		
+				`Destination: ${destination || ""}`,
+				destCoord,
+		
+				"",
+		
+				etaInfo.etaText ? `ETA: ${etaInfo.etaText}` : "",
+		
+				"",
+		
+				`Intended Routing:\n${buildSmsRouteList(p)}`,
+				
+				"",
+		
+				por ? `Possible Ports of Refuge:\n${por}` : ""
+		].filter(v => v !== undefined && v !== null);
+  
+  const includeMt = sNew.defaults?.includeMarineTrafficInSms !== false;
+  const includeDetails = sNew.defaults?.includeDetailsUrlInSms !== false;
+
+  const detailsUrl = String(
+    sNew.defaults?.detailsPageUrl ||
+    `${window.location.origin}${window.location.pathname.replace(/\/[^\/]*$/, "/")}STEELER-safety-emergency-details.html`
+  ).trim();
 
   const sections = [
     intro,
-    (mtLink && sNew.defaults?.includeMarineTrafficInSms) ? `Our latest position (when in range) is: ${mtLink}` : "",
+    (mtLink && includeMt) ? `Our latest position (when in range) is: ${mtLink}` : "",
     etaInfo.overdueText,
     "The following information may be of interest and should also be passed on to the Coastguard in case of emergency.",
     vesselBlock,
-    `PASSAGE DETAILS\n${passageLines.join("\n\n")}`,
-    (sNew.defaults?.includeDetailsUrlInSms && sNew.defaults?.detailsPageUrl) ? `FULL VESSEL DETAILS:\n${sNew.defaults.detailsPageUrl}` : ""
+    `PASSAGE DETAILS\n${passageLines.join("\n")}`,
+    (includeDetails && detailsUrl) ? `FULL VESSEL DETAILS:\n${detailsUrl}` : ""
   ];
-
+  
   return sections.filter(Boolean).join("\n\n").trim();
 }
 
@@ -1756,11 +1855,12 @@ function launchSms(number, message){
 }
 
 function chooseEmergencyContactAndSend(message){
-  const contacts = getEmergencyContacts ? getEmergencyContacts() : (getSafetyInfo().emergencyContacts || []);
-  const usableContacts = contacts.filter(c => (c.tel || "").trim());
+  const contacts = getEmergencyContacts();
+  const usableContacts = contacts.filter(c => String(c.tel || "").trim());
+  const defaultContact = usableContacts.find(c => c.isDefault) || usableContacts[0] || null;
 
   const options = usableContacts.map(c => `
-    <option value="${escapeHtml(c.id)}"${c.isDefault ? " selected" : ""}>
+    <option value="${escapeHtml(c.id)}"${defaultContact && String(c.id) === String(defaultContact.id) ? " selected" : ""}>
       ${escapeHtml(c.name || "(unnamed contact)")} — ${escapeHtml(c.tel || "")}${c.isDefault ? " [default]" : ""}
     </option>
   `).join("");
@@ -2680,7 +2780,433 @@ function refreshPortUI() {
 
 // --- Modal ---------------------------------------------------------
 
+function applyLogReadabilityPolish(){
+  if (document.getElementById("steelerLogReadabilityPolish")) return;
+
+  const style = document.createElement("style");
+  style.id = "steelerLogReadabilityPolish";
+  style.textContent = `
+    /* v0.9.1.4: subtle readability polish */
+				.log-table {
+						font-size: 1.00rem !important;
+						line-height: 1.32 !important;
+				}
+				
+				.log-table th {
+						font-size: 0.92rem !important;
+						font-weight: 750 !important;
+						letter-spacing: 0.015em !important;
+				}
+				
+				.log-table td {
+						font-weight: 520 !important;
+				}
+				
+    .log-table th {
+      font-weight: 750 !important;
+      letter-spacing: 0.015em !important;
+    }
+
+    .log-table td {
+      font-weight: 500 !important;
+    }
+
+    .log-table td:last-child {
+      font-weight: 520 !important;
+      line-height: 1.32 !important;
+    }
+
+				.plan-summary-panel,
+				#planSummaryPanel {
+						font-size: 0.90rem !important;
+						line-height: 1.28 !important;
+				}
+				
+				#planSummaryPanel strong,
+				.plan-summary-panel strong {
+						font-weight: 700 !important;
+				}
+				
+				#planSummaryPanel small,
+				.plan-summary-panel small {
+						font-size: 0.85rem !important;
+						opacity: 0.9;
+				}
+    .passage-card-title {
+      font-weight: 750 !important;
+    }
+
+    .passage-card-meta,
+    .passage-card-summary {
+      font-size: 0.93rem !important;
+    }
+    
+    .dpp-table-compact {
+						font-size: 0.86rem !important;
+						table-layout: auto !important;
+				}
+				
+				.dpp-table-compact th {
+						font-size: 0.76rem !important;
+						line-height: 1.05 !important;
+						padding: 0.32rem 0.35rem !important;
+						white-space: normal !important;
+				}
+				
+				.dpp-table-compact td {
+						font-size: 0.84rem !important;
+						padding: 0.32rem 0.35rem !important;
+						white-space: nowrap !important;
+				}
+				
+				.dpp-table-compact input {
+						font-size: 0.84rem !important;
+						padding: 0.25rem 0.3rem !important;
+				}
+
+    /* v0.9.1.10: reduce delete button clutter */
+    .entry-actions {
+      display: flex !important;
+      gap: 0.35rem !important;
+      align-items: center !important;
+      justify-content: flex-end !important;
+    }
+
+    .entry-del-btn {
+      opacity: 0 !important;
+      max-width: 0 !important;
+      overflow: hidden !important;
+      padding-left: 0 !important;
+      padding-right: 0 !important;
+      margin-left: 0 !important;
+      pointer-events: none !important;
+      transition: opacity 0.18s ease, max-width 0.18s ease, padding 0.18s ease !important;
+    }
+
+    tr.show-delete .entry-del-btn {
+      opacity: 1 !important;
+      max-width: 56px !important;
+      padding-left: 0.45rem !important;
+      padding-right: 0.45rem !important;
+      pointer-events: auto !important;
+    }
+
+    .passage-card {
+      position: relative !important;
+      overflow: hidden !important;
+    }
+
+    .passage-card-actions {
+      opacity: 0 !important;
+      max-width: 0 !important;
+      overflow: hidden !important;
+      pointer-events: none !important;
+      transition: opacity 0.18s ease, max-width 0.18s ease !important;
+    }
+
+      .passage-card.show-delete .passage-card-actions {
+      opacity: 1 !important;
+      max-width: 90px !important;
+      pointer-events: auto !important;
+    }
+
+   .entry-del-btn,
+			.passage-delete-btn {
+					background: #d32f2f !important;
+					color: #fff !important;
+					border-radius: 6px !important;
+					width: 34px !important;
+					height: 34px !important;
+					display: flex !important;
+					align-items: center;
+					justify-content: center;
+					padding: 0 !important;
+			}
+			
+			.entry-del-btn svg,
+			.passage-delete-btn svg {
+					width: 18px;
+					height: 18px;
+			}
+			@media (hover: hover) and (pointer: fine) {
+					tr:hover .entry-del-btn,
+					tr:focus-within .entry-del-btn {
+							opacity: 1 !important;
+							max-width: 56px !important;
+							padding-left: 0.45rem !important;
+							padding-right: 0.45rem !important;
+							pointer-events: auto !important;
+					}
+			
+					.passage-card:hover .passage-card-actions,
+					.passage-card:focus-within .passage-card-actions {
+							opacity: 1 !important;
+							max-width: 90px !important;
+							pointer-events: auto !important;
+					}
+			}
+  `;
+  document.head.appendChild(style);
+}
+
+function applyModalTopSheetPolish(){
+  if (document.getElementById("steelerModalTopSheetPolish")) return;
+
+  const style = document.createElement("style");
+  style.id = "steelerModalTopSheetPolish";
+  style.textContent = `
+    /* v0.9.1.4: iPad keyboard-safe modal layout */
+    #modalOverlay {
+      align-items: flex-start !important;
+      justify-content: center !important;
+      padding-top: max(0.75rem, env(safe-area-inset-top)) !important;
+      overflow: hidden !important;
+    }
+
+    #modalOverlay > .modal,
+				#modalOverlay .modal {
+						width: min(99vw, 1220px) !important;
+						max-height: 64vh !important;
+      margin-top: 0 !important;
+      display: flex !important;
+      flex-direction: column !important;
+      border-radius: 18px !important;
+    }
+
+    #modalTitle {
+      font-size: 1.08rem !important;
+      line-height: 1.2 !important;
+      font-weight: 750 !important;
+    }
+
+    #modalBody {
+      overflow-y: auto !important;
+      -webkit-overflow-scrolling: touch !important;
+      padding-right: 0.15rem !important;
+      font-size: 0.98rem !important;
+      line-height: 1.22 !important;
+    }
+
+    #modalBody label,
+    #modalBody .entry-dialog-field span {
+      font-size: 0.95rem !important;
+      font-weight: 650 !important;
+      letter-spacing: 0.01em !important;
+    }
+
+				#modalBody input,
+				#modalBody textarea,
+				#modalBody select {
+						font-size: 16px !important; /* prevents iOS zoom */
+						line-height: 1.18 !important;
+						min-height: 34px !important;
+						padding: 0.38rem 0.5rem !important;
+				}
+				
+    #modalBody textarea {
+						min-height: 56px !important;
+				}
+
+    #modalOkBtn,
+    #modalCancelBtn {
+      font-size: 1rem !important;
+      min-height: 42px !important;
+      padding: 0.55rem 0.9rem !important;
+      font-weight: 700 !important;
+    }
+
+    .entry-dialog-grid {
+      gap: 0.38rem !important;
+    }
+
+    .entry-dialog-section {
+      display: grid !important;
+      grid-template-columns: repeat(6, minmax(78px, 1fr)) !important;
+      gap: 0.36rem !important;
+      align-items: end !important;
+    }
+
+    .entry-dialog-section-title {
+      grid-column: 1 / -1 !important;
+      margin-bottom: -0.18rem !important;
+      font-size: 0.95rem !important;
+    }
+
+    .entry-dialog-field {
+      min-width: 0 !important;
+    }
+
+    .entry-dialog-field-full {
+      grid-column: 1 / -1 !important;
+    }
+
+/* Fixed-grid underway dialog layouts v0.9.1.15e */
+.engine-start-grid,
+.manual-log-grid {
+  width: 100% !important;
+}
+
+.engine-start-row,
+.manual-log-row {
+  display: grid !important;
+  gap: 0.55rem !important;
+  align-items: end !important;
+  margin-bottom: 0.55rem !important;
+}
+
+.engine-start-title,
+.manual-log-title {
+  font-weight: 800 !important;
+  font-size: 0.95rem !important;
+  margin: 0 0 0.12rem 0 !important;
+}
+
+.engine-start-values {
+  grid-template-columns: 96px 82px 96px 96px 112px 1fr !important;
+}
+
+.engine-start-env {
+  grid-template-columns: 96px 96px 96px 96px 96px 72px 1fr !important;
+}
+
+.engine-start-vhf-notes {
+  display: grid !important;
+  grid-template-columns: 330px 1fr !important;
+  gap: 0.8rem !important;
+  align-items: stretch !important;
+  margin-top: 0.35rem !important;
+}
+
+.manual-log-main {
+  grid-template-columns: 96px minmax(360px, 1fr) 96px 96px 96px !important;
+}
+
+.manual-log-secondary {
+  grid-template-columns: 96px 96px 96px 82px 82px 82px 1fr !important;
+}
+
+.engine-start-grid label,
+.manual-log-grid label {
+  min-width: 0 !important;
+}
+
+.engine-start-grid label span,
+.manual-log-grid label span {
+  display: block !important;
+  white-space: nowrap !important;
+  font-weight: 750 !important;
+  line-height: 1.15 !important;
+  margin-bottom: 0.18rem !important;
+}
+
+.engine-start-grid input,
+.engine-start-grid select,
+.manual-log-grid input,
+.manual-log-grid select {
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.position-input-wrap {
+  position: relative !important;
+  width: 100% !important;
+}
+
+.position-input-wrap input {
+  padding-right: 2.2rem !important;
+}
+
+.manual-log-clear-btn {
+  position: absolute !important;
+  right: 0.28rem !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  width: 28px !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  padding: 0 !important;
+  border-radius: 999px !important;
+  z-index: 2 !important;
+}
+
+.vhf-box {
+  padding: 0.58rem 0.65rem !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 12px !important;
+  background: var(--panel-soft, var(--panel)) !important;
+  min-height: 56px !important;
+}
+
+.vhf-box label {
+  display: flex !important;
+  gap: 0.55rem !important;
+  align-items: center !important;
+  font-weight: 750 !important;
+}
+
+.vhf-box input[type="checkbox"] {
+  width: 22px !important;
+  height: 22px !important;
+  min-height: 22px !important;
+  flex: 0 0 auto !important;
+}
+
+.vhf-box .hint {
+  font-size: 0.82rem !important;
+  opacity: 0.78 !important;
+  margin-top: 0.22rem !important;
+}
+
+.modal-notes {
+  min-height: 50px !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+@media (max-width: 900px) {
+  .engine-start-values,
+  .engine-start-env,
+  .manual-log-main,
+  .manual-log-secondary,
+  .engine-start-vhf-notes {
+    grid-template-columns: 1fr 1fr !important;
+  }
+}
+				   			
+				.entry-dialog-grid-two {
+						grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)) !important;
+				}
+
+    @media (max-height: 760px) {
+      #modalOverlay > .modal,
+      #modalOverlay .modal {
+        max-height: 54vh !important;
+      }
+    }
+
+    @media (max-width: 700px) {
+      #modalOverlay {
+        padding-left: 0.45rem !important;
+        padding-right: 0.45rem !important;
+      }
+
+      #modalOverlay > .modal,
+      #modalOverlay .modal {
+        width: calc(100vw - 0.9rem) !important;
+        max-height: 56vh !important;
+      }
+
+      .entry-dialog-grid-two {
+        grid-template-columns: 1fr !important;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 function showModal({ title, bodyHtml, onOk, onCancel, okText = "OK", cancelText = "Cancel", hideButtons = false }) {
+  applyModalTopSheetPolish();
+
   modalTitle.textContent = title;
   modalBody.innerHTML = bodyHtml;
   modalOverlay.classList.remove("hidden");
@@ -3018,11 +3544,60 @@ function deletePassageById(id) {
 
 function attachSwipeToCard(card, passageId) {
   let startX = 0;
-  card.addEventListener("touchstart", (e) => { startX = e.changedTouches[0].screenX; }, { passive: true });
-  card.addEventListener("touchend", (e) => {
-    const dx = e.changedTouches[0].screenX - startX;
-    if (dx < -90) deletePassageById(passageId);
+  let startY = 0;
+  let wheelX = 0;
+  let wheelTimer = null;
+
+  card.addEventListener("touchstart", (e) => {
+    const t = e.changedTouches[0];
+    startX = t.screenX;
+    startY = t.screenY;
   }, { passive: true });
+
+  card.addEventListener("touchend", (e) => {
+    const t = e.changedTouches[0];
+    const dx = t.screenX - startX;
+    const dy = t.screenY - startY;
+
+    if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.3) {
+      if (dx < 0) {
+        hideAllSwipeDeleteButtons(card);
+        card.classList.add("show-delete");
+      } else {
+        card.classList.remove("show-delete");
+      }
+
+      card.dataset.justSwiped = "1";
+      setTimeout(() => { delete card.dataset.justSwiped; }, 350);
+    }
+  }, { passive: true });
+
+  card.addEventListener("wheel", (e) => {
+    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+
+    wheelX += e.deltaX;
+    clearTimeout(wheelTimer);
+
+    wheelTimer = setTimeout(() => {
+      if (wheelX > 45) {
+        hideAllSwipeDeleteButtons(card);
+        card.classList.add("show-delete");
+      } else if (wheelX < -35) {
+        card.classList.remove("show-delete");
+      }
+
+      wheelX = 0;
+      card.dataset.justSwiped = "1";
+      setTimeout(() => { delete card.dataset.justSwiped; }, 300);
+    }, 60);
+  }, { passive: true });
+
+  card.addEventListener("click", (e) => {
+    if (card.dataset.justSwiped === "1") {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, true);
 }
 
 function refreshHomePassageList() {
@@ -3042,15 +3617,14 @@ function refreshHomePassageList() {
     card.className = "passage-card" + (passage.id === currentPassageId ? " selected" : "");
 
     const date = passage.plan.date || passage.createdAt.slice(0, 10);
-    const from = passage.plan.from || "?";
-    const to = passage.plan.to || "?";
+    const routeText = getRouteNames(passage).join(" → ") || "?";
     const status = passage.finish?.shutdownLogged ? "Completed" : "In progress";
     const entriesCount = passage.entries?.length || 0;
 
     const left = document.createElement("div");
     left.className = "passage-card-left";
     left.innerHTML = `
-      <div class="passage-card-title">${escapeHtml(`${date} – ${from} → ${to}`)}</div>
+      <div class="passage-card-title">${escapeHtml(`${date} – ${routeText}`)}</div>
       <div class="passage-card-meta"><span>${entriesCount} entries</span><span>${status}</span></div>
     `;
 
@@ -3078,14 +3652,23 @@ function refreshHomePassageList() {
 
     const del = document.createElement("button");
     del.className = "passage-delete-btn";
-    del.textContent = "Delete";
-    del.addEventListener("click", (e) => { e.stopPropagation(); deletePassageById(passage.id); });
+    del.innerHTML = deleteBinSvg();
+				del.title = "Delete passage";
+    
+    del.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      deletePassageById(passage.id);
+    });
 
     actions.appendChild(del);
     card.appendChild(main);
     card.appendChild(actions);
 
-    card.addEventListener("click", () => {
+    card.addEventListener("click", (e) => {
+      if (card.dataset.justSwiped === "1") return;
+      if (e.target.closest(".passage-delete-btn")) return;
+
       currentPassageId = passage.id;
       loadPassageIntoUI();
       // Keep Home selection highlight in sync (even if we immediately jump tabs)
@@ -3773,6 +4356,35 @@ function durationHHMMToMinutes(hhmm){
   return parseInt(m[1],10) * 60 + parseInt(m[2],10);
 }
 
+function calcDetailedPassagePlanRunningTotals(wps){
+  const arr = Array.isArray(wps) ? wps : [];
+
+  let totalNm = 0;
+  let totalMinutes = 0;
+  let totalFuel = 0;
+
+  return arr.map((wp, idx) => {
+    // Row 1 is the start point, so totals are zero before any leg is completed.
+    if (idx > 0) {
+      const prev = arr[idx - 1];
+
+      const nm = parseFloat(prev?.distToNext);
+      if (Number.isFinite(nm)) totalNm += nm;
+
+      totalMinutes += durationHHMMToMinutes(prev?.timeToNext);
+
+      const fuel = parseFloat(prev?.fuelToNext);
+      if (Number.isFinite(fuel)) totalFuel += fuel;
+    }
+
+    return {
+      totalNm: totalNm ? Number(totalNm.toFixed(1)) : 0,
+      totalTime: totalMinutes ? minutesToHHMM(totalMinutes) : "00:00",
+      totalFuel: totalFuel ? Number(totalFuel.toFixed(1)) : 0
+    };
+  });
+}
+
 function calcDetailedPassagePlanTotals(wps){
   const arr = Array.isArray(wps) ? wps : [];
   let totalNm = 0;
@@ -3831,6 +4443,21 @@ function formatDetailedWaypointCoords(lat, lon){
 function nmBetween(lat1, lon1, lat2, lon2){
   if (![lat1, lon1, lat2, lon2].every(Number.isFinite)) return null;
   return distanceKm(lat1, lon1, lat2, lon2) * 0.539956803;
+}
+
+function bearingDegBetween(lat1, lon1, lat2, lon2){
+  if (![lat1, lon1, lat2, lon2].every(Number.isFinite)) return "";
+
+  const rad = Math.PI / 180;
+  const phi1 = lat1 * rad;
+  const phi2 = lat2 * rad;
+  const dLon = (lon2 - lon1) * rad;
+
+  const y = Math.sin(dLon) * Math.cos(phi2);
+  const x = Math.cos(phi1) * Math.sin(phi2) -
+            Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLon);
+
+  return String(Math.round((Math.atan2(y, x) / rad + 360) % 360)).padStart(3, "0");
 }
 
 const STEELER_FUEL_CURVE = [
@@ -3901,6 +4528,7 @@ function recalcDetailedPassagePlan(p){
     const next = wps[i + 1] || null;
 
     wp.distToNext = "";
+    wp.cogToNext = "";
     wp.timeToNext = "";
     wp.fuelToNext = "";
 
@@ -3908,6 +4536,7 @@ function recalcDetailedPassagePlan(p){
       const nm = nmBetween(wp.lat, wp.lon, next.lat, next.lon);
       if (nm != null && Number.isFinite(nm)) {
         wp.distToNext = Number(nm.toFixed(1));
+								wp.cogToNext = bearingDegBetween(wp.lat, wp.lon, next.lat, next.lon);
 
         const spd = parseFloat(wp.plannedSpeed);
         if (Number.isFinite(spd) && spd > 0) {
@@ -3967,20 +4596,25 @@ function renderDetailedPassagePlan(p){
   const detailed = p.plan.detailed;
   const wps = detailed.waypoints;
   const dppTotals = calcDetailedPassagePlanTotals(wps);
+  const dppRunningTotals = calcDetailedPassagePlanRunningTotals(wps);
 
   mount.innerHTML = `
     <h3>Detailed Passage Plan</h3>
     <div style="overflow-x:auto;">
-      <table class="log-table" style="min-width:1120px;">
+      <table class="log-table dpp-table-compact" style="min-width:1120px;">
         <thead>
           <tr>
             <th>Time</th>
             <th>Waypoint</th>
             <th>WP Lat/Lon</th>
-            <th>Dist to Next (NM)</th>
-            <th>Planned Speed to Next</th>
-            <th>Time to Next</th>
-            <th>Fuel to Next (L)</th>
+            <th>Dist<br>NM</th>
+												<th>COG<br>°T</th>
+												<th>Plan<br>kt</th>
+												<th>Time<br>Next</th>
+												<th>Fuel<br>L</th>
+												<th>Total<br>NM</th>
+												<th>Total<br>Time</th>
+												<th>Total<br>L</th>
             <th></th>
           </tr>
         </thead>
@@ -3989,11 +4623,15 @@ function renderDetailedPassagePlan(p){
             <tr data-dpp-row="${idx}">
               <td><input type="text" class="dpp-time" value="${escapeHtml(wp.time || "")}" placeholder="HH:MM" style="width:72px"></td>
               <td><input type="text" class="dpp-name" value="${escapeHtml(wp.name || "")}" placeholder="Waypoint"></td>
-              <td><input type="text" class="dpp-coords" value="${escapeHtml(wp.coordsText || formatDetailedWaypointCoords(wp.lat, wp.lon))}" placeholder="50º45.123'N, 001º18.456'W or 50.752, -1.308" style="min-width:260px"></td>
+              <td><input type="text" class="dpp-coords" value="${escapeHtml(wp.coordsText || formatDetailedWaypointCoords(wp.lat, wp.lon))}" placeholder="50º45.123'N, 001º18.456'W or 50.752, -1.308" style="min-width:220px"></td>
               <td>${wp.distToNext !== "" ? escapeHtml(String(wp.distToNext)) : "–"}</td>
-              <td><input type="number" step="0.1" inputmode="decimal" class="dpp-speed" value="${escapeHtml(wp.plannedSpeed || "")}" placeholder="kt" style="width:82px"></td>
+              <td>${wp.cogToNext ? escapeHtml(wp.cogToNext) : "–"}</td>
+              <td><input type="number" step="0.1" inputmode="decimal" class="dpp-speed" value="${escapeHtml(wp.plannedSpeed || "")}" placeholder="kt" style="width:56px"></td>              
               <td>${wp.timeToNext ? escapeHtml(wp.timeToNext) : "–"}</td>
               <td>${wp.fuelToNext !== "" && wp.fuelToNext != null ? escapeHtml(String(wp.fuelToNext)) : "–"}</td>
+              <td>${escapeHtml(String(dppRunningTotals[idx]?.totalNm ?? 0))}</td>
+              <td>${escapeHtml(dppRunningTotals[idx]?.totalTime || "00:00")}</td>
+              <td>${escapeHtml(String(dppRunningTotals[idx]?.totalFuel ?? 0))}</td>
               <td style="white-space:nowrap;">
                 <button type="button" class="btn btn-secondary btn-small dpp-up">↑</button>
                 <button type="button" class="btn btn-secondary btn-small dpp-down">↓</button>
@@ -4005,6 +4643,10 @@ function renderDetailedPassagePlan(p){
             <td colspan="3" style="text-align:right; font-weight:700;">TOTAL</td>
             <td style="font-weight:700;">${escapeHtml(String(dppTotals.totalNm || 0))}</td>
             <td></td>
+            <td></td>
+            <td style="font-weight:700;">${escapeHtml(dppTotals.totalDuration || "00:00")}</td>            
+            <td style="font-weight:700;">${escapeHtml(String(dppTotals.totalFuel || 0))}</td>
+            <td style="font-weight:700;">${escapeHtml(String(dppTotals.totalNm || 0))}</td>
             <td style="font-weight:700;">${escapeHtml(dppTotals.totalDuration || "00:00")}</td>
             <td style="font-weight:700;">${escapeHtml(String(dppTotals.totalFuel || 0))}</td>
             <td></td>
@@ -4054,6 +4696,7 @@ function renderDetailedPassagePlan(p){
       lat: null,
       lon: null,
       distToNext: "",
+      cogToNext: "",
       plannedSpeed: "",
       timeToNext: "",
       fuelToNext: ""
@@ -4219,6 +4862,7 @@ function readDetailedPassagePlanFromForm(){
       lat: parsed ? parsed.lat : null,
       lon: parsed ? parsed.lon : null,
       distToNext: "",
+      cogToNext: "",
       plannedSpeed: (row.querySelector(".dpp-speed")?.value || "").trim(),
       timeToNext: "",
       fuelToNext: ""
@@ -4311,9 +4955,10 @@ function gpxPointsToDetailedWaypoints(points){
     lat: pt.lat,
     lon: pt.lon,
     distToNext: "",
+    cogToNext: "",
     plannedSpeed: "",
     timeToNext: "",
-    fuelToNext: ""
+    fuelToNext: ""    
   }));
 }
 
@@ -6277,13 +6922,13 @@ function updatePlanSummaryPanel() {
 
   const dailySummaryHtml = dailySummaries.length
     ? dailySummaries.map(ds => {
-        const dateLabel = ds.date || "No date";
+        const dateLabel = ds.date ? formatDateShort(ds.date) : "No date";
         const feeLabel  = ds.fee  ? ` – ${escapeHtml(ds.fee)}` : "";
         const notesLabel = ds.notes ? ` – ${escapeHtml(ds.notes)}` : "";
         return `<div class="daily-summary-item plan-link" data-goto="dailySummariesContainer">${escapeHtml(dateLabel)}${feeLabel}${notesLabel}</div>`;
       }).join("")
     : '<p class="plan-link" data-goto="dailySummariesContainer"><em>–</em></p>';
-
+  
   planSummaryPanel.innerHTML = `
     <div class="plan-summary-grid">
       <div class="col plan-summary-col plan-summary-col-left">
@@ -6540,42 +7185,112 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
       ? `${String(entry.lat).trim()}, ${String(entry.lon).trim()}`
       : ((entry.lat || '').trim() || (entry.lon || '').trim() || '');
 
+    function splitEngTP(val){
+      const s = String(val || "").trim();
+      if (!s) return { temp:"", pressure:"" };
+      const parts = s.split("/");
+      return {
+        temp: (parts[0] || "").trim(),
+        pressure: (parts[1] || "").trim()
+      };
+    }
+
+    const eng = splitEngTP(entry.engTP || "");
+    const existingStw = entry.stw || "";
+
     showModal({
       title: isNew ? 'New Log Entry' : 'Edit Log Entry',
       okText: isNew ? 'Add entry' : 'Save changes',
       bodyHtml: `
-        <div class="entry-dialog-grid entry-dialog-grid-two">
-          ${dialogSection('Navigation',
-            dialogField('Time', 'dlgTime', entry.time ? timeOnlyFromIso(entry.time) : '', { inputMode: 'numeric' }) +
-            dialogField('Lat/Lon', 'dlgPosition', existingPos, { className: 'entry-dialog-field-full' }) +
-            dialogField('COG', 'dlgCourse', entry.course || '', { inputMode: 'numeric' }) +
-            dialogField('SPD', 'dlgSpeed', entry.speed || '', { inputMode: 'decimal', step: '0.1' })
-          )}
-          ${dialogSection('Engine',
-            dialogField('RPM', 'dlgRpm', entry.rpm || '', { inputMode: 'numeric' }) +
-            dialogField('ENG T/P', 'dlgEngTP', entry.engTP || '', { inputMode: 'decimal', step: '0.1' })
-          )}
-          ${dialogSection('Logs',
-            dialogField('W Log', 'dlgWaterLog', entry.waterLog || '', { inputMode: 'decimal', step: '0.1' }) +
-            dialogField('G Log', 'dlgGroundLog', entry.groundLog || '', { inputMode: 'decimal', step: '0.1' })
-          )}
-          ${dialogSection('Fuel',
-            dialogField('Fuel Used', 'dlgFuelUsed', entry.fuelUsed || '', { inputMode: 'decimal', step: '0.1' })
-          )}
+        <div class="manual-log-grid">
+
+          <div class="manual-log-title">Log entry</div>
+
+          <div class="manual-log-row manual-log-main">
+            <label class="entry-dialog-field">
+              <span>Time</span>
+              <input id="dlgTime" type="text" inputmode="numeric" value="${escapeHtml(entry.time ? timeOnlyFromIso(entry.time) : '')}">
+            </label>
+
+												<label class="entry-dialog-field">
+														<span>Position Lat/Lon</span>
+														<div class="position-input-wrap">
+																<input id="dlgPosition" type="text" value="${escapeHtml(existingPos || '')}">
+																<button id="dlgClearPosition" type="button" class="btn btn-secondary btn-small manual-log-clear-btn" title="Clear position">✕</button>
+														</div>
+												</label>
+												
+            <label class="entry-dialog-field">
+              <span>W Log</span>
+              <input id="dlgWaterLog" type="text" inputmode="decimal" step="0.1" value="${escapeHtml(entry.waterLog || '')}">
+            </label>
+
+            <label class="entry-dialog-field">
+              <span>G Log</span>
+              <input id="dlgGroundLog" type="text" inputmode="decimal" step="0.1" value="${escapeHtml(entry.groundLog || '')}">
+            </label>
+
+            <label class="entry-dialog-field">
+              <span>Fuel</span>
+              <input id="dlgFuelUsed" type="text" inputmode="decimal" step="0.1" value="${escapeHtml(entry.fuelUsed || '')}">
+            </label>
+          </div>
+
+          <div class="manual-log-row manual-log-secondary">
+            <label class="entry-dialog-field">
+              <span>RPM</span>
+              <input id="dlgRpm" type="text" inputmode="numeric" value="${escapeHtml(entry.rpm || '')}">
+            </label>
+
+            <label class="entry-dialog-field">
+              <span>TEMP</span>
+              <input id="dlgEngTemp" type="text" inputmode="decimal" step="0.1" value="${escapeHtml(eng.temp || '')}">
+            </label>
+
+            <label class="entry-dialog-field">
+              <span>PRESS</span>
+              <input id="dlgEngPressure" type="text" inputmode="decimal" step="0.1" value="${escapeHtml(eng.pressure || '')}">
+            </label>
+
+            <label class="entry-dialog-field">
+              <span>COG</span>
+              <input id="dlgCourse" type="text" inputmode="numeric" value="${escapeHtml(entry.course || '')}">
+            </label>
+
+            <label class="entry-dialog-field">
+              <span>SOG</span>
+              <input id="dlgSpeed" type="text" inputmode="decimal" step="0.1" value="${escapeHtml(entry.speed || '')}">
+            </label>
+
+            <label class="entry-dialog-field">
+              <span>STW</span>
+              <input id="dlgStw" type="text" inputmode="decimal" step="0.1" value="${escapeHtml(existingStw || '')}">
+            </label>
+
+            <div></div>
+          </div>
+
+          <label class="entry-dialog-field">
+            <span>Notes</span>
+            <textarea id="dlgNotes" rows="2" class="modal-notes" style="resize:vertical;">${escapeHtml(entry.notes || '')}</textarea>
+          </label>
+
         </div>
-        ${dialogField('Notes', 'dlgNotes', entry.notes || '', { tag: 'textarea', rows: 4 })}
       `,
-      onOk: () => {
+      
+						onOk: () => {
         const vals = getDialogFieldValues([
           'dlgTime',
           'dlgPosition',
-          'dlgCourse',
-          'dlgSpeed',
-          'dlgRpm',
-          'dlgEngTP',
           'dlgWaterLog',
           'dlgGroundLog',
           'dlgFuelUsed',
+          'dlgRpm',
+          'dlgEngTemp',
+          'dlgEngPressure',
+          'dlgCourse',
+          'dlgSpeed',
+          'dlgStw',
           'dlgNotes'
         ]);
 
@@ -6585,17 +7300,39 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
           (passage?.plan?.date || getCurrentPassage()?.plan?.date || '')
         );
 
-        const pos = parseAndFormatPositionInput(vals.dlgPosition, entry.lat, entry.lon);
-        entry.lat = pos.lat;
-        entry.lon = pos.lon;
-        entry.course = vals.dlgCourse;
-        entry.speed = vals.dlgSpeed;
-        entry.rpm = vals.dlgRpm;
-        entry.engTP = vals.dlgEngTP;
+        const posRaw = String(vals.dlgPosition || "").trim();
+        if (!posRaw || posRaw.toLowerCase() === "n/a") {
+          entry.lat = posRaw.toLowerCase() === "n/a" ? "n/a" : "";
+          entry.lon = "";
+        } else {
+          const pos = parseAndFormatPositionInput(posRaw, entry.lat, entry.lon);
+          entry.lat = pos.lat;
+          entry.lon = pos.lon;
+        }
+
         entry.waterLog = vals.dlgWaterLog;
         entry.groundLog = vals.dlgGroundLog;
         entry.fuelUsed = vals.dlgFuelUsed;
-        entry.notes = vals.dlgNotes;
+        entry.rpm = vals.dlgRpm;
+
+        const temp = String(vals.dlgEngTemp || "").trim();
+        const pressure = String(vals.dlgEngPressure || "").trim();
+        entry.engTP = (temp || pressure) ? `${temp}/${pressure}` : "";
+
+        entry.course = vals.dlgCourse;
+        entry.speed = vals.dlgSpeed;  // SOG
+        entry.stw = vals.dlgStw;
+
+        let notes = vals.dlgNotes || "";
+        notes = notes
+          .replace(/\n?STW:\s*[\d.]+\s*kts?/ig, "")
+          .trim();
+
+        if (entry.stw) {
+          notes = notes ? `${notes}\nSTW: ${entry.stw} kts` : `STW: ${entry.stw} kts`;
+        }
+
+        entry.notes = notes;
         entry.entryType = 'manual';
 
         if (!isNew) {
@@ -6609,6 +7346,14 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
       onCancel: () => resolve(false)
     });
 
+    const clearBtn = document.getElementById("dlgClearPosition");
+    if (clearBtn) {
+      clearBtn.addEventListener("click", () => {
+        const posEl = document.getElementById("dlgPosition");
+        if (posEl) posEl.value = "";
+      });
+    }
+
     // CL-083: Prefill Lat/Lon for NEW manual entries
     if (isNew) {
       const posInput = document.getElementById('dlgPosition');
@@ -6619,9 +7364,9 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
           navigator.geolocation.getCurrentPosition(
             (pos) => {
               // Only replace fallback if user hasn't typed over it
-              if (document.getElementById('dlgPosition') && document.getElementById('dlgPosition').value === 'n/a') {
-                document.getElementById('dlgPosition').value =
-                  `${formatLatFromDecimal(pos.coords.latitude)}, ${formatLonFromDecimal(pos.coords.longitude)}`;
+              const el = document.getElementById('dlgPosition');
+              if (el && el.value === 'n/a') {
+                el.value = `${formatLatFromDecimal(pos.coords.latitude)}, ${formatLonFromDecimal(pos.coords.longitude)}`;
               }
             },
             () => {
@@ -6658,27 +7403,100 @@ async function openEngineStartEntryDialog(p, legIdx, entry = null) {
       title: 'Engine Start',
       okText: entry ? 'Save changes' : 'Add entry',
       bodyHtml: `
-        <div class="entry-dialog-grid entry-dialog-grid-two">
-          ${dialogSection('Start values',
-											dialogField('Time', 'esTime', entry?.time ? timeOnlyFromIso(entry.time) : timeOnlyFromIso(localDateTimeInputValue(new Date())), { inputMode: 'numeric' }) +
-											dialogField('POB', 'esPob', entry?.pob || p.pob || '', { type: 'number', inputMode: 'numeric', step: '1', min: '1' }) +
-											dialogField('Fuel %(R)', 'esFuelR', prefillFuR, { type: 'number', inputMode: 'numeric', step: '1' }) +
-											dialogField('Fuel %(C)', 'esFuelC', existing.fuelStartPercentC || '', { type: 'number', inputMode: 'numeric', step: '1' }) +
-											dialogField('Engine hours at start', 'esEh', prefillEh, { type: 'number', inputMode: 'decimal', step: '0.1' })
-          )}
-          ${dialogSection('Environment (optional)',
-            dialogField('Air pressure (mb)', 'esAirPress', prevEnv.airPressureMb || '', { type: 'number', inputMode: 'numeric', step: '1' }) +
-            dialogField('Humidity (%)', 'esHumidity', prevEnv.humidityPct || '', { type: 'number', inputMode: 'numeric', step: '1' }) +
-            dialogField('Air temp (°C)', 'esAirTemp', prevEnv.airTempC || '', { type: 'number', inputMode: 'decimal', step: '0.1' }) +
-            dialogField('Sea temp (°C)', 'esSeaTemp', prevEnv.seaTempC || '', { type: 'number', inputMode: 'decimal', step: '0.1' }) +
-            dialogField('Wind dir', 'esWindDir', prevEnv.windDir || '', { tag: 'select', options: ['N','NE','E','SE','S','SW','W','NW'] }) +
-            dialogField('Wind (Bft)', 'esWindBft', prevEnv.windBft || '', { type: 'number', inputMode: 'numeric', step: '1', min: '0', max: '12' })
-          )}
+        <div class="engine-start-grid">
+
+          <div class="engine-start-title">Start values</div>
+          <div class="engine-start-row engine-start-values">
+            <label class="entry-dialog-field">
+              <span>Time</span>
+              <input id="esTime" type="text" inputmode="numeric" value="${escapeHtml(entry?.time ? timeOnlyFromIso(entry.time) : timeOnlyFromIso(localDateTimeInputValue(new Date())))}">
+            </label>
+
+            <label class="entry-dialog-field">
+              <span>POB</span>
+              <input id="esPob" type="number" inputmode="numeric" step="1" min="1" value="${escapeHtml(entry?.pob || p.pob || '')}">
+            </label>
+
+            <label class="entry-dialog-field">
+              <span>Fuel R</span>
+              <input id="esFuelR" type="number" inputmode="numeric" step="1" value="${escapeHtml(prefillFuR)}">
+            </label>
+
+            <label class="entry-dialog-field">
+              <span>Fuel C</span>
+              <input id="esFuelC" type="number" inputmode="numeric" step="1" value="${escapeHtml(existing.fuelStartPercentC || '')}">
+            </label>
+
+            <label class="entry-dialog-field">
+              <span>Eng hrs</span>
+              <input id="esEh" type="number" inputmode="decimal" step="0.1" value="${escapeHtml(prefillEh)}">
+            </label>
+
+            <div></div>
+          </div>
+
+          <div class="engine-start-title">Environment</div>
+          <div class="engine-start-row engine-start-env">
+            <label class="entry-dialog-field">
+              <span>Air press</span>
+              <input id="esAirPress" type="number" inputmode="numeric" step="1" value="${escapeHtml(prevEnv.airPressureMb || '')}">
+            </label>
+
+            <label class="entry-dialog-field">
+              <span>Humidity</span>
+              <input id="esHumidity" type="number" inputmode="numeric" step="1" value="${escapeHtml(prevEnv.humidityPct || '')}">
+            </label>
+
+            <label class="entry-dialog-field">
+              <span>Air °C</span>
+              <input id="esAirTemp" type="number" inputmode="decimal" step="0.1" value="${escapeHtml(prevEnv.airTempC || '')}">
+            </label>
+
+            <label class="entry-dialog-field">
+              <span>Sea °C</span>
+              <input id="esSeaTemp" type="number" inputmode="decimal" step="0.1" value="${escapeHtml(prevEnv.seaTempC || '')}">
+            </label>
+
+            <label class="entry-dialog-field">
+              <span>Wind dir</span>
+              <select id="esWindDir">
+                <option value=""></option>
+                ${['N','NE','E','SE','S','SW','W','NW'].map(opt => `<option value="${opt}" ${String(prevEnv.windDir||'')===opt?'selected':''}>${opt}</option>`).join('')}
+              </select>
+            </label>
+
+            <label class="entry-dialog-field">
+              <span>Bft</span>
+              <input id="esWindBft" type="number" inputmode="numeric" step="1" min="0" max="12" value="${escapeHtml(prevEnv.windBft || '')}">
+            </label>
+
+            <div></div>
+          </div>
+
+          <div class="engine-start-vhf-notes">
+            <div class="vhf-box">
+              <label>
+                <input id="esVhfCheck" type="checkbox">
+                <span>VHF CHECK COMPLETE</span>
+              </label>
+              <div class="hint">Confirm VHF radio check before recording Engine Start.</div>
+            </div>
+
+            <label class="entry-dialog-field">
+              <span>Notes (optional)</span>
+              <textarea id="esNotes" rows="2" class="modal-notes" style="resize:vertical;">${escapeHtml(prevEnv.notes || '')}</textarea>
+            </label>
+          </div>
+
         </div>
-        ${dialogField('Notes (optional)', 'esNotes', prevEnv.notes || '', { tag: 'textarea', rows: 3 })}
       `,
-      onOk: () => {
+            
+        onOk: () => {
         const vals = getDialogFieldValues(['esTime','esPob','esFuelR','esFuelC','esEh','esAirPress','esHumidity','esAirTemp','esSeaTemp','esWindDir','esWindBft','esNotes']);
+                if (!entry && !document.getElementById("esVhfCheck")?.checked) {
+          alert("Please confirm VHF CHECK COMPLETE before adding Engine Start.");
+          return false;
+        }
         if (entry) {
           entry.time = normalizeEntryTimeInput(vals.esTime, entry.time, (p.plan?.date || ''));
           if (legIdx === 0) { p.plan.engineHoursStart = vals.esEh; p.plan.fuelStartPercent = vals.esFuelR; }
@@ -6997,15 +7815,79 @@ function addDockEntry() {
   refreshHomePassageList();
 }
 
-function attachSwipeToRow(tr, entryId) {
-  let startX = 0;
-  tr.addEventListener("touchstart", (e) => { startX = e.changedTouches[0].screenX; }, { passive: true });
-  tr.addEventListener("touchend", (e) => {
-    const dx = e.changedTouches[0].screenX - startX;
-    if (dx < -90) deleteLogEntryById(entryId);
-  }, { passive: true });
+function deleteBinSvg(){
+  return `
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+      <path fill="currentColor" d="M8 4h8l.8 2H21v2H3V6h4.2L8 4z"/>
+      <path fill="currentColor" d="M6 9h12l-1 11H7L6 9zm3 2v7h2v-7H9zm4 0v7h2v-7h-2z"/>
+    </svg>
+  `;
 }
 
+function hideAllSwipeDeleteButtons(exceptEl = null){
+  document.querySelectorAll("tr.show-delete, .passage-card.show-delete").forEach(el => {
+    if (exceptEl && el === exceptEl) return;
+    el.classList.remove("show-delete");
+  });
+}
+
+function attachSwipeToRow(tr, entryId) {
+  let startX = 0;
+  let startY = 0;
+  let wheelX = 0;
+  let wheelTimer = null;
+
+  tr.addEventListener("touchstart", (e) => {
+    const t = e.changedTouches[0];
+    startX = t.screenX;
+    startY = t.screenY;
+  }, { passive: true });
+
+  tr.addEventListener("touchend", (e) => {
+    const t = e.changedTouches[0];
+    const dx = t.screenX - startX;
+    const dy = t.screenY - startY;
+
+    if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.3) {
+      if (dx < 0) {
+        hideAllSwipeDeleteButtons(tr);
+        tr.classList.add("show-delete");
+      } else {
+        tr.classList.remove("show-delete");
+      }
+
+      tr.dataset.justSwiped = "1";
+      setTimeout(() => { delete tr.dataset.justSwiped; }, 350);
+    }
+  }, { passive: true });
+
+  tr.addEventListener("wheel", (e) => {
+    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+
+    wheelX += e.deltaX;
+    clearTimeout(wheelTimer);
+
+    wheelTimer = setTimeout(() => {
+      if (wheelX > 45) {
+        hideAllSwipeDeleteButtons(tr);
+        tr.classList.add("show-delete");
+      } else if (wheelX < -35) {
+        tr.classList.remove("show-delete");
+      }
+
+      wheelX = 0;
+      tr.dataset.justSwiped = "1";
+      setTimeout(() => { delete tr.dataset.justSwiped; }, 300);
+    }, 60);
+  }, { passive: true });
+
+  tr.addEventListener("click", (e) => {
+    if (tr.dataset.justSwiped === "1") {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, true);
+}
 function deleteLogEntryById(entryId) {
   const p = getCurrentPassage();
   if (!p) return;
@@ -7137,7 +8019,8 @@ function renderLogEntries() {
   updateLegIndicator();
   const p = getCurrentPassage();
   logEntriesContainer.innerHTML = "";
-
+  const showLegSummaries = p ? getLegCount(p) > 1 : false;
+    
   if (!p || (p.entries?.length || 0) === 0) {
     logEmptyMessage.style.display = "block";
     logSummaryPanel.textContent = "";
@@ -7196,11 +8079,17 @@ function renderLogEntries() {
       actions.appendChild(posSpan);
     }
 
-    const delBtn = document.createElement("button");
-    delBtn.className = "entry-del-btn";
-    delBtn.textContent = "Del";
-    delBtn.addEventListener("click", (ev) => { ev.stopPropagation(); deleteLogEntryById(entry.id); });
-    actions.appendChild(delBtn);
+				const delBtn = document.createElement("button");
+				delBtn.className = "entry-del-btn";
+		  delBtn.innerHTML = deleteBinSvg();
+				delBtn.title = "Delete entry";
+				
+				delBtn.addEventListener("click", (ev) => {
+						ev.preventDefault();
+						ev.stopPropagation();
+						deleteLogEntryById(entry.id);
+				});
+				actions.appendChild(delBtn);
 
     tdNotes.appendChild(actions);
     tr.appendChild(tdNotes);
@@ -7208,7 +8097,7 @@ function renderLogEntries() {
 
     logEntriesContainer.appendChild(tr);
 
-    if (typeof entry?.notes === "string" && entry.notes.toLowerCase().startsWith("shutdown")) {
+    if (showLegSummaries && typeof entry?.notes === "string" && entry.notes.toLowerCase().startsWith("shutdown")) {
       const legIdx = (typeof entry.leg === "number") ? entry.leg : 0;
       const s = computeLegLogSummary(p, legIdx);
 
@@ -7534,7 +8423,7 @@ function exportCurrentPassageToCsv() {
   lines.push("");
 
   lines.push("Log Entries");
-  lines.push(["Time","Lat","Lon","COG/Heading","Speed (kn)","RPM","Eng T/P","WLog (NM)","GLog (NM)","Fuel used","Notes"].map(quote).join(","));
+  lines.push(["Time","Lat","Lon","COG/Heading","SOG (kn)","RPM","Eng T/P","WLog (NM)","GLog (NM)","Fuel used","Notes"].map(quote).join(","));
 
   p.entries.slice().sort((a, b) => (a.time > b.time ? 1 : -1)).forEach(e => {
     lines.push([
@@ -7623,7 +8512,7 @@ function exportCurrentPassageToPdf() {
         <tr>
           <th>TIME</th>
           <th>COG</th>
-          <th>SPD</th>
+          <th>SOG</th>
           <th>RPM</th>
           <th>ENG&nbsp;T/P</th>
           <th>LOG&nbsp;W</th>
@@ -8217,9 +9106,6 @@ function injectSafetyEmergencySettingsBlock(){
               <input id="seiEcTel" placeholder="Contact Tel">
               <input id="seiEcEmail" placeholder="Contact Email">
               <input id="seiEcNotes" placeholder="Relationship / Notes">
-            </div>
-            <div style="margin-top:6px; opacity:0.8; font-size:0.92em;">
-              Multiple contacts will follow in the next patch. This saves the default contact now.
             </div>
           </div>
 
