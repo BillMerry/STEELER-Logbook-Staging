@@ -189,7 +189,7 @@ body[data-theme="night"] textarea{
 }
 .grid-span-2{grid-column:1 / -1}
 
-/* CL-077: Route ports row (Origin + up to 3 Transit Ports + Destination) */
+/* Route ports row (Origin + up to 3 Transit Ports + Destination) */
 .plan-ports-header{
   display:flex;
   align-items:center;
@@ -243,8 +243,7 @@ body[data-theme="night"] .daily-summary-row{border-color:#333}
 
 /* Home */
 .home-actions{margin-bottom:0.6rem}
-.home-passages h2,
-.home-backup h2{margin-top:0.7rem;font-size:1rem}
+.home-passages h2{margin-top:0.7rem;font-size:1rem}
 
 .passage-list{display:flex;flex-direction:column;gap:0.4rem}
 
@@ -361,7 +360,7 @@ body[data-theme="night"] .plan-summary .plan-link:hover{background:rgba(255,255,
 .plan-summary-grid .col{flex:1 1 0;min-height:0}
 .plan-summary-grid .plan-summary-col{overflow-y:auto;min-height:0;padding-right:0.2rem;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 
-/* Group C: CL-076-10 — Sunrise/Sunset moved out of header (kept for backwards compatibility) */
+/* Sunrise/Sunset moved out of header (kept for backwards compatibility) */
 #headerSunrise{display:none}
 
 /* Log table */
@@ -379,7 +378,7 @@ body[data-theme="night"] .log-table th, body[data-theme="night"] .log-table td{b
   background:var(--panel);
 }
 
-/* Group C: CL-076-09 — tighten columns in Log full view to widen NOTES/ACTIONS */
+/* Tighten columns in Log full view to widen NOTES/ACTIONS */
 .log-layout.log-only .log-table{table-layout:fixed}
 .log-layout.log-only .log-table th,
 .log-layout.log-only .log-table td{padding:0.18rem 0.25rem}
@@ -392,33 +391,6 @@ body[data-theme="night"] .log-table th, body[data-theme="night"] .log-table td{b
 .log-table col.col-logg{width:4.8ch}
 .log-table col.col-fuel{width:4.8ch}
 .log-table col.col-notes{width:auto}
-
-/* Inputs in log table – minimal */
-.log-table input.log-input{
-  font-size:0.82rem;
-  padding:0.05rem 0.1rem;
-  border:none;
-  border-bottom:1px solid #ccc;
-  font-family:inherit;
-  background:transparent;
-  color:var(--fg);
-}
-body[data-theme="night"] .log-table input.log-input{border-bottom-color:#555}
-
-/* Hide number spinners (we use inputMode instead) */
-.log-table input::-webkit-outer-spin-button,
-.log-table input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-.log-table input[type=number] { -moz-appearance: textfield; }
-
-/* Field width tuning to match requested formats */
-.log-table input.log-input-cog { width: 3.6ch; text-align: right; }
-.log-table input.log-input-speed { width: 3.6ch; text-align: right; }
-.log-table input.log-input-rpm { width: 4.6ch; text-align: right; }
-.log-table input.log-input-engtp { width: 5.6ch; text-align: right; }
-.log-table input.log-input-log { width: 4.6ch; text-align: right; }
-.log-table input.log-input-fuel { width: 4.6ch; text-align: right; }
-
-
 
 .log-entry-row{cursor:pointer}
 .log-display-cell{
@@ -475,11 +447,6 @@ body[data-theme="night"] .log-table input.log-input{border-bottom-color:#555}
   .entry-dialog-grid-two{grid-template-columns:1fr}
 }
 
-.log-table input.log-input-num{max-width:6ch}
-.log-table td:nth-child(2) .log-input-cog,
-.log-table td:nth-child(3) .log-input-num,
-.log-table td:nth-child(4) .log-input-num{max-width:4ch}
-
 .pos-field{
   display:inline-block;
   padding:0.1rem 0.3rem;
@@ -490,7 +457,7 @@ body[data-theme="night"] .log-table input.log-input{border-bottom-color:#555}
 
 .log-empty{font-size:0.8rem;opacity:0.7;margin-top:0.4rem}
 
-/* CL-077 (v0.6.4d): inline per-leg summary row (display-only) */
+/* Inline per-leg summary row (display-only) */
 .leg-summary-row td{
   padding:0.35rem 0.45rem;
   background:rgba(0,0,0,0.03);
@@ -599,17 +566,16 @@ label { position: relative; }
   cursor: pointer;
 }
 
-body.night .port-suggest {
+body[data-theme="night"] .port-suggest {
   background: #111;
   border-color: rgba(255,255,255,0.18);
 }
-body.night .port-suggest-item {
+body[data-theme="night"] .port-suggest-item {
   background: #1b1b1b;
   border-color: rgba(255,255,255,0.18);
   color: #fff;
 }
 
-.ports-tools { margin: 6px 0 14px; }
 .btn-secondary {
   border: 1px solid rgba(0,0,0,0.18);
   background: #fff;
@@ -629,7 +595,7 @@ body.night .port-suggest-item {
   box-shadow: 0 18px 60px rgba(0,0,0,0.25);
   overflow: hidden;
 }
-body.night .modal-panel { background: #111; color: #fff; }
+body[data-theme="night"] .modal-panel { background: #111; color: #fff; }
 .modal-header {
   display: flex;
   justify-content: space-between;
@@ -659,7 +625,7 @@ body.night .modal-panel { background: #111; color: #fff; }
   border: 1px solid rgba(0,0,0,0.14);
   border-radius: 12px;
 }
-body.night .ports-row { border-color: rgba(255,255,255,0.18); }
+body[data-theme="night"] .ports-row { border-color: rgba(255,255,255,0.18); }
 .ports-delete {
   border: 1px solid rgba(0,0,0,0.18);
   background: transparent;
@@ -667,7 +633,7 @@ body.night .ports-row { border-color: rgba(255,255,255,0.18); }
   padding: 6px 10px;
   cursor: pointer;
 }
-body.night .ports-delete { border-color: rgba(255,255,255,0.18); color: #fff; }
+body[data-theme="night"] .ports-delete { border-color: rgba(255,255,255,0.18); color: #fff; }
 .ports-empty { opacity: 0.8; padding: 10px 0; }
 
 
@@ -689,7 +655,6 @@ body.night .ports-delete { border-color: rgba(255,255,255,0.18); color: #fff; }
 .ports-row{display:flex;gap:0.6rem;align-items:flex-start;justify-content:space-between;padding:0.45rem 0;border-bottom:1px solid var(--border)}
 .ports-left{min-width:0;flex:1 1 auto}
 .ports-right{flex:0 0 auto}
-.ports-name{font-weight:700;margin-bottom:0.25rem}
 .ports-coords{display:flex;gap:0.35rem;flex-wrap:wrap;align-items:center}
 .ports-coord-input{max-width:10ch;padding:0.25rem 0.35rem;border:1px solid var(--border);border-radius:0.35rem;background:var(--panel);color:var(--fg)}
 .ports-mini{border-radius:999px;padding:0.25rem 0.55rem;border:1px solid #d0d0d0;background:var(--soft);color:var(--fg);font-size:0.78rem;cursor:pointer}
@@ -699,11 +664,8 @@ body.night .ports-delete { border-color: rgba(255,255,255,0.18); color: #fff; }
 
 /* Tide paste + display */
 .time-height{display:flex;gap:0.45rem;align-items:center}
-.tide-height{width:6.5rem}
-
 .tide-station-block{margin:0.6rem 0 0.9rem;display:block;}
 
-.tide-station-name{font-weight:700;margin-bottom:0.35rem}
 .tide-empty{opacity:0.75}
 .tide-table{width:auto;max-width:100%;border-collapse:collapse;font-size:inherit}
 .tide-table th,.tide-table td{border:1px solid var(--border);padding:0.25rem 0.35rem;text-align:left}
@@ -746,15 +708,13 @@ body.night .ports-delete { border-color: rgba(255,255,255,0.18); color: #fff; }
 
 .ports-dmm{flex-basis:100%;font-size:0.78rem;opacity:0.85;margin-top:0.15rem}
 
-/* Group D (CL-076-11): per-port comments */
+/* Per-port comments */
 .ports-comments{margin-top:0.35rem}
 .ports-comments-label{font-size:0.78rem;opacity:0.85;margin-bottom:0.25rem}
 .ports-comment-input{width:100%;min-height:2.2rem;resize:vertical;padding:0.35rem 0.45rem;border:1px solid var(--border);border-radius:0.45rem;background:var(--panel);color:var(--fg);margin-bottom:0.25rem}
 
 /* Manage Ports modal scrolling */
 #portsManagerList{max-height:60vh;overflow:auto;-webkit-overflow-scrolling:touch}
-.modal .modal-content{max-height:80vh;overflow:auto;-webkit-overflow-scrolling:touch}
-
 /* Tide stations in log plan summary */
 .tide-stations-grid{display:flex;flex-wrap:wrap;gap:0.6rem;align-items:flex-start}
 .tide-stations-grid .tide-station-block{margin:0;}
@@ -784,7 +744,7 @@ body.night .ports-delete { border-color: rgba(255,255,255,0.18); color: #fff; }
 }
 
 
-/* --- PDF / Print export (CL-076-13) ------------------------------- */
+/* --- PDF / Print export -------------------------------------------- */
 #printArea { display: none; }
 
 @media print {
@@ -851,7 +811,7 @@ body.night .ports-delete { border-color: rgba(255,255,255,0.18); color: #fff; }
 }
 
 
-/* CL-077: current leg indicator */
+/* Current leg indicator */
 .leg-indicator{
   margin-left:0.75rem;
   font-weight:600;
