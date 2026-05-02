@@ -4,7 +4,7 @@ const STORAGE_KEY = "steeler_logbook_passages_v5";
 const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 
-const APP_VERSION = "0.10.0";
+const APP_VERSION = "0.11.5";
 
 const storageSaveWarningsShown = new Set();
 
@@ -1682,8 +1682,8 @@ function formatSmsWpCoord(wp){
   return formatDMM(la, lo);
 }
 
-function buildSmsRouteList(p){
-  const wps = p?.plan?.detailed?.waypoints || [];
+function buildSmsRouteList(p, detailedPlan = null){
+  const wps = detailedPlan?.waypoints || p?.plan?.detailed?.waypoints || [];
   if (wps.length <= 2) return "Direct / no intermediate waypoints set.";
 
   const out = [];
@@ -1703,13 +1703,8 @@ function buildSmsRouteList(p){
   return out.length ? out.join("\n") : "Direct / no intermediate waypoints set.";
 }
 
-function buildPorList(p){
-  const fromDetailed = String(p?.plan?.detailed?.portsOfRefuge || "").trim();
-  if (fromDetailed) return fromDetailed;
-
-  const ts = p?.plan?.tideStations || [];
-  const names = ts.map(t => t.name).filter(Boolean);
-  return names.join(", ");
+function buildPorList(p, detailedPlan = null){
+  return String(detailedPlan?.portsOfRefuge ?? p?.plan?.detailed?.portsOfRefuge ?? "").trim();
 }
 
 function getMarineTrafficLink(vessel){
@@ -1726,8 +1721,8 @@ function getMarineTrafficLink(vessel){
   return "";
 }
 
-function getPassageEtaInfo(p){
-  const wps = p?.plan?.detailed?.waypoints || [];
+function getPassageEtaInfo(p, detailedPlan = null){
+  const wps = detailedPlan?.waypoints || p?.plan?.detailed?.waypoints || [];
   if (!wps.length) return { etaText: "", overdueText: "" };
 
   const last = wps[wps.length - 1];
@@ -1773,14 +1768,17 @@ function getPassageEtaInfo(p){
   return { etaText, overdueText };
 }
 
-function buildEcStartSms(p){
+function buildEcStartSms(p, legIdx = null){
   const sOld = getEcSettings(); // fallback
   const sNew = getSafetyInfo();
 
   const vessel = sNew.vessel || sOld.vesselProfile || {};
-  const origin = String(p?.plan?.from || "").trim();
-  const destination = String(p?.plan?.to || "").trim();
-  const wps = p?.plan?.detailed?.waypoints || [];
+  const activeLeg = Number.isFinite(Number(legIdx)) ? Number(legIdx) : getCurrentLegIndex(p);
+  const routeLeg = getRouteLegNames(p, activeLeg);
+  const origin = String(routeLeg.origin || p?.plan?.from || "").trim();
+  const destination = String(routeLeg.destination || p?.plan?.to || "").trim();
+  const detailedPlan = getDetailedPassagePlanForLeg(p, activeLeg);
+  const wps = detailedPlan?.waypoints || [];
 
   const firstWp = wps[0] || null;
   const lastWp = wps.length ? wps[wps.length - 1] : null;
@@ -1790,8 +1788,8 @@ function buildEcStartSms(p){
 
   const mmsi = String(vessel.mmsi || "").trim();
   const mtLink = getMarineTrafficLink(vessel);
-  const por = buildPorList(p);
-  const etaInfo = getPassageEtaInfo(p);
+  const por = buildPorList(p, detailedPlan);
+  const etaInfo = getPassageEtaInfo(p, detailedPlan);
   const pob = p.pob || "?";
 
   const intro = `LOOKOUT REQUEST
@@ -1820,7 +1818,7 @@ MMSI: ${mmsi}`;
 		
 				"",
 		
-				`Intended Routing:\n${buildSmsRouteList(p)}`,
+					`Intended Routing:\n${buildSmsRouteList(p, detailedPlan)}`,
 				
 				"",
 		
@@ -1976,7 +1974,7 @@ function switchToTab(tabId) {
           try { ensureAutoTideStations(p); } catch {}
         }
         if (typeof readDailySummariesFromForm === "function") p.plan.dailySummaries = readDailySummariesFromForm();
-        if (typeof readDetailedPassagePlanFromForm === "function") p.plan.detailed = readDetailedPassagePlanFromForm();
+        if (typeof readDetailedPassagePlanFromForm === "function") readDetailedPassagePlanFromForm();
         try { savePassages(); } catch {}
       }
     }
@@ -2316,6 +2314,15 @@ function getRouteNames(p){
   const to = String(p.plan.to || "").trim();
   if (to) out.push(to);
   return out;
+}
+
+function getRouteLegNames(p, legIdx){
+  const route = getRouteNames(p);
+  const idx = Math.max(0, Math.min(Number(legIdx) || 0, Math.max(0, route.length - 2)));
+  return {
+    origin: route[idx] || "",
+    destination: route[idx + 1] || ""
+  };
 }
 
 
@@ -2873,50 +2880,106 @@ function applyLogReadabilityPolish(){
 						padding: 0.25rem 0.3rem !important;
 				}
 
-    /* v0.9.1.10: reduce delete button clutter */
-    .entry-actions {
-      display: flex !important;
-      gap: 0.35rem !important;
-      align-items: center !important;
-      justify-content: flex-end !important;
-    }
-
-    .entry-del-btn {
+	    /* v0.9.1.10: reduce delete button clutter */
+	    .entry-actions {
+	      display: flex !important;
+	      gap: 0.35rem !important;
+	      align-items: center !important;
+	      justify-content: flex-end !important;
+      position: absolute !important;
+      right: -2.45rem !important;
+      top: 50% !important;
+      margin-top: 0 !important;
       opacity: 0 !important;
-      max-width: 0 !important;
-      overflow: hidden !important;
-      padding-left: 0 !important;
-      padding-right: 0 !important;
-      margin-left: 0 !important;
       pointer-events: none !important;
-      transition: opacity 0.18s ease, max-width 0.18s ease, padding 0.18s ease !important;
+      transform: translateY(-50%) scale(0.86) !important;
+      transition: opacity 0.16s ease, transform 0.24s cubic-bezier(.2,1.4,.35,1) !important;
+	    }
+
+	    .entry-del-btn {
+	      overflow: hidden !important;
+	      margin-left: 0 !important;
+	    }
+
+    .log-entry-row {
+      touch-action: pan-y !important;
     }
 
-    tr.show-delete .entry-del-btn {
-      opacity: 1 !important;
-      max-width: 56px !important;
-      padding-left: 0.45rem !important;
-      padding-right: 0.45rem !important;
-      pointer-events: auto !important;
+    .log-entry-row .log-display-cell {
+      transition: transform 0.24s cubic-bezier(.2,1.4,.35,1) !important;
     }
+
+    tr.show-delete .log-display-cell {
+      transform: translateX(-2.45rem) !important;
+    }
+
+    tr.swipe-dragging .log-display-cell {
+      transform: translateX(var(--swipe-x, 0px)) !important;
+      transition: none !important;
+    }
+
+    tr.show-delete .entry-actions {
+      opacity: 1 !important;
+      pointer-events: auto !important;
+      transform: translateY(-50%) scale(1) !important;
+    }
+
+    tr.swipe-dragging .entry-actions {
+      opacity: 1 !important;
+      pointer-events: none !important;
+      transform: translateY(-50%) scale(0.94) !important;
+      transition: none !important;
+    }
+
+	    tr.show-delete .entry-del-btn {
+	      pointer-events: auto !important;
+	    }
 
     .passage-card {
       position: relative !important;
       overflow: hidden !important;
+      touch-action: pan-y !important;
+    }
+
+    .passage-card-main {
+      width: 100% !important;
+      position: relative !important;
+      z-index: 1 !important;
+      background: var(--panel) !important;
+      transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
     }
 
     .passage-card-actions {
+      position: absolute !important;
+      right: 0.45rem !important;
+      top: 50% !important;
+      z-index: 0 !important;
       opacity: 0 !important;
-      max-width: 0 !important;
-      overflow: hidden !important;
       pointer-events: none !important;
-      transition: opacity 0.18s ease, max-width 0.18s ease !important;
+      transform: translateY(-50%) scale(0.86) !important;
+      transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
     }
 
-      .passage-card.show-delete .passage-card-actions {
+    .passage-card.show-delete .passage-card-main {
+      transform: translateX(-2.45rem) !important;
+    }
+
+    .passage-card.swipe-dragging .passage-card-main {
+      transform: translateX(var(--swipe-x, 0px)) !important;
+      transition: none !important;
+    }
+
+    .passage-card.show-delete .passage-card-actions {
       opacity: 1 !important;
-      max-width: 90px !important;
       pointer-events: auto !important;
+      transform: translateY(-50%) scale(1) !important;
+    }
+
+    .passage-card.swipe-dragging .passage-card-actions {
+      opacity: 1 !important;
+      pointer-events: none !important;
+      transform: translateY(-50%) scale(0.94) !important;
+      transition: none !important;
     }
 
    .entry-del-btn,
@@ -2936,23 +2999,6 @@ function applyLogReadabilityPolish(){
 			.passage-delete-btn svg {
 					width: 18px;
 					height: 18px;
-			}
-			@media (hover: hover) and (pointer: fine) {
-					tr:hover .entry-del-btn,
-					tr:focus-within .entry-del-btn {
-							opacity: 1 !important;
-							max-width: 56px !important;
-							padding-left: 0.45rem !important;
-							padding-right: 0.45rem !important;
-							pointer-events: auto !important;
-					}
-			
-					.passage-card:hover .passage-card-actions,
-					.passage-card:focus-within .passage-card-actions {
-							opacity: 1 !important;
-							max-width: 90px !important;
-							pointer-events: auto !important;
-					}
 			}
   `;
   document.head.appendChild(style);
@@ -3555,32 +3601,75 @@ function deletePassageById(id) {
 function attachSwipeToCard(card, passageId) {
   let startX = 0;
   let startY = 0;
+  let cardWasOpen = false;
+  let isHorizontalSwipe = false;
   let wheelX = 0;
   let wheelTimer = null;
+  const revealPx = 44;
+  const lockThresholdPx = 68;
+
+  const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+  const setSwipeOffset = (px) => {
+    card.classList.add("swipe-dragging");
+    card.style.setProperty("--swipe-x", `${px}px`);
+  };
+  const clearSwipeOffset = () => {
+    card.classList.remove("swipe-dragging");
+    card.style.removeProperty("--swipe-x");
+  };
 
   card.addEventListener("touchstart", (e) => {
     const t = e.changedTouches[0];
     startX = t.screenX;
     startY = t.screenY;
+    cardWasOpen = card.classList.contains("show-delete");
+    isHorizontalSwipe = false;
   }, { passive: true });
+
+  card.addEventListener("touchmove", (e) => {
+    const t = e.changedTouches[0];
+    const dx = t.screenX - startX;
+    const dy = t.screenY - startY;
+
+    if (!isHorizontalSwipe && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+      isHorizontalSwipe = true;
+      hideAllSwipeDeleteButtons(card);
+    }
+
+    if (!isHorizontalSwipe) return;
+
+    e.preventDefault();
+    const base = cardWasOpen ? -revealPx : 0;
+    const offset = clamp(base + dx, -revealPx, 0);
+    setSwipeOffset(offset);
+  }, { passive: false });
 
   card.addEventListener("touchend", (e) => {
     const t = e.changedTouches[0];
     const dx = t.screenX - startX;
     const dy = t.screenY - startY;
 
-    if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.3) {
-      if (dx < 0) {
+    if (isHorizontalSwipe || (Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy) * 1.25)) {
+      if (cardWasOpen) {
+        if (dx > 18) {
+          card.classList.remove("show-delete");
+        } else {
+          card.classList.add("show-delete");
+        }
+      } else if (dx < -lockThresholdPx) {
         hideAllSwipeDeleteButtons(card);
         card.classList.add("show-delete");
       } else {
         card.classList.remove("show-delete");
       }
 
+      clearSwipeOffset();
       card.dataset.justSwiped = "1";
       setTimeout(() => { delete card.dataset.justSwiped; }, 350);
     }
   }, { passive: true });
+
+  card.addEventListener("touchcancel", clearSwipeOffset, { passive: true });
 
   card.addEventListener("wheel", (e) => {
     if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
@@ -3628,7 +3717,8 @@ function refreshHomePassageList() {
 
     const date = passage.plan.date || passage.createdAt.slice(0, 10);
     const routeText = getRouteNames(passage).join(" → ") || "?";
-    const status = passage.finish?.shutdownLogged ? "Completed" : "In progress";
+    const hasEngineStart = (passage.entries || []).some(e => inferEntryType(e) === "engine-start");
+    const status = passage.finish?.shutdownLogged ? "Complete" : (hasEngineStart ? "In progress" : "Planned");
     const entriesCount = passage.entries?.length || 0;
 
     const left = document.createElement("div");
@@ -3975,7 +4065,9 @@ function createPassage() {
         hazards: "",
         portsOfRefuge: "",
         crewWelfare: ""
-      }
+      },
+      detailedLegs: [],
+      detailedLegIndex: 0
     },
     entries: [],
     finish: {
@@ -4300,6 +4392,118 @@ function ensureDetailedPassagePlan(p){
   if (typeof p.plan.detailed.crewWelfare !== "string") p.plan.detailed.crewWelfare = "";
 }
 
+function createBlankDetailedPassagePlan(){
+  return { waypoints: [], hazards: "", portsOfRefuge: "", crewWelfare: "" };
+}
+
+function normaliseDetailedPassagePlan(detailed){
+  const d = (detailed && typeof detailed === "object") ? detailed : createBlankDetailedPassagePlan();
+  if (!Array.isArray(d.waypoints)) d.waypoints = [];
+  if (typeof d.hazards !== "string") d.hazards = "";
+  if (typeof d.portsOfRefuge !== "string") d.portsOfRefuge = "";
+  if (typeof d.crewWelfare !== "string") d.crewWelfare = "";
+  return d;
+}
+
+function cloneDetailedPassagePlan(detailed, { resetTimes=false, regenerateIds=false } = {}){
+  const d = normaliseDetailedPassagePlan(detailed);
+  return {
+    waypoints: d.waypoints.map((wp, idx) => {
+      const lat = Number(wp.lat);
+      const lon = Number(wp.lon);
+      return {
+        id: regenerateIds ? ("wp_" + Date.now() + "_" + idx + "_" + Math.random().toString(36).slice(2)) : (wp.id || ("wp_" + Date.now() + "_" + idx)),
+        time: resetTimes ? "" : (wp.time || ""),
+        name: wp.name || "",
+        coordsText: wp.coordsText || formatDetailedWaypointCoords(lat, lon),
+        lat: Number.isFinite(lat) ? lat : null,
+        lon: Number.isFinite(lon) ? lon : null,
+        distToNext: "",
+        cogToNext: "",
+        plannedSpeed: wp.plannedSpeed || "",
+        timeToNext: "",
+        fuelToNext: ""
+      };
+    }),
+    hazards: d.hazards || "",
+    portsOfRefuge: d.portsOfRefuge || "",
+    crewWelfare: d.crewWelfare || ""
+  };
+}
+
+function detailedPassagePlanHasContent(detailed){
+  const d = normaliseDetailedPassagePlan(detailed);
+  return d.waypoints.length > 0 ||
+    !!String(d.hazards || "").trim() ||
+    !!String(d.portsOfRefuge || "").trim() ||
+    !!String(d.crewWelfare || "").trim();
+}
+
+function ensureDetailedPassagePlans(p){
+  if (!p || !p.plan) return;
+  ensureDetailedPassagePlan(p);
+
+  const legCount = getLegCount(p);
+  if (!Array.isArray(p.plan.detailedLegs)) {
+    p.plan.detailedLegs = [cloneDetailedPassagePlan(p.plan.detailed)];
+  }
+
+  p.plan.detailedLegs = p.plan.detailedLegs.map(d => normaliseDetailedPassagePlan(d));
+  if (!p.plan.detailedLegs.length) p.plan.detailedLegs.push(createBlankDetailedPassagePlan());
+
+  if (detailedPassagePlanHasContent(p.plan.detailed) && !detailedPassagePlanHasContent(p.plan.detailedLegs[0])) {
+    p.plan.detailedLegs[0] = cloneDetailedPassagePlan(p.plan.detailed);
+  }
+
+  while (p.plan.detailedLegs.length < legCount) {
+    p.plan.detailedLegs.push(createBlankDetailedPassagePlan());
+  }
+
+  p.plan.detailed = p.plan.detailedLegs[0];
+}
+
+function getSelectedDetailedPlanLegIndex(p){
+  ensureDetailedPassagePlans(p);
+  const max = Math.max(0, getLegCount(p) - 1);
+  const saved = Number(p?.plan?.detailedLegIndex);
+  const fallback = getCurrentLegIndex(p);
+  const raw = Number.isFinite(saved) ? saved : fallback;
+  return Math.max(0, Math.min(raw, max));
+}
+
+function setSelectedDetailedPlanLegIndex(p, legIdx){
+  ensureDetailedPassagePlans(p);
+  const max = Math.max(0, getLegCount(p) - 1);
+  p.plan.detailedLegIndex = Math.max(0, Math.min(Number(legIdx) || 0, max));
+  return p.plan.detailedLegIndex;
+}
+
+function getDetailedPassagePlanForLeg(p, legIdx = null){
+  ensureDetailedPassagePlans(p);
+  const idx = legIdx == null ? getSelectedDetailedPlanLegIndex(p) : Math.max(0, Math.min(Number(legIdx) || 0, Math.max(0, getLegCount(p) - 1)));
+  return p.plan.detailedLegs[idx] || p.plan.detailedLegs[0] || p.plan.detailed;
+}
+
+function setDetailedPassagePlanForLeg(p, legIdx, detailed){
+  ensureDetailedPassagePlans(p);
+  const idx = Math.max(0, Math.min(Number(legIdx) || 0, Math.max(0, getLegCount(p) - 1)));
+  p.plan.detailedLegs[idx] = normaliseDetailedPassagePlan(detailed);
+  if (idx === 0) p.plan.detailed = p.plan.detailedLegs[0];
+  return p.plan.detailedLegs[idx];
+}
+
+function getDetailedPlanFromTarget(target, legIdx = null){
+  if (target && Array.isArray(target.waypoints)) return target;
+  if (target && target.plan) return getDetailedPassagePlanForLeg(target, legIdx);
+  return createBlankDetailedPassagePlan();
+}
+
+function reverseDetailedPassagePlanFromPrevious(prevDetailed){
+  const prev = cloneDetailedPassagePlan(prevDetailed, { resetTimes:true, regenerateIds:true });
+  prev.waypoints.reverse();
+  return prev;
+}
+
 function normalisePassagePlanTimeInput(val){
   const raw = String(val || "").trim();
   if (!raw) return "";
@@ -4529,9 +4733,9 @@ function estimateSteelerFuelLph(speed){
   return null;
 }
 
-function recalcDetailedPassagePlan(p){
-  ensureDetailedPassagePlan(p);
-  const wps = p.plan.detailed.waypoints;
+function recalcDetailedPassagePlan(p, legIdx = null){
+  const detailed = getDetailedPlanFromTarget(p, legIdx);
+  const wps = detailed.waypoints;
 
   for (let i = 0; i < wps.length; i++) {
     const wp = wps[i];
@@ -4599,17 +4803,31 @@ function getDetailedPassagePlanMount(){
 
 function renderDetailedPassagePlan(p){
   if (!p) return;
-  ensureDetailedPassagePlan(p);
-  recalcDetailedPassagePlan(p);
+  ensureDetailedPassagePlans(p);
+  const legIdx = getSelectedDetailedPlanLegIndex(p);
+  recalcDetailedPassagePlan(p, legIdx);
 
   const mount = getDetailedPassagePlanMount();
-  const detailed = p.plan.detailed;
+  const detailed = getDetailedPassagePlanForLeg(p, legIdx);
   const wps = detailed.waypoints;
   const dppTotals = calcDetailedPassagePlanTotals(wps);
   const dppRunningTotals = calcDetailedPassagePlanRunningTotals(wps);
+  const legCount = getLegCount(p);
+  const routeLeg = getRouteLegNames(p, legIdx);
+  const routeLabel = routeLeg.origin && routeLeg.destination
+    ? `${routeLeg.origin} → ${routeLeg.destination}`
+    : `Leg ${legIdx + 1}`;
+  const legTabsHtml = legCount > 1
+    ? `<div class="dpp-leg-tabs">${Array.from({ length: legCount }, (_, i) => {
+        const leg = getRouteLegNames(p, i);
+        const label = leg.origin && leg.destination ? `${leg.origin} → ${leg.destination}` : `Leg ${i + 1}`;
+        return `<button type="button" class="btn btn-secondary btn-small dpp-leg-tab${i === legIdx ? " active" : ""}" data-dpp-leg="${i}">Leg ${i + 1}: ${escapeHtml(label)}</button>`;
+      }).join("")}</div>`
+    : "";
 
   mount.innerHTML = `
-    <h3>Detailed Passage Plan</h3>
+    <h3>Detailed Passage Plan${legCount > 1 ? ` - Leg ${legIdx + 1}: ${escapeHtml(routeLabel)}` : ""}</h3>
+    ${legTabsHtml}
     <div style="overflow-x:auto;">
       <table class="log-table dpp-table-compact" style="min-width:1120px;">
         <thead>
@@ -4667,10 +4885,11 @@ function renderDetailedPassagePlan(p){
 
     <div style="margin-top:0.6rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
       <button type="button" class="btn btn-secondary btn-small" id="dppAddWaypointBtn">+ Add Waypoint</button>
-      <button type="button" class="btn btn-secondary btn-small" id="dppRecalcBtn">Recalculate Passage Plan</button>
-      <button type="button" class="btn btn-secondary btn-small" id="dppImportGpxBtn">Import GPX</button>
-      <button type="button" class="btn btn-secondary btn-small" id="dppReverseBtn">Reverse Route</button>
-    </div>
+	      <button type="button" class="btn btn-secondary btn-small" id="dppRecalcBtn">Recalculate Passage Plan</button>
+	      <button type="button" class="btn btn-secondary btn-small" id="dppImportGpxBtn">Import GPX</button>
+	      <button type="button" class="btn btn-secondary btn-small" id="dppReverseBtn">Reverse Route</button>
+	      ${legIdx > 0 ? '<button type="button" class="btn btn-secondary btn-small" id="dppReversePreviousBtn">Reverse Previous Passage Plan</button>' : ''}
+	    </div>
 
     <div style="margin-top:0.85rem;">
       <label>
@@ -4694,11 +4913,20 @@ function renderDetailedPassagePlan(p){
     </div>
   `;
 
-  mount.querySelector("#dppAddWaypointBtn")?.addEventListener("click", () => {
-    p.plan.detailed = readDetailedPassagePlanFromForm();
-    ensureDetailedPassagePlan(p);
+  mount.querySelectorAll(".dpp-leg-tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      readDetailedPassagePlanFromForm();
+      setSelectedDetailedPlanLegIndex(p, Number(btn.dataset.dppLeg));
+      savePassages();
+      renderDetailedPassagePlan(p);
+      updatePlanSummaryPanel();
+    });
+  });
 
-    p.plan.detailed.waypoints.push({
+  mount.querySelector("#dppAddWaypointBtn")?.addEventListener("click", () => {
+    const activeDetailed = readDetailedPassagePlanFromForm();
+
+    activeDetailed.waypoints.push({
       id: "wp_" + Date.now() + "_" + Math.random().toString(36).slice(2),
       time: "",
       name: "",
@@ -4718,9 +4946,8 @@ function renderDetailedPassagePlan(p){
   });
 
   mount.querySelector("#dppRecalcBtn")?.addEventListener("click", () => {
-    p.plan.detailed = readDetailedPassagePlanFromForm();
-    ensureDetailedPassagePlan(p);
-    recalcDetailedPassagePlan(p);
+    readDetailedPassagePlanFromForm();
+    recalcDetailedPassagePlan(p, legIdx);
     savePassages();
     renderDetailedPassagePlan(p);
     updatePlanSummaryPanel();
@@ -4731,10 +4958,9 @@ function renderDetailedPassagePlan(p){
   });
 
   mount.querySelector("#dppReverseBtn")?.addEventListener("click", () => {
-    p.plan.detailed = readDetailedPassagePlanFromForm();
-    ensureDetailedPassagePlan(p);
+    const activeDetailed = readDetailedPassagePlanFromForm();
 
-    const arr = p.plan.detailed.waypoints || [];
+    const arr = activeDetailed.waypoints || [];
     if (arr.length < 2) return;
 
     const firstTime = arr[0]?.time || "";
@@ -4745,7 +4971,24 @@ function renderDetailedPassagePlan(p){
       arr[i].time = "";
     }
 
-    recalcDetailedPassagePlan(p);
+    recalcDetailedPassagePlan(p, legIdx);
+    savePassages();
+    renderDetailedPassagePlan(p);
+    updatePlanSummaryPanel();
+  });
+
+  mount.querySelector("#dppReversePreviousBtn")?.addEventListener("click", () => {
+    readDetailedPassagePlanFromForm();
+    const prev = getDetailedPassagePlanForLeg(p, legIdx - 1);
+    if (!prev || !Array.isArray(prev.waypoints) || prev.waypoints.length < 2) {
+      alert("The previous leg does not have enough waypoints to reverse.");
+      return;
+    }
+    if (!confirm("Replace this leg's Detailed Passage Plan with a reversed copy of the previous leg?")) return;
+
+    const replacement = reverseDetailedPassagePlanFromPrevious(prev);
+    setDetailedPassagePlanForLeg(p, legIdx, replacement);
+    recalcDetailedPassagePlan(p, legIdx);
     savePassages();
     renderDetailedPassagePlan(p);
     updatePlanSummaryPanel();
@@ -4753,7 +4996,7 @@ function renderDetailedPassagePlan(p){
 
   mount.querySelectorAll("[data-dpp-row]").forEach(row => {
     const idx = parseInt(row.dataset.dppRow, 10);
-    const wp = p.plan.detailed.waypoints[idx];
+    const wp = detailed.waypoints[idx];
     if (!wp) return;
 
     const dppTimeEl = row.querySelector(".dpp-time");
@@ -4795,37 +5038,34 @@ function renderDetailedPassagePlan(p){
     });
 
     row.querySelector(".dpp-up")?.addEventListener("click", () => {
-      p.plan.detailed = readDetailedPassagePlanFromForm();
-      ensureDetailedPassagePlan(p);
+      const activeDetailed = readDetailedPassagePlanFromForm();
 
       if (idx <= 0) return;
-      const arr = p.plan.detailed.waypoints;
+      const arr = activeDetailed.waypoints;
       [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
-      recalcDetailedPassagePlan(p);
+      recalcDetailedPassagePlan(p, legIdx);
       savePassages();
       renderDetailedPassagePlan(p);
       updatePlanSummaryPanel();
     });
 
     row.querySelector(".dpp-down")?.addEventListener("click", () => {
-      p.plan.detailed = readDetailedPassagePlanFromForm();
-      ensureDetailedPassagePlan(p);
+      const activeDetailed = readDetailedPassagePlanFromForm();
 
-      const arr = p.plan.detailed.waypoints;
+      const arr = activeDetailed.waypoints;
       if (idx >= arr.length - 1) return;
       [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
-      recalcDetailedPassagePlan(p);
+      recalcDetailedPassagePlan(p, legIdx);
       savePassages();
       renderDetailedPassagePlan(p);
       updatePlanSummaryPanel();
     });
 
     row.querySelector(".dpp-del")?.addEventListener("click", () => {
-      p.plan.detailed = readDetailedPassagePlanFromForm();
-      ensureDetailedPassagePlan(p);
+      const activeDetailed = readDetailedPassagePlanFromForm();
 
-      p.plan.detailed.waypoints.splice(idx, 1);
-      recalcDetailedPassagePlan(p);
+      activeDetailed.waypoints.splice(idx, 1);
+      recalcDetailedPassagePlan(p, legIdx);
       savePassages();
       renderDetailedPassagePlan(p);
       updatePlanSummaryPanel();
@@ -4833,26 +5073,28 @@ function renderDetailedPassagePlan(p){
   });
 
   mount.querySelector("#dppHazards")?.addEventListener("input", (e) => {
-    p.plan.detailed.hazards = e.target.value;
+    detailed.hazards = e.target.value;
     savePassages();
     updatePlanSummaryPanel();
   });
 
   mount.querySelector("#dppPortsOfRefuge")?.addEventListener("input", (e) => {
-    p.plan.detailed.portsOfRefuge = e.target.value;
+    detailed.portsOfRefuge = e.target.value;
     savePassages();
     updatePlanSummaryPanel();
   });
 
   mount.querySelector("#dppCrewWelfare")?.addEventListener("input", (e) => {
-    p.plan.detailed.crewWelfare = e.target.value;
+    detailed.crewWelfare = e.target.value;
     savePassages();
     updatePlanSummaryPanel();
   });
 }
 function readDetailedPassagePlanFromForm(){
   const p = getCurrentPassage();
-  const fallback = (p && p.plan && p.plan.detailed) ? p.plan.detailed : { waypoints: [], hazards: "", portsOfRefuge: "", crewWelfare: "" };
+  if (p) ensureDetailedPassagePlans(p);
+  const legIdx = p ? getSelectedDetailedPlanLegIndex(p) : 0;
+  const fallback = p ? getDetailedPassagePlanForLeg(p, legIdx) : { waypoints: [], hazards: "", portsOfRefuge: "", crewWelfare: "" };
   const mount = document.getElementById("detailedPassagePlanSection");
   if (!mount) return fallback;
 
@@ -4886,8 +5128,8 @@ function readDetailedPassagePlanFromForm(){
     crewWelfare: mount.querySelector("#dppCrewWelfare")?.value || ""
   };
 
-  const fakePassage = { plan: { detailed } };
-  recalcDetailedPassagePlan(fakePassage);
+  recalcDetailedPassagePlan(detailed);
+  if (p) setDetailedPassagePlanForLeg(p, legIdx, detailed);
   return detailed;
 }
 
@@ -5000,8 +5242,8 @@ function importDetailedPassagePlanGpx(p){
     reader.onload = () => {
       try {
         // First sync current form state so we don't lose unsaved edits
-        p.plan.detailed = readDetailedPassagePlanFromForm();
-        ensureDetailedPassagePlan(p);
+        const activeDetailed = readDetailedPassagePlanFromForm();
+        const legIdx = getSelectedDetailedPlanLegIndex(p);
 
         const points = parseDppGpxText(reader.result);
         if (!points.length) {
@@ -5018,15 +5260,16 @@ function importDetailedPassagePlanGpx(p){
         ) ? "replace" : "append";
 
         if (mode === "replace") {
-          p.plan.detailed.waypoints = imported;
+          activeDetailed.waypoints = imported;
         } else {
-          p.plan.detailed.waypoints = [
-            ...(p.plan.detailed.waypoints || []),
+          activeDetailed.waypoints = [
+            ...(activeDetailed.waypoints || []),
             ...imported
           ];
         }
 
-        recalcDetailedPassagePlan(p);
+        setDetailedPassagePlanForLeg(p, legIdx, activeDetailed);
+        recalcDetailedPassagePlan(p, legIdx);
         savePassages();
         renderDetailedPassagePlan(p);
         updatePlanSummaryPanel();
@@ -5108,7 +5351,9 @@ if (addTransitPortBtn){
     p.plan.to = planTo.value.trim();
     readTransitPortsFromForm(p);
     ensureAutoTideStations(p);
+    ensureDetailedPassagePlans(p);
     renderTideStations(p);
+    renderDetailedPassagePlan(p);
     updatePlanSummaryPanel();
     updatePassageHeader();
   });
@@ -5196,13 +5441,16 @@ if (extendLegBtn){
           }catch(e){}
         }
 
-        // Rebuild auto tide stations for the new route, keeping existing data where roles match
-        p.plan.from = (planFrom?.value || p.plan.from || "").trim();
-        readTransitPortsFromForm(p);
-        ensureAutoTideStations(p);
-        renderTideStations(p);
+	        // Rebuild auto tide stations for the new route, keeping existing data where roles match
+	        p.plan.from = (planFrom?.value || p.plan.from || "").trim();
+	        readTransitPortsFromForm(p);
+	        ensureAutoTideStations(p);
+	        ensureDetailedPassagePlans(p);
+	        setSelectedDetailedPlanLegIndex(p, tps.length);
+	        renderTideStations(p);
+	        renderDetailedPassagePlan(p);
 
-        // Comms/pilotage should follow the new route too
+	        // Comms/pilotage should follow the new route too
         try{ updatePlanCommsFromPorts(); }catch(e){}
 
         savePassages();
@@ -6827,6 +7075,8 @@ p.plan.vessel = planVessel.value.trim();
   ensureAutoTideStations(p);
 
   p.plan.dailySummaries = readDailySummariesFromForm();
+  if (typeof readDetailedPassagePlanFromForm === "function") readDetailedPassagePlanFromForm();
+  ensureDetailedPassagePlans(p);
 
   // Before saving ports, run the "new port" flow (lookup + user confirmation).
   // This prevents partial names (e.g. "Ca", "Car") being persisted.
@@ -6861,9 +7111,9 @@ function updatePlanSummaryPanel() {
 
   p.plan.tideStations = readTideStationsFromForm();
   p.plan.dailySummaries = readDailySummariesFromForm();
-  if (typeof readDetailedPassagePlanFromForm === "function") p.plan.detailed = readDetailedPassagePlanFromForm();
-		ensureDetailedPassagePlan(p);
-		recalcDetailedPassagePlan(p);
+  if (typeof readDetailedPassagePlanFromForm === "function") readDetailedPassagePlanFromForm();
+		ensureDetailedPassagePlans(p);
+		recalcDetailedPassagePlan(p, getSelectedDetailedPlanLegIndex(p));
 
   const sunriseSet = p.plan.sunriseSet || "";
   const moonPhase = p.plan.moonPhase || "";
@@ -6874,7 +7124,12 @@ function updatePlanSummaryPanel() {
   const weather = p.plan.weather || "";
 		const comms = p.plan.comms || "";
 		const dailySummaries = p.plan.dailySummaries || [];
-		const detailed = p.plan.detailed || { waypoints: [], hazards: "", portsOfRefuge: "", crewWelfare: "" };
+		const detailedLegIdx = getSelectedDetailedPlanLegIndex(p);
+		const detailedRouteLeg = getRouteLegNames(p, detailedLegIdx);
+		const detailedLegLabel = getLegCount(p) > 1
+				? `LEG ${detailedLegIdx + 1}${detailedRouteLeg.origin && detailedRouteLeg.destination ? `: ${escapeHtml(detailedRouteLeg.origin)} → ${escapeHtml(detailedRouteLeg.destination)}` : ""}`
+				: "PASSAGE PLAN";
+		const detailed = getDetailedPassagePlanForLeg(p, detailedLegIdx);
 		const detailedWpHtml = (detailed.waypoints || []).length
 				? detailed.waypoints.map(wp => {
 								const bits = [];
@@ -6970,7 +7225,7 @@ function updatePlanSummaryPanel() {
         </div>
 
         <div class="block plan-link" data-goto="detailedPassagePlanSection">
-          <p class="section-title">PASSAGE PLAN</p>
+          <p class="section-title">${detailedLegLabel}</p>
           ${detailedWpHtml}
           <p style="margin-top:0.5rem;"><strong>Hazards:</strong> ${detailedHazardsHtml}</p>
           <p><strong>Ports of Refuge:</strong> ${detailedRefugeHtml}</p>
@@ -7558,11 +7813,12 @@ async function openEngineStartEntryDialog(p, legIdx, entry = null) {
 								try {
 										// Pull the live DPP rows back into passage data first
 										if (typeof readDetailedPassagePlanFromForm === "function") {
-												p.plan.detailed = readDetailedPassagePlanFromForm();
+													readDetailedPassagePlanFromForm();
 										}
-										if (typeof ensureDetailedPassagePlan === "function") {
-												ensureDetailedPassagePlan(p);
-										}
+											if (typeof ensureDetailedPassagePlans === "function") {
+														ensureDetailedPassagePlans(p);
+											}
+											setSelectedDetailedPlanLegIndex(p, legIdx);
 								
 										const settings = getSafetyInfo();
 										const minsToAdd = Number(settings?.defaults?.engineToSlipMins || 7);
@@ -7577,14 +7833,15 @@ async function openEngineStartEntryDialog(p, legIdx, entry = null) {
 												return `${hh}:${mm}`;
 										}
 								
-										if (p.plan?.detailed?.waypoints?.length) {
-												const wp1 = p.plan.detailed.waypoints[0];
+											const activeDetailed = getDetailedPassagePlanForLeg(p, legIdx);
+											if (activeDetailed?.waypoints?.length) {
+													const wp1 = activeDetailed.waypoints[0];
 												const startTime = String(vals.esTime || "").trim();
 												wp1.time = addMinutesToHHMM(startTime, minsToAdd);
 										}
 								
 										if (typeof recalcDetailedPassagePlan === "function") {
-												recalcDetailedPassagePlan(p);
+													recalcDetailedPassagePlan(p, legIdx);
 										}
 								} catch (e) {
 										console.warn("WP1 retime failed", e);
@@ -7598,7 +7855,7 @@ async function openEngineStartEntryDialog(p, legIdx, entry = null) {
 								updateLogSummary();								
 								try{
 																if (confirm("Notify Emergency Contact now?")){
-																																const msg = buildEcStartSms(p);
+																																const msg = buildEcStartSms(p, legIdx);
 																																setTimeout(() => chooseEmergencyContactAndSend(msg), 80);
 																}
 								}catch(e){
@@ -7843,32 +8100,75 @@ function hideAllSwipeDeleteButtons(exceptEl = null){
 function attachSwipeToRow(tr, entryId) {
   let startX = 0;
   let startY = 0;
+  let rowWasOpen = false;
+  let isHorizontalSwipe = false;
   let wheelX = 0;
   let wheelTimer = null;
+  const revealPx = 44;
+  const lockThresholdPx = 68;
+
+  const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+  const setSwipeOffset = (px) => {
+    tr.classList.add("swipe-dragging");
+    tr.style.setProperty("--swipe-x", `${px}px`);
+  };
+  const clearSwipeOffset = () => {
+    tr.classList.remove("swipe-dragging");
+    tr.style.removeProperty("--swipe-x");
+  };
 
   tr.addEventListener("touchstart", (e) => {
     const t = e.changedTouches[0];
     startX = t.screenX;
     startY = t.screenY;
+    rowWasOpen = tr.classList.contains("show-delete");
+    isHorizontalSwipe = false;
   }, { passive: true });
+
+  tr.addEventListener("touchmove", (e) => {
+    const t = e.changedTouches[0];
+    const dx = t.screenX - startX;
+    const dy = t.screenY - startY;
+
+    if (!isHorizontalSwipe && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+      isHorizontalSwipe = true;
+      hideAllSwipeDeleteButtons(tr);
+    }
+
+    if (!isHorizontalSwipe) return;
+
+    e.preventDefault();
+    const base = rowWasOpen ? -revealPx : 0;
+    const offset = clamp(base + dx, -revealPx, 0);
+    setSwipeOffset(offset);
+  }, { passive: false });
 
   tr.addEventListener("touchend", (e) => {
     const t = e.changedTouches[0];
     const dx = t.screenX - startX;
     const dy = t.screenY - startY;
 
-    if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.3) {
-      if (dx < 0) {
+    if (isHorizontalSwipe || (Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy) * 1.25)) {
+      if (rowWasOpen) {
+        if (dx > 18) {
+          tr.classList.remove("show-delete");
+        } else {
+          tr.classList.add("show-delete");
+        }
+      } else if (dx < -lockThresholdPx) {
         hideAllSwipeDeleteButtons(tr);
         tr.classList.add("show-delete");
       } else {
         tr.classList.remove("show-delete");
       }
 
+      clearSwipeOffset();
       tr.dataset.justSwiped = "1";
       setTimeout(() => { delete tr.dataset.justSwiped; }, 350);
     }
   }, { passive: true });
+
+  tr.addEventListener("touchcancel", clearSwipeOffset, { passive: true });
 
   tr.addEventListener("wheel", (e) => {
     if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
@@ -8074,21 +8374,21 @@ function renderLogEntries() {
     notesText.textContent = entry.notes || '—';
     tdNotes.appendChild(notesText);
 
-    const actions = document.createElement("div");
-    actions.className = "entry-actions";
     const latStr = (entry.lat == null) ? "" : String(entry.lat);
     const lonStr = (entry.lon == null) ? "" : String(entry.lon);
     const hasPos = (latStr.trim() !== "") || (lonStr.trim() !== "");
     if (hasPos) {
       const posSpan = document.createElement("span");
-      posSpan.className = "pos-field";
+      posSpan.className = "pos-field log-position-display";
       posSpan.textContent = (latStr.trim() && lonStr.trim()) ? `${latStr.trim()}, ${lonStr.trim()}` : (latStr.trim() || lonStr.trim());
       posSpan.title = "Position (tap to edit)";
       posSpan.addEventListener("click", (ev) => { ev.stopPropagation(); handlePositionEdit(entry); });
-      actions.appendChild(posSpan);
+      tdNotes.appendChild(posSpan);
     }
 
-				const delBtn = document.createElement("button");
+    const actions = document.createElement("div");
+    actions.className = "entry-actions";
+					const delBtn = document.createElement("button");
 				delBtn.className = "entry-del-btn";
 		  delBtn.innerHTML = deleteBinSvg();
 				delBtn.title = "Delete entry";
