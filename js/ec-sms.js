@@ -1,0 +1,265 @@
+// --- EC SMS Builders (CL-085) -------------------------------------
+// Message builders and launch helpers only. Settings UI/data storage stays in app.js.
+
+function roundHHMMToNearest5(hhmm){
+  const mins = hhmmToMinutes(String(hhmm || "").trim());
+  if (!Number.isFinite(mins)) return String(hhmm || "").trim();
+  return minutesToHHMM(Math.round(mins / 5) * 5);
+}
+
+function formatSmsWpCoord(wp){
+  const la = Number(wp?.lat);
+  const lo = Number(wp?.lon);
+  if (!Number.isFinite(la) || !Number.isFinite(lo)) return "";
+  return formatDMM(la, lo);
+}
+
+function buildSmsRouteList(p, detailedPlan = null){
+  const wps = detailedPlan?.waypoints || p?.plan?.detailed?.waypoints || [];
+  if (wps.length <= 2) return "Direct / no intermediate waypoints set.";
+
+  const out = [];
+
+  for (let i = 1; i < wps.length - 1 && i < 10; i++){
+    const wp = wps[i];
+    const coord = formatSmsWpCoord(wp);
+    if (!coord) continue;
+
+    const name = String(wp?.name || `WP${i + 1}`).trim();
+
+    out.push(`${name}\n${coord}`);
+  }
+
+  if (wps.length > 11) out.push("… + more");
+
+  return out.length ? out.join("\n") : "Direct / no intermediate waypoints set.";
+}
+
+function buildPorList(p, detailedPlan = null){
+  return String(detailedPlan?.portsOfRefuge ?? p?.plan?.detailed?.portsOfRefuge ?? "").trim();
+}
+
+function getMarineTrafficLink(vessel){
+  const shipId = String(vessel?.marineTrafficShipId || "").trim();
+  if (shipId){
+    return `https://www.marinetraffic.com/en/ais/home/shipid:${shipId}/zoom:14`;
+  }
+
+  const m = String(vessel?.mmsi || "").trim();
+  if (m){
+    return `https://www.marinetraffic.com/en/ais/details/ships/mmsi:${m}`;
+  }
+
+  return "";
+}
+
+function getPassageEtaInfo(p, detailedPlan = null){
+  const wps = detailedPlan?.waypoints || p?.plan?.detailed?.waypoints || [];
+  if (!wps.length) return { etaText: "", overdueText: "" };
+
+  const last = wps[wps.length - 1];
+  const etaRaw = String(last?.time || "").trim();
+  if (!etaRaw) return { etaText: "", overdueText: "" };
+
+  const eta = roundHHMMToNearest5(etaRaw);
+
+  const planDate = String(p?.plan?.date || "").trim();
+  let etaDateText = planDate;
+
+  try {
+    const totalMinutes = durationHHMMToMinutes(calcDetailedPassagePlanTotals(wps).totalDuration || "00:00");
+    const startMins = hhmmToMinutes(String(wps[0]?.time || "").trim());
+    const endMins = hhmmToMinutes(String(last?.time || "").trim());
+
+    let dayOffset = 0;
+    if (Number.isFinite(totalMinutes) && totalMinutes >= 1440) {
+      dayOffset = Math.floor(totalMinutes / 1440);
+    } else if (Number.isFinite(startMins) && Number.isFinite(endMins) && endMins < startMins) {
+      dayOffset = 1;
+    }
+
+    if (planDate && dayOffset > 0) {
+      const d = new Date(planDate + "T12:00:00");
+      if (!isNaN(d.getTime())) {
+        d.setDate(d.getDate() + dayOffset);
+        etaDateText = d.toISOString().slice(0,10);
+      }
+    }
+  } catch(e) {}
+
+  const etaText = etaDateText ? `${eta} on ${etaDateText}` : eta;
+
+  const overdueHours = Number(getSafetyInfo()?.defaults?.overdueHours || 2);
+  const base = hhmmToMinutes(eta);
+  const overdue = Number.isFinite(base) ? roundHHMMToNearest5(minutesToHHMM(base + overdueHours * 60)) : "";
+
+  const overdueText = overdue
+    ? `If you have not heard from us by around ${overdue}, please try to contact us. If you cannot reach us, call 999 or 112 and ask for the Coastguard.`
+    : "";
+
+  return { etaText, overdueText };
+}
+
+function buildEcStartSms(p, legIdx = null){
+  const sOld = getEcSettings(); // fallback
+  const sNew = getSafetyInfo();
+
+  const vessel = sNew.vessel || sOld.vesselProfile || {};
+  const activeLeg = Number.isFinite(Number(legIdx)) ? Number(legIdx) : getCurrentLegIndex(p);
+  const routeLeg = getRouteLegNames(p, activeLeg);
+  const origin = String(routeLeg.origin || p?.plan?.from || "").trim();
+  const destination = String(routeLeg.destination || p?.plan?.to || "").trim();
+  const detailedPlan = getDetailedPassagePlanForLeg(p, activeLeg);
+  const wps = detailedPlan?.waypoints || [];
+
+  const firstWp = wps[0] || null;
+  const lastWp = wps.length ? wps[wps.length - 1] : null;
+
+  const originCoord = formatSmsWpCoord(firstWp);
+  const destCoord = formatSmsWpCoord(lastWp);
+
+  const mmsi = String(vessel.mmsi || "").trim();
+  const mtLink = getMarineTrafficLink(vessel);
+  const por = buildPorList(p, detailedPlan);
+  const etaInfo = getPassageEtaInfo(p, detailedPlan);
+  const pob = p.pob || "?";
+
+  const intro = `LOOKOUT REQUEST
+
+Thanks for agreeing to look out for us during ${vessel.boatName || "our vessel"}'s passage from ${origin || "our origin"} to ${destination || "our destination"} today. ${etaInfo.etaText ? `We expect to arrive around ${etaInfo.etaText}. ` : ""}We'll message you once we've completed the passage to confirm our arrival.`;
+
+  const vesselBlock = `VESSEL
+Persons on Board: ${pob}
+Boat Name: ${vessel.boatName || ""}
+Boat Type: ${vessel.boatType || ""}
+Callsign: ${vessel.callsign || ""}
+MMSI: ${mmsi}`;
+
+		const passageLines = [
+				`Origin: ${origin || ""}`,
+				originCoord,
+
+				"",
+
+				`Destination: ${destination || ""}`,
+				destCoord,
+
+				"",
+
+				etaInfo.etaText ? `ETA: ${etaInfo.etaText}` : "",
+
+				"",
+
+					`Intended Routing:\n${buildSmsRouteList(p, detailedPlan)}`,
+
+				"",
+
+				por ? `Possible Ports of Refuge:\n${por}` : ""
+		].filter(v => v !== undefined && v !== null);
+
+  const includeMt = sNew.defaults?.includeMarineTrafficInSms !== false;
+  const includeDetails = sNew.defaults?.includeDetailsUrlInSms !== false;
+
+  const detailsUrl = String(
+    sNew.defaults?.detailsPageUrl ||
+    `${window.location.origin}${window.location.pathname.replace(/\/[^\/]*$/, "/")}STEELER-safety-emergency-details.html`
+  ).trim();
+
+  const sections = [
+    intro,
+    (mtLink && includeMt) ? `Our latest position (when in range) is: ${mtLink}` : "",
+    etaInfo.overdueText,
+    "The following information may be of interest and should also be passed on to the Coastguard in case of emergency.",
+    vesselBlock,
+    `PASSAGE DETAILS\n${passageLines.join("\n")}`,
+    (includeDetails && detailsUrl) ? `FULL VESSEL DETAILS:\n${detailsUrl}` : ""
+  ];
+
+  return sections.filter(Boolean).join("\n\n").trim();
+}
+
+function buildEcEndSms(p){
+  const destination = String(p?.plan?.to || "").trim();
+  return destination
+    ? `Thanks for looking out for us during our passage to ${destination} today. We've arrived safely and our passage plan is now ended.`
+    : `Thanks for looking out for us during our passage today. We've arrived safely and our passage plan is now ended.`;
+}
+
+function launchSms(number, message){
+  if (!number){
+    alert("No Emergency Contact number set.");
+    return;
+  }
+  window.location.href = `sms:${number}?body=${encodeURIComponent(message)}`;
+}
+
+function chooseEmergencyContactAndSend(message){
+  const contacts = getEmergencyContacts();
+  const usableContacts = contacts.filter(c => String(c.tel || "").trim());
+  const defaultContact = usableContacts.find(c => c.isDefault) || usableContacts[0] || null;
+
+  const options = usableContacts.map(c => `
+    <option value="${escapeHtml(c.id)}"${defaultContact && String(c.id) === String(defaultContact.id) ? " selected" : ""}>
+      ${escapeHtml(c.name || "(unnamed contact)")} — ${escapeHtml(c.tel || "")}${c.isDefault ? " [default]" : ""}
+    </option>
+  `).join("");
+
+  showModal({
+    title: "Notify Emergency Contact",
+    okText: "Send SMS",
+    cancelText: "Cancel",
+    bodyHtml: `
+      <div style="display:grid; gap:12px;">
+        <div>
+          <label>
+            Saved Emergency Contact
+            <select id="notifyEcSelect" style="width:100%; padding:8px; border-radius:10px;">
+              ${options || `<option value="">No saved contacts with telephone numbers</option>`}
+            </select>
+          </label>
+        </div>
+
+        <div style="border-top:1px solid var(--line); padding-top:10px;">
+          <div style="font-weight:600; margin-bottom:6px;">Or use a one-off contact</div>
+          <input id="notifyEcOneOffName" placeholder="One-off EC name" style="width:100%; margin-bottom:6px;">
+          <input id="notifyEcOneOffTel" placeholder="One-off EC telephone" style="width:100%;">
+          <div style="font-size:0.9em; opacity:0.75; margin-top:6px;">
+            One-off details are used for this message only and are not saved.
+          </div>
+        </div>
+      </div>
+    `,
+    onOk: () => {
+      const oneOffTel = (document.getElementById("notifyEcOneOffTel")?.value || "").trim();
+      if (oneOffTel){
+        launchSms(oneOffTel, message);
+        return true;
+      }
+
+      const selectedId = (document.getElementById("notifyEcSelect")?.value || "").trim();
+      const selected = usableContacts.find(c => String(c.id) === String(selectedId));
+
+      if (!selected || !selected.tel){
+        alert("Please choose a saved EC with a telephone number, or enter a one-off telephone number.");
+        return false;
+      }
+
+      launchSms(selected.tel, message);
+      return true;
+    }
+  });
+}
+
+window.STEELER = window.STEELER || {};
+window.STEELER.ecSms = {
+  roundHHMMToNearest5,
+  formatSmsWpCoord,
+  buildSmsRouteList,
+  buildPorList,
+  getMarineTrafficLink,
+  getPassageEtaInfo,
+  buildEcStartSms,
+  buildEcEndSms,
+  launchSms,
+  chooseEmergencyContactAndSend
+};
