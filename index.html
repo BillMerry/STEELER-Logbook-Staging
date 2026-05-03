@@ -8,6 +8,7 @@
 
   <!-- PWA bits -->
   <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/steeler-192.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="STEELER Logbook">
@@ -106,18 +107,21 @@
             Transit Port 1
             <input type="text" id="planTransit1" placeholder="e.g. Cherbourg" autocomplete="off" />
             <div id="planTransit1Suggest" class="port-suggest hidden"></div>
+            <button type="button" class="btn btn-secondary btn-small transit-remove-btn" data-transit-remove="0">Remove</button>
           </label>
 
           <label id="tp2Label" class="transit-label hidden">
             Transit Port 2
             <input type="text" id="planTransit2" placeholder="" autocomplete="off" />
             <div id="planTransit2Suggest" class="port-suggest hidden"></div>
+            <button type="button" class="btn btn-secondary btn-small transit-remove-btn" data-transit-remove="1">Remove</button>
           </label>
 
           <label id="tp3Label" class="transit-label hidden">
             Transit Port 3
             <input type="text" id="planTransit3" placeholder="" autocomplete="off" />
             <div id="planTransit3Suggest" class="port-suggest hidden"></div>
+            <button type="button" class="btn btn-secondary btn-small transit-remove-btn" data-transit-remove="2">Remove</button>
           </label>
 
           <label>

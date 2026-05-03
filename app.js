@@ -4,7 +4,7 @@ const STORAGE_KEY = "steeler_logbook_passages_v5";
 const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 
-const APP_VERSION = "0.19.0-staging";
+const APP_VERSION = "0.20.0-staging";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -1724,7 +1724,7 @@ async function lookupPortCoordsOnline(name){
           lat: best.lat,
           lon: best.lon,
           displayName: best.item.display_name || "",
-          googleMapsUrl: `https://www.google.com/maps?q=${best.lat},${best.lon}`
+          mapsUrl: `https://maps.apple.com/?ll=${best.lat},${best.lon}&q=${encodeURIComponent(best.item.display_name || n)}`
         };
       }
     }catch(e){
@@ -1735,12 +1735,12 @@ async function lookupPortCoordsOnline(name){
   return null;
 }
 
-function showPortConfirmModal({ name, lat, lon, displayName, googleMapsUrl }){
+function showPortConfirmModal({ name, lat, lon, displayName, mapsUrl }){
   return new Promise((resolve) => {
     const n = normalisePortDisplay(name);
     const dmm = formatDMM(lat, lon);
     const safeDisplay = escapeHtml(displayName || "");
-    const safeMaps = escapeHtml(googleMapsUrl || `https://www.google.com/maps?q=${lat},${lon}`);
+    const safeMaps = escapeHtml(mapsUrl || `https://maps.apple.com/?ll=${lat},${lon}&q=${encodeURIComponent(n)}`);
 
     const body = `
       <p><strong>${escapeHtml(n)}</strong> isn’t in your saved ports yet.</p>
@@ -1748,7 +1748,7 @@ function showPortConfirmModal({ name, lat, lon, displayName, googleMapsUrl }){
       <div style="margin-top:10px; padding:10px; border:1px solid var(--line); border-radius:12px;">
         <div><strong>Lat/Lon</strong>: ${lat.toFixed(6)}, ${lon.toFixed(6)}</div>
         <div style="margin-top:4px">${escapeHtml(dmm)}</div>
-        <div style="margin-top:8px"><a href="${safeMaps}" target="_blank" rel="noopener noreferrer">Check on Google Maps</a></div>
+        <div style="margin-top:8px"><a href="${safeMaps}" target="_blank" rel="noopener noreferrer">Check on Apple Maps</a></div>
       </div>
       <p style="margin-top:10px" class="muted">Please check this suggested location before saving.</p>
       <div style="margin-top:10px">
@@ -1894,7 +1894,7 @@ async function maybeSaveNewPort(name){
 				lat: hit.lat,
 				lon: hit.lon,
 				displayName: hit.displayName,
-				googleMapsUrl: hit.googleMapsUrl
+				mapsUrl: hit.mapsUrl
 			});
   if (decision && decision.action === "save"){
     upsertPortItem(n, decision.lat, decision.lon, (decision.commsPilotage ?? decision.comments) ?? null);
@@ -2657,6 +2657,41 @@ function readTransitPortsFromForm(p){
   p.plan.transitPorts = tps;
 }
 
+function removeTransitPortAt(index){
+  const p = getCurrentPassage();
+  if (!p) return;
+  readTransitPortsFromForm(p);
+  const tps = normaliseTransitPorts(p);
+  const idx = Number(index);
+  if (!Number.isInteger(idx) || idx < 0 || idx >= tps.length) return;
+
+  const name = String(tps[idx]?.name || "").trim();
+  const label = name ? ` "${name}"` : ` ${idx + 1}`;
+  const ok = confirm(
+    `Remove transit port${label}?\n\n` +
+    "This will rebuild the route legs and tide station list. Existing Detailed Passage Plan leg data is kept, but you should review the DPP after the route changes."
+  );
+  if (!ok) return;
+
+  tps.splice(idx, 1);
+  p.plan.transitPorts = tps;
+
+  if (Array.isArray(p.plan.detailedLegs) && Number(p.plan.detailedLegIndex) >= getLegCount(p)) {
+    p.plan.detailedLegIndex = Math.max(0, getLegCount(p) - 1);
+  }
+
+  renderTransitPortsUI(p);
+  readTransitPortsFromForm(p);
+  ensureAutoTideStations(p);
+  ensureDetailedPassagePlans(p);
+  renderTideStations(p);
+  renderDetailedPassagePlan(p);
+  try { updatePlanCommsFromPorts(); } catch(e) {}
+  savePassages();
+  updatePlanSummaryPanel();
+  updatePassageHeader();
+}
+
 function createPassage() {
   const id = "p_" + Date.now();
   const today = new Date().toISOString().slice(0, 10);
@@ -3138,6 +3173,14 @@ if (addTransitPortBtn){
     updatePassageHeader();
   });
 }
+
+document.querySelectorAll("[data-transit-remove]").forEach(btn => {
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    removeTransitPortAt(Number(btn.dataset.transitRemove));
+  });
+});
 
 // CL-077: Dynamic Leg Extension (add a new leg by promoting current destination to a transit port)
 if (extendLegBtn){
@@ -4728,7 +4771,7 @@ async function openShutdownEntryDialog(p, legIdx, isFinalLeg, entry = null) {
 								
 								try{
 																if (confirm("Notify Emergency Contact of safe arrival?")){
-																																const msg = buildEcEndSms(p);
+																																const msg = buildEcEndSms(p, legIdx);
 																																setTimeout(() => chooseEmergencyContactAndSend(msg), 80);
 																}
 								}catch(e){

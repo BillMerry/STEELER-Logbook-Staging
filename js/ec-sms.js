@@ -178,8 +178,10 @@ MMSI: ${mmsi}`;
   return sections.filter(Boolean).join("\n\n").trim();
 }
 
-function buildEcEndSms(p){
-  const destination = String(p?.plan?.to || "").trim();
+function buildEcEndSms(p, legIdx = null){
+  const activeLeg = Number.isFinite(Number(legIdx)) ? Number(legIdx) : getCurrentLegIndex(p);
+  const routeLeg = getRouteLegNames(p, activeLeg);
+  const destination = String(routeLeg.destination || p?.plan?.to || "").trim();
   return destination
     ? `Thanks for looking out for us during our passage to ${destination} today. We've arrived safely and our passage plan is now ended.`
     : `Thanks for looking out for us during our passage today. We've arrived safely and our passage plan is now ended.`;
