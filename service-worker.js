@@ -1,12 +1,18 @@
 // Bump this whenever assets change, to avoid stale PWA caches.
 // Keep in sync with APP_VERSION in app.js for release diagnostics.
-const CACHE_NAME = "steeler-logbook-staging-v0.14.0";
+const CACHE_NAME = "steeler-logbook-staging-v0.15.0";
 
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./js/core-utils.js",
+  "./js/time-utils.js",
+  "./js/geo-utils.js",
+  "./js/ports-core.js",
+  "./js/dpp-calculations.js",
+  "./js/weather-abbreviations.js",
   "./manifest.json",
   "./favicon.ico",
   "./icons/steeler-192.png",
@@ -46,6 +52,7 @@ self.addEventListener("fetch", (event) => {
       url.pathname.endsWith("/") ||
       url.pathname.endsWith("/index.html") ||
       url.pathname.endsWith("/app.js") ||
+      url.pathname.includes("/js/") ||
       /^\/app\.v.*\.js$/.test(url.pathname) ||
       url.pathname.endsWith("/styles.css") ||
       url.pathname.endsWith("/manifest.json")

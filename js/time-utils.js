@@ -1,0 +1,54 @@
+// Pure date/time helpers. No DOM or storage access.
+
+window.STEELER = window.STEELER || {};
+
+function parseISODate(iso){
+  // expects YYYY-MM-DD from <input type="date">
+  const m = /^\s*(\d{4})-(\d{2})-(\d{2})\s*$/.exec(iso || "");
+  if (!m) return null;
+  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+  if (!y || !mo || !d) return null;
+  return { y, mo, d };
+}
+
+function dayOfYear(y, mo, d){
+  const dt = new Date(Date.UTC(y, mo-1, d));
+  const start = new Date(Date.UTC(y, 0, 1));
+  return Math.floor((dt - start) / 86400000) + 1;
+}
+
+function localDateTimeInputValue(d = new Date()) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function timeOnlyFromIso(iso) {
+  const s = String(iso || "").trim();
+  if (!s) return "";
+  const m = s.match(/(?:T|\s)?(\d{2}:\d{2})(?::\d{2})?$/);
+  return m ? m[1] : s;
+}
+
+function normalizeEntryTimeInput(raw, existingValue = "", fallbackDate = "") {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+
+  let m = s.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::\d{2})?$/);
+  if (m) return `${m[1]}T${m[2]}`;
+
+  m = s.match(/^(\d{2}:\d{2})(?::\d{2})?$/);
+  if (m) {
+    const baseDate = String(existingValue || "").slice(0, 10) || fallbackDate || localDateTimeInputValue().slice(0, 10);
+    return `${baseDate}T${m[1]}`;
+  }
+
+  return s;
+}
+
+window.STEELER.timeUtils = {
+  parseISODate: typeof parseISODate !== "undefined" ? parseISODate : undefined,
+  dayOfYear: typeof dayOfYear !== "undefined" ? dayOfYear : undefined,
+  localDateTimeInputValue: typeof localDateTimeInputValue !== "undefined" ? localDateTimeInputValue : undefined,
+  timeOnlyFromIso: typeof timeOnlyFromIso !== "undefined" ? timeOnlyFromIso : undefined,
+  normalizeEntryTimeInput: typeof normalizeEntryTimeInput !== "undefined" ? normalizeEntryTimeInput : undefined
+};
