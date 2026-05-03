@@ -16,10 +16,11 @@ Before release, confirm these all describe the same intended release:
 
 ## Pre-Release Code Checks
 
-- Run JavaScript syntax checks for `app.js` and `service-worker.js`.
+- Run JavaScript syntax checks for `app.js`, `service-worker.js`, and every `js/*.js` module.
 - Confirm `git status` is clean except for intentional release changes.
 - Review the diff for accidental storage-key, service-worker, data-shape, or core-flow changes.
 - Confirm `docs/DATA_MODEL.md` still matches any intentional storage/data additions.
+- Confirm `docs/ARCHITECTURE.md` still matches the module list loaded by `index.html`.
 
 ## PWA / Offline Checks
 
@@ -44,6 +45,7 @@ Test from a clean browser profile or an iPad where possible:
 - Confirm the app updates to the new footer version.
 - If Safari/iPad appears stale, use the app reset path with `?reset=1`.
 - Confirm reset clears only service-worker/cache storage and does not delete logbook localStorage data.
+- Confirm the app shell, all loaded JavaScript modules, `styles.css`, `manifest.json`, icons, favicon, and the shipped `STEELER-safety-emergency-details.html` page are present in the service-worker asset list.
 
 ## Backup / Restore Checks
 
@@ -52,6 +54,13 @@ Test from a clean browser profile or an iPad where possible:
 - Restore the full logbook backup and confirm passages and Safety / Emergency Info return.
 - Import the ports backup and confirm ports merge by name.
 - Confirm current ports are not overwritten by full logbook restore.
+
+## Data Safety / Recovery Checks
+
+- Confirm corrupt JSON handling offers to export the raw stored value before recovery.
+- Confirm last-known-good mirror keys remain separate from the canonical localStorage keys.
+- Confirm restoring a last-known-good mirror does not rename storage keys or change data shape.
+- Confirm `?reset=1` clears only service-worker/cache storage and does not delete localStorage.
 
 ## Core Manual Regression Checks
 

@@ -1,6 +1,6 @@
 # STEELER Logbook Architecture
 
-This document records the v0.18.2 architecture foundation before release hardening.
+This document records the v0.19.0 release-hardening architecture foundation.
 
 STEELER Logbook is a vanilla HTML/CSS/JavaScript offline-first PWA intended for iPad use at sea. Reliability, predictable offline behaviour and preservation of existing passage data are more important than reducing file size or changing code shape for its own sake.
 
@@ -45,6 +45,7 @@ For every release that changes cached files:
 - Update `APP_VERSION` in `app.js`.
 - Update `CACHE_NAME` in `service-worker.js`.
 - Add any new cached assets to the `ASSETS` list.
+- Confirm app shell assets, every `js/*.js` module loaded by `index.html`, `styles.css`, `manifest.json`, icons, favicon and `STEELER-safety-emergency-details.html` are covered when they are part of the shipped app.
 - Confirm the staging URL shows the new version after refresh/update.
 - Test offline launch after the update has installed.
 
@@ -58,6 +59,6 @@ Saved manual log entries remain the source of truth. A liveData adapter must not
 
 ## Areas Deliberately Left In app.js
 
-Settings UI, Ports UI, log-entry workflow and PWA/update/reset handling remain in `app.js` for v0.18.2.
+Settings UI, Ports UI, log-entry workflow and PWA/update/reset handling remain in `app.js` for v0.19.0.
 
 These areas are still tightly coupled to application state, DOM event binding, modal behaviour, startup ordering and user workflows. Moving them before release hardening would add coordination risk without enough practical benefit. Future extraction should happen only when a specific defect, feature or repeated-maintenance pain makes the boundary clearer.

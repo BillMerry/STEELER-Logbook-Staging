@@ -1,6 +1,6 @@
 # STEELER Logbook Data Model
 
-This document records the v0.11.5 local data shapes as implemented at the start of the v0.12.0 architecture foundation work.
+This document records the local data shapes used by the v0.19.0 release-hardening build. It began as the v0.11.5 baseline documentation and has been updated as the architecture foundation work added safety mirrors and modules.
 
 The app is an offline-first browser PWA. User data is stored in `localStorage` as JSON strings, except for the theme value. Storage keys and data shapes must not be changed without an explicit migration plan and backup/restore testing.
 
@@ -43,7 +43,7 @@ Mirror metadata has this shape:
 }
 ```
 
-If a primary key cannot be parsed, the app offers to export the raw stored value before recovery. That export has this shape:
+If a primary key cannot be parsed, the app shows visible recovery handling and offers to export the raw stored value before recovery. The primary key is not renamed, and any last-known-good restore writes back to the same canonical key. The raw corrupt export has this shape:
 
 ```js
 {
@@ -432,3 +432,5 @@ Ports backup:
 - When adding fields, make readers tolerant of missing values.
 - Keep manual saved log entries as the source of truth.
 - Before destructive imports or migrations, preserve a way to export or recover the previous raw data.
+- `js/safety-emergency.js` owns Safety/Emergency defaults, contact normalisation and legacy EC migration, but it preserves the keys and shapes documented above.
+- `js/live-data.js` is currently a no-op boundary for future NMEA/liveData. It must not write saved log entries or replace manually entered passage data.
