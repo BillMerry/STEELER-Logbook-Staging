@@ -15,6 +15,49 @@ The app is an offline-first browser PWA. User data is stored in `localStorage` a
 | `steeler_ec_settings_v1` | Legacy emergency contact settings | JSON legacy object; migrated into safety info when present |
 | `STEELER_ABBR_DB_V1` | Weather abbreviation database and user edits | JSON abbreviation database; flat and legacy grouped shapes are accepted |
 
+## Safety Mirror Keys
+
+The v0.14.0 data safety pass adds separate last-known-good mirror keys. These do not replace or change the primary data keys above.
+
+| Key | Mirrors |
+| --- | --- |
+| `steeler_lkg_passages_v5` | `steeler_logbook_passages_v5` |
+| `steeler_lkg_passages_v5_meta` | Mirror metadata for passages |
+| `steeler_lkg_ports_v1` | `steeler_logbook_ports_v1` |
+| `steeler_lkg_ports_v1_meta` | Mirror metadata for ports |
+| `steeler_lkg_safety_emergency_info_v1` | `steeler_safety_emergency_info_v1` |
+| `steeler_lkg_safety_emergency_info_v1_meta` | Mirror metadata for safety info |
+| `steeler_lkg_ec_settings_v1` | `steeler_ec_settings_v1` |
+| `steeler_lkg_ec_settings_v1_meta` | Mirror metadata for legacy EC settings |
+| `steeler_lkg_abbr_db_v1` | `STEELER_ABBR_DB_V1` |
+| `steeler_lkg_abbr_db_v1_meta` | Mirror metadata for weather abbreviations |
+
+Mirror metadata has this shape:
+
+```js
+{
+  sourceKey: "steeler_logbook_passages_v5",
+  label: "passages",
+  mirroredAt: "2026-05-03T12:00:00.000Z",
+  appVersion: "0.14.0-staging"
+}
+```
+
+If a primary key cannot be parsed, the app offers to export the raw stored value before recovery. That export has this shape:
+
+```js
+{
+  format: "steeler-corrupt-localstorage-export",
+  version: 1,
+  exportedAt: "2026-05-03T12:00:00.000Z",
+  appVersion: "0.14.0-staging",
+  key: "steeler_logbook_passages_v5",
+  label: "passages",
+  error: "Unexpected token ...",
+  raw: "{ damaged JSON"
+}
+```
+
 ## Passage
 
 Stored inside `steeler_logbook_passages_v5`.

@@ -4,9 +4,38 @@ const STORAGE_KEY = "steeler_logbook_passages_v5";
 const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 
-const APP_VERSION = "0.13.0-staging";
+const APP_VERSION = "0.14.0-staging";
 
 const storageSaveWarningsShown = new Set();
+const storageRecoveryWarningsShown = new Set();
+
+const STORAGE_SAFETY_CONFIG = {
+  "steeler_logbook_passages_v5": {
+    label: "passages",
+    mirrorKey: "steeler_lkg_passages_v5",
+    mirrorMetaKey: "steeler_lkg_passages_v5_meta"
+  },
+  "steeler_logbook_ports_v1": {
+    label: "ports",
+    mirrorKey: "steeler_lkg_ports_v1",
+    mirrorMetaKey: "steeler_lkg_ports_v1_meta"
+  },
+  "steeler_safety_emergency_info_v1": {
+    label: "Safety / Emergency Info",
+    mirrorKey: "steeler_lkg_safety_emergency_info_v1",
+    mirrorMetaKey: "steeler_lkg_safety_emergency_info_v1_meta"
+  },
+  "steeler_ec_settings_v1": {
+    label: "legacy emergency contact settings",
+    mirrorKey: "steeler_lkg_ec_settings_v1",
+    mirrorMetaKey: "steeler_lkg_ec_settings_v1_meta"
+  },
+  "STEELER_ABBR_DB_V1": {
+    label: "weather abbreviations",
+    mirrorKey: "steeler_lkg_abbr_db_v1",
+    mirrorMetaKey: "steeler_lkg_abbr_db_v1_meta"
+  }
+};
 
 const storage = {
   getItem(key){
@@ -27,8 +56,125 @@ function warnStorageSaveFailed(label, error){
   alert(`Warning: ${label} could not be saved on this device. Your latest changes may not be stored. Please make a backup when possible.`);
 }
 
+function getStorageSafetyConfig(key, label){
+  const cfg = STORAGE_SAFETY_CONFIG[key] || null;
+  return cfg ? { ...cfg, label: label || cfg.label } : null;
+}
+
+function parseStorageJson(raw, validate){
+  const value = JSON.parse(raw);
+  if (validate && !validate(value)) {
+    throw new Error("Unexpected stored data shape.");
+  }
+  return value;
+}
+
+function mirrorLocalStorageRaw(key, raw, label){
+  const cfg = getStorageSafetyConfig(key, label);
+  if (!cfg || !raw) return;
+  try{
+    JSON.parse(raw);
+    storage.setItem(cfg.mirrorKey, raw);
+    storage.setItem(cfg.mirrorMetaKey, JSON.stringify({
+      sourceKey: key,
+      label: cfg.label,
+      mirroredAt: new Date().toISOString(),
+      appVersion: APP_VERSION
+    }));
+  }catch(e){
+    console.warn(`Skipping last-known-good mirror for ${cfg.label}`, e);
+  }
+}
+
+function exportRawStorageData({ key, label, raw, error }){
+  try{
+    const payload = {
+      format: "steeler-corrupt-localstorage-export",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      appVersion: APP_VERSION,
+      key,
+      label,
+      error: error && error.message ? error.message : String(error || ""),
+      raw: String(raw ?? "")
+    };
+    const json = JSON.stringify(payload, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g, "");
+    const safeLabel = String(label || key || "localstorage")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "localstorage";
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `STEELER-raw-${safeLabel}-${ts}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }catch(e){
+    console.warn("Could not export raw localStorage data", e);
+    alert("Could not export the raw stored data from this browser.");
+  }
+}
+
+function handleStorageReadFailure({ key, label, raw, error, fallback, validate }){
+  const cfg = getStorageSafetyConfig(key, label);
+  const displayLabel = cfg?.label || label || key;
+  console.error(`Failed to load ${displayLabel}`, error);
+
+  if (!storageRecoveryWarningsShown.has(key)) {
+    storageRecoveryWarningsShown.add(key);
+    const message =
+      `${displayLabel} could not be loaded from this device.\n\n` +
+      "The stored data appears to be damaged or in an unexpected format.";
+
+    if (confirm(`${message}\n\nDownload the raw stored data before recovery?`)) {
+      exportRawStorageData({ key, label: displayLabel, raw, error });
+    }
+
+    if (cfg){
+      const mirrorRaw = storage.getItem(cfg.mirrorKey);
+      if (mirrorRaw){
+        try{
+          const recovered = parseStorageJson(mirrorRaw, validate);
+          if (confirm(`A last-known-good copy of ${displayLabel} is available. Restore it now?`)) {
+            storage.setItem(key, mirrorRaw);
+            alert(`${displayLabel} restored from the last-known-good copy.`);
+            return recovered;
+          }
+        }catch(e){
+          console.warn(`Last-known-good copy for ${displayLabel} could not be used`, e);
+        }
+      }
+    }
+
+    alert(`${displayLabel} will use an empty/default value for now. If you exported raw data, keep that file for recovery.`);
+  }
+
+  return fallback;
+}
+
+function loadLocalStorageJsonItem(key, label, fallback, validate){
+  const raw = storage.getItem(key);
+  if (!raw) return fallback;
+  try{
+    const value = parseStorageJson(raw, validate);
+    mirrorLocalStorageRaw(key, raw, label);
+    return value;
+  }catch(e){
+    return handleStorageReadFailure({ key, label, raw, error: e, fallback, validate });
+  }
+}
+
 function saveLocalStorageItem(key, value, label){
   try{
+    const cfg = getStorageSafetyConfig(key, label);
+    if (cfg) {
+      parseStorageJson(value);
+      mirrorLocalStorageRaw(key, storage.getItem(key), label);
+    }
     storage.setItem(key, value);
     return true;
   }catch(e){
@@ -42,10 +188,12 @@ function saveLocalStorageItem(key, value, label){
 const SAFETY_INFO_KEY = "steeler_safety_emergency_info_v1";
 
 function loadSafetyInfo(){
-  try{
-    const raw = storage.getItem(SAFETY_INFO_KEY);
-    return raw ? JSON.parse(raw) : null;
-  }catch{ return null; }
+  return loadLocalStorageJsonItem(
+    SAFETY_INFO_KEY,
+    "Safety / Emergency Info",
+    null,
+    value => value && typeof value === "object" && !Array.isArray(value)
+  );
 }
 
 function saveSafetyInfo(obj){
@@ -114,10 +262,12 @@ function getSafetyInfo(){
 const EC_SETTINGS_KEY = "steeler_ec_settings_v1";
 
 function loadEcSettings(){
-  try{
-    const raw = storage.getItem(EC_SETTINGS_KEY);
-    return raw ? JSON.parse(raw) : null;
-  }catch{ return null; }
+  return loadLocalStorageJsonItem(
+    EC_SETTINGS_KEY,
+    "legacy emergency contact settings",
+    null,
+    value => value && typeof value === "object" && !Array.isArray(value)
+  );
 }
 
 function saveEcSettings(obj){
@@ -1152,13 +1302,12 @@ function parseTidePaste(text, isoDate){
 // --- Storage helpers -----------------------------------------------
 
 function loadPassages() {
-  try {
-    const raw = storage.getItem(STORAGE_KEY);
-    passages = raw ? JSON.parse(raw) : [];
-  } catch (e) {
-    console.error("Failed to load passages", e);
-    passages = [];
-  }
+  passages = loadLocalStorageJsonItem(
+    STORAGE_KEY,
+    "passages",
+    [],
+    Array.isArray
+  );
 }
 
 function savePassages() {
@@ -1171,25 +1320,20 @@ function savePassages() {
 }
 
 function loadPorts() {
-  try {
-    const raw = storage.getItem(PORTS_KEY);
-    if (!raw) {
-      knownPorts = [];
-      recentPorts = [];
-      return;
-    }
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      knownPorts = parsed;
-      recentPorts = [];
-    } else if (parsed && typeof parsed === "object") {
-      knownPorts = Array.isArray(parsed.all) ? parsed.all : [];
-      recentPorts = Array.isArray(parsed.recent) ? parsed.recent : [];
-    } else {
-      knownPorts = [];
-      recentPorts = [];
-    }
-  } catch {
+  const parsed = loadLocalStorageJsonItem(
+    PORTS_KEY,
+    "ports",
+    null,
+    value => Array.isArray(value) || (value && typeof value === "object")
+  );
+
+  if (Array.isArray(parsed)) {
+    knownPorts = parsed;
+    recentPorts = [];
+  } else if (parsed && typeof parsed === "object") {
+    knownPorts = Array.isArray(parsed.all) ? parsed.all : [];
+    recentPorts = Array.isArray(parsed.recent) ? parsed.recent : [];
+  } else {
     knownPorts = [];
     recentPorts = [];
   }
@@ -5269,14 +5413,17 @@ function loadAbbrDb(options){
       return d;
     }
 
-    const raw = storage.getItem(ABBR_DB_KEY);
-    if (!raw){
+    const db = loadLocalStorageJsonItem(
+      ABBR_DB_KEY,
+      "weather abbreviations",
+      null,
+      value => value && typeof value === "object" && !Array.isArray(value)
+    );
+    if (!db){
       const d = shippedFlat();
       saveLocalStorageItem(ABBR_DB_KEY, JSON.stringify(d), "weather abbreviations");
       return d;
     }
-
-    let db = JSON.parse(raw);
 
     // Already flat?
     if (db && typeof db === "object" && Array.isArray(db.rules)){
