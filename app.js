@@ -8,6 +8,18 @@ const APP_VERSION = "0.11.5";
 
 const storageSaveWarningsShown = new Set();
 
+const storage = {
+  getItem(key){
+    return localStorage.getItem(key);
+  },
+  setItem(key, value){
+    localStorage.setItem(key, value);
+  },
+  removeItem(key){
+    localStorage.removeItem(key);
+  }
+};
+
 function warnStorageSaveFailed(label, error){
   console.warn(`Failed to save ${label}`, error);
   if (storageSaveWarningsShown.has(label)) return;
@@ -17,7 +29,7 @@ function warnStorageSaveFailed(label, error){
 
 function saveLocalStorageItem(key, value, label){
   try{
-    localStorage.setItem(key, value);
+    storage.setItem(key, value);
     return true;
   }catch(e){
     warnStorageSaveFailed(label, e);
@@ -31,7 +43,7 @@ const SAFETY_INFO_KEY = "steeler_safety_emergency_info_v1";
 
 function loadSafetyInfo(){
   try{
-    const raw = localStorage.getItem(SAFETY_INFO_KEY);
+    const raw = storage.getItem(SAFETY_INFO_KEY);
     return raw ? JSON.parse(raw) : null;
   }catch{ return null; }
 }
@@ -103,7 +115,7 @@ const EC_SETTINGS_KEY = "steeler_ec_settings_v1";
 
 function loadEcSettings(){
   try{
-    const raw = localStorage.getItem(EC_SETTINGS_KEY);
+    const raw = storage.getItem(EC_SETTINGS_KEY);
     return raw ? JSON.parse(raw) : null;
   }catch{ return null; }
 }
@@ -1141,7 +1153,7 @@ function parseTidePaste(text, isoDate){
 
 function loadPassages() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = storage.getItem(STORAGE_KEY);
     passages = raw ? JSON.parse(raw) : [];
   } catch (e) {
     console.error("Failed to load passages", e);
@@ -1160,7 +1172,7 @@ function savePassages() {
 
 function loadPorts() {
   try {
-    const raw = localStorage.getItem(PORTS_KEY);
+    const raw = storage.getItem(PORTS_KEY);
     if (!raw) {
       knownPorts = [];
       recentPorts = [];
@@ -3406,7 +3418,7 @@ function exportBackup() {
     exportedAt: new Date().toISOString(),
     data: {
 						passages,
-						theme: localStorage.getItem(THEME_KEY) || "day",
+						theme: storage.getItem(THEME_KEY) || "day",
 						safetyInfo: getSafetyInfo()
 				}
   };
@@ -5712,7 +5724,7 @@ function loadAbbrDb(options){
       return d;
     }
 
-    const raw = localStorage.getItem(ABBR_DB_KEY);
+    const raw = storage.getItem(ABBR_DB_KEY);
     if (!raw){
       const d = shippedFlat();
       saveLocalStorageItem(ABBR_DB_KEY, JSON.stringify(d), "weather abbreviations");
@@ -9591,7 +9603,7 @@ if (new URLSearchParams(location.search).has("reset")) {
   setupPortsManagerModal();
   setupTidePasteModal();
   refreshPortUI();
-  applyTheme(localStorage.getItem(THEME_KEY) || "day");
+  applyTheme(storage.getItem(THEME_KEY) || "day");
 
   // CL-081: Settings block order + Weather Shorthand editor
   try { reorderSettingsBlocksAndInjectWx(); } catch (e) { console.warn('reorderSettingsBlocksAndInjectWx failed', e); }
