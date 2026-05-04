@@ -147,7 +147,7 @@ function buildEcStartSms(p, legIdx = null){
   const intro = multiLegContext
     ? `LOOKOUT REQUEST
 
-Thanks for agreeing to look out for us during ${vessel.boatName || "our vessel"}'s passage from ${fullOrigin || "our origin"} to ${fullDestination || "our destination"} today. We will be making a stop off at ${multiLegContext.transitText || "our transit port"}. ${multiLegContext.legText} We'll message you once we've completed this leg of the passage to confirm our arrival.`
+Thanks for agreeing to look out for us during ${vessel.boatName || "our vessel"}'s passage from ${fullOrigin || "our origin"} to ${fullDestination || "our destination"} today, with a stop off at ${multiLegContext.transitText || "our transit port"}. ${multiLegContext.legText} We'll message you once we've completed this leg of the passage to confirm our arrival.`
     : `LOOKOUT REQUEST
 
 Thanks for agreeing to look out for us during ${vessel.boatName || "our vessel"}'s passage from ${origin || "our origin"} to ${destination || "our destination"} today. ${etaInfo.etaText ? `We expect to arrive around ${etaInfo.etaText}. ` : ""}We'll message you once we've completed the passage to confirm our arrival.`;
