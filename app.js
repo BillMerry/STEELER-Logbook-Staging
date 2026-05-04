@@ -815,7 +815,16 @@ const lookupBtn = document.createElement("button");
     dmm.className = "ports-dmm";
     const latV = (item && typeof item === "object" && item.lat != null) ? item.lat : NaN;
     const lonV = (item && typeof item === "object" && item.lon != null) ? item.lon : NaN;
-    dmm.textContent = (isNaN(latV)||isNaN(lonV)) ? "" : formatDMM(latV, lonV);
+    if (isNaN(latV) || isNaN(lonV)) {
+      dmm.textContent = "";
+    } else {
+      const mapsLink = document.createElement("a");
+      mapsLink.href = `https://maps.apple.com/?ll=${latV},${lonV}&q=${encodeURIComponent(name)}`;
+      mapsLink.target = "_blank";
+      mapsLink.rel = "noopener noreferrer";
+      mapsLink.textContent = formatDMM(latV, lonV);
+      dmm.appendChild(mapsLink);
+    }
     coords.appendChild(dmm);
 
     coords.appendChild(saveBtn);
@@ -911,6 +920,17 @@ function setupSettingsCardToggles(){
     setOpen(card.classList.contains("open"));
     btn.dataset.bound = "1";
     btn.addEventListener("click", () => setOpen(panel.hidden));
+  });
+}
+
+function closeSettingsPanels(){
+  document.querySelectorAll("[data-settings-card]").forEach(card => {
+    const btn = card.querySelector("[data-settings-toggle]");
+    const panel = card.querySelector("[data-settings-panel]");
+    if (!btn || !panel) return;
+    panel.hidden = true;
+    btn.textContent = "Open";
+    card.classList.remove("open");
   });
 }
 
@@ -1341,6 +1361,10 @@ function switchToTab(tabId) {
 
   tabButtons.forEach(b => b.classList.toggle("active", b.dataset.tab === tabId));
   tabs.forEach(t => t.classList.toggle("active", t.id === tabId));
+
+  if (tabId === "settingsTab") {
+    try { closeSettingsPanels(); } catch(e) {}
+  }
 
   // Keep Home passage highlight in sync with the currently selected passage
   if (tabId === "homeTab") {
@@ -6114,7 +6138,7 @@ function injectSafetyEmergencySettingsBlock(){
   }
 
   if (!block.parentElement){
-    container.insertBefore(block, container.firstChild);
+    container.insertBefore(block, portsBlock.nextSibling);
   }
 
   const s = getSafetyInfo();
