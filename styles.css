@@ -799,6 +799,12 @@ body[data-theme="night"] .ports-delete { border-color: rgba(255,255,255,0.18); c
   margin:0.35rem 0 0.4rem 1.2rem;
   padding:0;
 }
+.template-dpp-table input{
+  width:100%;
+}
+.template-dpp-table .template-wp-speed{
+  max-width:6rem;
+}
 .safety-emergency-panel{
   gap:14px;
   margin-top:12px;

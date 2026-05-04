@@ -56,6 +56,7 @@ Test from a clean browser profile or an iPad where possible:
 - Restore the full logbook backup and confirm passages and Safety / Emergency Info return.
 - Import the ports backup and confirm ports merge by name.
 - Import the DPP Templates backup and confirm templates merge by name.
+- Edit a Detailed Passage Plan template in Settings and confirm applying it to a passage uses the edited waypoints, speeds and notes.
 - Confirm current ports are not overwritten by full logbook restore.
 
 ## Data Safety / Recovery Checks

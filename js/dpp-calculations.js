@@ -51,7 +51,12 @@ function detailedPassagePlanHasContent(detailed){
 
 function reverseDetailedPassagePlanFromPrevious(prevDetailed){
   const prev = cloneDetailedPassagePlan(prevDetailed, { resetTimes:true, regenerateIds:true });
+  const originalSpeeds = (prev.waypoints || []).map(wp => wp.plannedSpeed || "");
   prev.waypoints.reverse();
+  prev.waypoints.forEach((wp, idx) => {
+    const sourceSpeedIdx = originalSpeeds.length - idx - 2;
+    wp.plannedSpeed = sourceSpeedIdx >= 0 ? (originalSpeeds[sourceSpeedIdx] || "") : "";
+  });
   return prev;
 }
 

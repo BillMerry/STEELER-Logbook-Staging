@@ -5,7 +5,7 @@ const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 
-const APP_VERSION = "1.0.1-rc1";
+const APP_VERSION = "1.0.1-rc2";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -939,7 +939,7 @@ function closeSettingsPanels(){
     card.classList.remove("open");
   });
   if (dppTemplatesManager) dppTemplatesManager.style.display = "none";
-  if (manageDppTemplatesBtn) manageDppTemplatesBtn.textContent = "Manage DPP Templates";
+  if (manageDppTemplatesBtn) manageDppTemplatesBtn.textContent = "Manage Detailed Passage Plan Templates";
 }
 
 function setupTidePasteModal(){
@@ -2246,17 +2246,17 @@ function importDppTemplatesBackupFile(file) {
       const templatesPayload = obj?.data?.dppTemplates || obj?.dppTemplates;
       const valid = obj && obj.format === "steeler-dpp-templates-backup" && templatesPayload;
       if (!valid) {
-        alert("That file doesn’t look like a STEELER DPP Templates backup.");
+        alert("That file doesn’t look like a STEELER Detailed Passage Plan Templates backup.");
         return;
       }
 
       const imported = normaliseDppTemplateStore(templatesPayload).templates;
       if (!imported.length) {
-        alert("That DPP Templates backup does not contain any templates.");
+        alert("That Detailed Passage Plan Templates backup does not contain any templates.");
         return;
       }
 
-      const ok = confirm("Import DPP Templates? Matching template names will be updated; new templates will be added.");
+      const ok = confirm("Import Detailed Passage Plan Templates? Matching template names will be updated; new templates will be added.");
       if (!ok) return;
 
       const store = loadDppTemplateStore();
@@ -2286,7 +2286,7 @@ function importDppTemplatesBackupFile(file) {
         templates: Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name))
       });
       renderDppTemplatesManager();
-      alert("DPP templates imported successfully.");
+      alert("Detailed Passage Plan templates imported successfully.");
     } catch (e) {
       console.error(e);
       alert("Could not import that file (invalid JSON).");
@@ -2381,7 +2381,7 @@ manageDppTemplatesBtn?.addEventListener("click", () => {
   if (!dppTemplatesManager) return;
   const open = dppTemplatesManager.style.display === "none" || !dppTemplatesManager.style.display;
   dppTemplatesManager.style.display = open ? "block" : "none";
-  manageDppTemplatesBtn.textContent = open ? "Hide DPP Templates" : "Manage DPP Templates";
+  manageDppTemplatesBtn.textContent = open ? "Hide Detailed Passage Plan Templates" : "Manage Detailed Passage Plan Templates";
   if (open) renderDppTemplatesManager();
 });
 
@@ -3404,6 +3404,173 @@ function renameDppTemplate(id, name){
   return true;
 }
 
+function updateDppTemplate(id, patch){
+  const wanted = String(id || "");
+  if (!wanted) return false;
+
+  const store = loadDppTemplateStore();
+  let changed = false;
+  store.templates = store.templates.map((tpl) => {
+    if (String(tpl.id) !== wanted) return tpl;
+    changed = true;
+    return {
+      ...tpl,
+      ...patch,
+      id: tpl.id,
+      createdAt: tpl.createdAt,
+      updatedAt: new Date().toISOString()
+    };
+  });
+  if (!changed) return false;
+
+  store.templates.sort((a, b) => a.name.localeCompare(b.name));
+  saveDppTemplateStore(store);
+  return true;
+}
+
+function readDppTemplateEditorForm(){
+  const rows = modalBody.querySelectorAll("[data-template-wp-row]");
+  const waypoints = [];
+
+  rows.forEach((row, idx) => {
+    const name = (row.querySelector(".template-wp-name")?.value || "").trim();
+    const coordsRaw = row.querySelector(".template-wp-coords")?.value || "";
+    const parsed = parseDetailedWaypointCoords(coordsRaw);
+    waypoints.push({
+      id: row.getAttribute("data-template-wp-id") || ("wp_" + Date.now() + "_" + idx + "_" + Math.random().toString(36).slice(2)),
+      time: "",
+      name,
+      coordsText: parsed ? formatDetailedWaypointCoords(parsed.lat, parsed.lon) : coordsRaw,
+      lat: parsed ? parsed.lat : null,
+      lon: parsed ? parsed.lon : null,
+      distToNext: "",
+      cogToNext: "",
+      plannedSpeed: (row.querySelector(".template-wp-speed")?.value || "").trim(),
+      timeToNext: "",
+      fuelToNext: ""
+    });
+  });
+
+  const detailed = {
+    waypoints,
+    hazards: modalBody.querySelector("#templateDppHazards")?.value || "",
+    portsOfRefuge: modalBody.querySelector("#templateDppPortsOfRefuge")?.value || "",
+    crewWelfare: modalBody.querySelector("#templateDppCrewWelfare")?.value || ""
+  };
+
+  recalcDetailedPassagePlan(detailed);
+  return detailed;
+}
+
+function renderDppTemplateEditorRows(detailed){
+  const body = modalBody.querySelector("#templateDppRows");
+  if (!body) return;
+
+  const wps = detailed.waypoints || [];
+  body.innerHTML = wps.map((wp, idx) => `
+    <tr data-template-wp-row="${idx}" data-template-wp-id="${escapeHtml(wp.id || "")}">
+      <td><input type="text" class="template-wp-name" value="${escapeHtml(wp.name || "")}" placeholder="Waypoint"></td>
+      <td><input type="text" class="template-wp-coords" value="${escapeHtml(wp.coordsText || formatDetailedWaypointCoords(Number(wp.lat), Number(wp.lon)))}" placeholder="50.57507° N, 2.44846° W"></td>
+      <td><input type="number" step="0.1" inputmode="decimal" class="template-wp-speed" value="${escapeHtml(wp.plannedSpeed || "")}" placeholder="kt"></td>
+      <td><button type="button" class="btn btn-secondary btn-small template-wp-delete">Delete</button></td>
+    </tr>
+  `).join("");
+
+  body.querySelectorAll(".template-wp-delete").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const active = readDppTemplateEditorForm();
+      const row = btn.closest("[data-template-wp-row]");
+      const idx = Number(row?.getAttribute("data-template-wp-row"));
+      if (!Number.isFinite(idx)) return;
+      active.waypoints.splice(idx, 1);
+      renderDppTemplateEditorRows(active);
+    });
+  });
+}
+
+function openDppTemplateEditor(id){
+  const tpl = getDppTemplateById(id);
+  if (!tpl) return;
+
+  const detailed = cloneDetailedPassagePlan(tpl.detailed);
+  showModal({
+    title: "Edit Detailed Passage Plan Template",
+    okText: "Save Template",
+    bodyHtml: `
+      <label>
+        Template Name
+        <input type="text" id="templateDppName" value="${escapeHtml(tpl.name)}">
+      </label>
+      <div style="overflow-x:auto; margin-top:0.8rem;">
+        <table class="log-table template-dpp-table" style="min-width:760px;">
+          <thead>
+            <tr>
+              <th>Waypoint</th>
+              <th>WP Lat/Lon</th>
+              <th>Plan kt</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="templateDppRows"></tbody>
+        </table>
+      </div>
+      <button type="button" class="btn btn-secondary btn-small" id="templateDppAddWaypoint" style="margin-top:0.55rem;">+ Add Waypoint</button>
+      <div style="margin-top:0.8rem;">
+        <label>Hazards <textarea id="templateDppHazards" rows="2">${escapeHtml(detailed.hazards || "")}</textarea></label>
+      </div>
+      <div style="margin-top:0.6rem;">
+        <label>Ports of Refuge <textarea id="templateDppPortsOfRefuge" rows="2">${escapeHtml(detailed.portsOfRefuge || "")}</textarea></label>
+      </div>
+      <div style="margin-top:0.6rem;">
+        <label>Crew Welfare <textarea id="templateDppCrewWelfare" rows="2">${escapeHtml(detailed.crewWelfare || "")}</textarea></label>
+      </div>
+    `,
+    onOk: () => {
+      const name = (modalBody.querySelector("#templateDppName")?.value || "").trim();
+      if (!name) {
+        alert("Please enter a template name.");
+        return false;
+      }
+
+      const duplicate = getDppTemplates().find((other) =>
+        String(other.id) !== String(id) &&
+        String(other.name || "").trim().toLowerCase() === name.toLowerCase()
+      );
+      if (duplicate) {
+        alert("A Detailed Passage Plan template with that name already exists.");
+        return false;
+      }
+
+      const updatedDetailed = readDppTemplateEditorForm();
+      updateDppTemplate(id, {
+        name,
+        detailed: cloneDetailedPassagePlan(updatedDetailed, { regenerateIds: true })
+      });
+      renderDppTemplatesManager();
+      try { renderDetailedPassagePlan(getCurrentPassage()); } catch(e) {}
+    }
+  });
+
+  renderDppTemplateEditorRows(detailed);
+  modalBody.querySelector("#templateDppAddWaypoint")?.addEventListener("click", () => {
+    const active = readDppTemplateEditorForm();
+    active.waypoints.push({
+      id: "wp_" + Date.now() + "_" + Math.random().toString(36).slice(2),
+      time: "",
+      name: "",
+      coordsText: "",
+      lat: null,
+      lon: null,
+      distToNext: "",
+      cogToNext: "",
+      plannedSpeed: "",
+      timeToNext: "",
+      fuelToNext: ""
+    });
+    renderDppTemplateEditorRows(active);
+  });
+}
+
 function renderDppTemplatesManager(){
   if (!dppTemplatesManager) return;
 
@@ -3442,6 +3609,7 @@ function renderDppTemplatesManager(){
           </details>
         </div>
         <div class="dpp-template-manager-actions">
+          <button type="button" class="btn btn-secondary btn-small dpp-template-edit-btn">Edit</button>
           <button type="button" class="btn btn-secondary btn-small dpp-template-rename-btn">Rename</button>
           <button type="button" class="btn btn-secondary btn-small dpp-template-delete-btn">Delete</button>
         </div>
@@ -3452,6 +3620,10 @@ function renderDppTemplatesManager(){
   dppTemplatesManager.querySelectorAll("[data-dpp-template-id]").forEach((row) => {
     const id = row.getAttribute("data-dpp-template-id") || "";
     const input = row.querySelector(".dpp-template-name-input");
+
+    row.querySelector(".dpp-template-edit-btn")?.addEventListener("click", () => {
+      openDppTemplateEditor(id);
+    });
 
     row.querySelector(".dpp-template-rename-btn")?.addEventListener("click", () => {
       const name = input?.value || "";
