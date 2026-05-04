@@ -736,7 +736,27 @@ body[data-theme="night"] .ports-delete { border-color: rgba(255,255,255,0.18); c
   border-left:3px solid var(--accent);
   margin-bottom:0.6rem;
 }
-.settings-card h3{margin:0 0 0.35rem;font-size:0.95rem}
+.settings-card-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:0.6rem;
+}
+.settings-card h3{margin:0;font-size:0.95rem}
+.settings-card-panel{
+  margin-top:0.65rem;
+  display:block;
+}
+.settings-card-panel[hidden]{
+  display:none !important;
+}
+.safety-emergency-panel{
+  gap:14px;
+  margin-top:12px;
+}
+.safety-emergency-panel:not([hidden]){
+  display:grid;
+}
 .settings-row{display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.25rem}
 .home-hint{margin-top:0.5rem}
 
@@ -745,7 +765,7 @@ body[data-theme="night"] .ports-delete { border-color: rgba(255,255,255,0.18); c
 .ports-left{min-width:0;flex:1 1 auto}
 .ports-right{flex:0 0 auto}
 .ports-coords{display:flex;gap:0.35rem;flex-wrap:wrap;align-items:center}
-.ports-coord-input{max-width:10ch;padding:0.25rem 0.35rem;border:1px solid var(--border);border-radius:0.35rem;background:var(--panel);color:var(--fg)}
+.ports-coord-input{max-width:15ch;padding:0.25rem 0.35rem;border:1px solid var(--border);border-radius:0.35rem;background:var(--panel);color:var(--fg)}
 .ports-mini{border-radius:999px;padding:0.25rem 0.55rem;border:1px solid #d0d0d0;background:var(--soft);color:var(--fg);font-size:0.78rem;cursor:pointer}
 
 .ports-name-wrap{display:flex;gap:0.45rem;align-items:center;margin-bottom:0.25rem}
@@ -769,9 +789,21 @@ body[data-theme="night"] .ports-delete { border-color: rgba(255,255,255,0.18); c
   background: rgba(0,0,0,0.25);
   z-index: 10000;
 }
-#portsModal.modal-panel{
+#portsModal .modal-panel{
   position: fixed;
   z-index: 10001;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(920px, calc(100vw - 24px));
+  max-height: calc(100vh - 82px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#portsModal .modal-body{
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* --- Tide paste modal layering fix ---

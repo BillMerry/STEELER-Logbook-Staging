@@ -26,6 +26,21 @@ function parseCoordPart(s, isLat){
   // Plain decimal
   if (/^-?\d+(?:\.\d+)?$/.test(t)) return parseFloat(t);
 
+  // Decimal degrees with hemisphere, e.g. Apple Maps:
+  // 50.57507° N
+  // 2.44846° W
+  const decimalHemisphere = t.match(/^(\d{1,3}(?:\.\d+)?)\s*(?:º|°)?\s*([NSEW])$/);
+  if (decimalHemisphere) {
+    let val = parseFloat(decimalHemisphere[1]);
+    const hemi = decimalHemisphere[2];
+    if (hemi === "S" || hemi === "W") val *= -1;
+
+    if (isLat && (val < -90 || val > 90)) return NaN;
+    if (!isLat && (val < -180 || val > 180)) return NaN;
+
+    return val;
+  }
+
   // Flexible DDM:
   // 50º45.123'N
   // 50°45.123'N
@@ -59,9 +74,19 @@ function parseSingleLatLonField(val){
   const s = String(val || "").trim();
   if (!s) return null;
   const m = s.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
-  if (!m) return null;
-  const lat = parseFloat(m[1]);
-  const lon = parseFloat(m[2]);
+  if (m) {
+    const lat = parseFloat(m[1]);
+    const lon = parseFloat(m[2]);
+    if (!isFinite(lat) || !isFinite(lon)) return null;
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+    return { lat, lon };
+  }
+
+  const parts = s.split(",").map(x => x.trim()).filter(Boolean);
+  if (parts.length !== 2) return null;
+
+  const lat = parseCoordPart(parts[0], true);
+  const lon = parseCoordPart(parts[1], false);
   if (!isFinite(lat) || !isFinite(lon)) return null;
   if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
   return { lat, lon };

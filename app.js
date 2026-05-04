@@ -4,7 +4,7 @@ const STORAGE_KEY = "steeler_logbook_passages_v5";
 const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 
-const APP_VERSION = "0.20.0-staging";
+const APP_VERSION = "0.20.1-staging";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -754,17 +754,15 @@ function renderPortsManagerList() {
     coords.className = "ports-coords";
 
     const latInput = document.createElement("input");
-    latInput.type = "number";
+    latInput.type = "text";
     latInput.inputMode = "decimal";
-    latInput.step = "0.0001";
     latInput.placeholder = "Lat";
     latInput.className = "ports-coord-input";
     latInput.value = (item && typeof item === "object" && item.lat != null) ? item.lat : "";
 
     const lonInput = document.createElement("input");
-    lonInput.type = "number";
+    lonInput.type = "text";
     lonInput.inputMode = "decimal";
-    lonInput.step = "0.0001";
     lonInput.placeholder = "Lon";
     lonInput.className = "ports-coord-input";
     lonInput.value = (item && typeof item === "object" && item.lon != null) ? item.lon : "";
@@ -775,12 +773,13 @@ function renderPortsManagerList() {
     saveBtn.textContent = "Save coords";
 
     saveBtn.addEventListener("click", () => {
-      const la = parseFloat(latInput.value);
-      const lo = parseFloat(lonInput.value);
-      if (isNaN(la) || isNaN(lo)){
+      const pair = parseSingleLatLonField(latInput.value) || parseLatLon(latInput.value, lonInput.value);
+      if (!pair){
         alert("Please enter both latitude and longitude.");
         return;
       }
+      const la = pair.lat;
+      const lo = pair.lon;
       if (!saneForSteeler(la, lo)){
         alert("Those coordinates look a bit daft for UK/Channel waters. Please double-check.");
         return;
@@ -885,12 +884,34 @@ function setupPortsManagerModal() {
   const open = () => {
     renderPortsManagerList();
     modal.classList.remove("hidden");
+    if (overlay) overlay.classList.remove("hidden");
   };
-  const close = () => modal.classList.add("hidden");
+  const close = () => {
+    modal.classList.add("hidden");
+    if (overlay) overlay.classList.add("hidden");
+  };
 
   openBtn.addEventListener("click", open);
   if (closeBtn) closeBtn.addEventListener("click", close);
   if (overlay) overlay.addEventListener("click", close);
+}
+
+function setupSettingsCardToggles(){
+  document.querySelectorAll("[data-settings-card]").forEach(card => {
+    const btn = card.querySelector("[data-settings-toggle]");
+    const panel = card.querySelector("[data-settings-panel]");
+    if (!btn || !panel || btn.dataset.bound === "1") return;
+
+    const setOpen = (open) => {
+      panel.hidden = !open;
+      btn.textContent = open ? "Close" : "Open";
+      card.classList.toggle("open", open);
+    };
+
+    setOpen(card.classList.contains("open"));
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", () => setOpen(panel.hidden));
+  });
 }
 
 function setupTidePasteModal(){
@@ -1348,6 +1369,14 @@ function formatLonFromDecimal(decimal) {
 }
 function parseAndFormatPositionInput(val, currentLat, currentLon) {
   if (!val) return { lat: "", lon: "" };
+
+  const parsedPair = parseSingleLatLonField(val);
+  if (parsedPair) {
+    return {
+      lat: formatLatFromDecimal(parsedPair.lat),
+      lon: formatLonFromDecimal(parsedPair.lon)
+    };
+  }
 
   if (/[º°NnSsEeWw]/.test(val)) {
     const parts = val.split(",").map(s => s.trim());
@@ -5637,18 +5666,24 @@ function reorderSettingsBlocksAndInjectWx() {
     wxBlock = document.createElement(portsBlock.tagName.toLowerCase());
     wxBlock.id = "wxAbbrSettingsBlock";
     wxBlock.className = portsBlock.className || "";
+    wxBlock.setAttribute("data-settings-card", "");
 
     // Basic structure that should look reasonable even without CSS.
     wxBlock.innerHTML = `
       <div class="settings-block-inner">
-        <h3 style="margin:0 0 8px 0;">Weather Shorthand</h3>
-        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-          <button type="button" id="manageWxAbbrBtn">Manage Weather Abbreviations</button>
+        <div class="settings-card-header">
+          <h3>Weather Shorthand</h3>
+          <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>Open</button>
         </div>
-        <div style="margin-top:10px; opacity:0.85;">
-          Define abbreviation / expansion rules for Met Office and Météo-France forecasts.
+        <div class="settings-card-panel" data-settings-panel hidden>
+          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <button type="button" id="manageWxAbbrBtn" class="btn btn-secondary">Manage Weather Abbreviations</button>
+          </div>
+          <div style="margin-top:10px; opacity:0.85;">
+            Define abbreviation / expansion rules for Met Office and Météo-France forecasts.
+          </div>
+          <div id="wxAbbrEditorWrap" style="display:none; margin-top:14px; border-top:1px solid rgba(0,0,0,0.12); padding-top:12px;"></div>
         </div>
-        <div id="wxAbbrEditorWrap" style="display:none; margin-top:14px; border-top:1px solid rgba(0,0,0,0.12); padding-top:12px;"></div>
       </div>
     `;
   }
@@ -5997,14 +6032,15 @@ function injectSafetyEmergencySettingsBlock(){
     block = document.createElement(portsBlock.tagName.toLowerCase());
     block.id = "safetyEmergencySettingsBlock";
     block.className = portsBlock.className || "";
+    block.setAttribute("data-settings-card", "");
 
     block.innerHTML = `
       <div class="settings-block-inner">
-								<div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+								<div class="settings-card-header">
 										<h3 style="margin:0;">Safety / Emergency Info</h3>
-										<button type="button" id="toggleSafetyEmergencyBtn" class="btn btn-secondary btn-small">Open</button>
+										<button type="button" id="toggleSafetyEmergencyBtn" class="btn btn-secondary btn-small" data-settings-toggle>Open</button>
 								</div>
-								<div id="safetyEmergencyFullPanel" style="display:none; gap:14px; margin-top:12px;">
+								<div id="safetyEmergencyFullPanel" class="settings-card-panel safety-emergency-panel" data-settings-panel hidden>
           <div>
             <div style="font-weight:600; margin-bottom:6px;">Vessel</div>
             <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px;">
@@ -6193,18 +6229,6 @@ function injectSafetyEmergencySettingsBlock(){
 				});
 		}
 
-		const toggleSafetyBtn = document.getElementById("toggleSafetyEmergencyBtn");
-		const safetyFullPanel = document.getElementById("safetyEmergencyFullPanel");
-		
-		if (toggleSafetyBtn && safetyFullPanel && !toggleSafetyBtn.dataset.bound){
-				toggleSafetyBtn.dataset.bound = "1";
-				toggleSafetyBtn.addEventListener("click", () => {
-						const isOpen = safetyFullPanel.style.display !== "none";
-						safetyFullPanel.style.display = isOpen ? "none" : "grid";
-						toggleSafetyBtn.textContent = isOpen ? "Open" : "Close";
-				});
-		}
-
 		const exportDetailsBtn = document.getElementById("exportVesselDetailsBtn");
 		if (exportDetailsBtn && !exportDetailsBtn.dataset.bound){
 				exportDetailsBtn.dataset.bound = "1";
@@ -6240,6 +6264,7 @@ if (new URLSearchParams(location.search).has("reset")) {
   try { reorderSettingsBlocksAndInjectWx(); } catch (e) { console.warn('reorderSettingsBlocksAndInjectWx failed', e); }
 		try { migrateLegacyEcSettingsIntoSafetyInfo(); } catch (e) { console.warn('migrateLegacyEcSettingsIntoSafetyInfo failed', e); }
 		try { injectSafetyEmergencySettingsBlock(); } catch (e) { console.warn('injectSafetyEmergencySettingsBlock failed', e); }
+		try { setupSettingsCardToggles(); } catch (e) { console.warn('setupSettingsCardToggles failed', e); }
 
   refreshHomePassageList();
 
@@ -6280,5 +6305,7 @@ if ("serviceWorker" in navigator) {
 
 function closePortsManagerModal(){
   const modal = document.getElementById("portsModal");
+  const overlay = document.getElementById("portsModalOverlay");
   if (modal) modal.classList.add("hidden");
+  if (overlay) overlay.classList.add("hidden");
 }

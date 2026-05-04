@@ -254,27 +254,37 @@
       <section class="settings-section">
         <h2>Settings</h2>
 
-        <div class="settings-card">
-          <h3>Backup &amp; Restore</h3>
-          <div class="backup-row">
-            <button id="exportBackupBtn" class="btn btn-secondary">Backup</button>
-            <button id="importBackupBtn" class="btn btn-secondary">Restore</button>
-            <input id="importFileInput" type="file" accept="application/json,.json" hidden>
+        <div class="settings-card" data-settings-card>
+          <div class="settings-card-header">
+            <h3>Backup &amp; Restore</h3>
+            <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>Open</button>
           </div>
-          <p class="hint">Backup/Restore now applies to passages only. Ports are managed separately below.</p>
+          <div class="settings-card-panel" data-settings-panel hidden>
+            <div class="backup-row">
+              <button id="exportBackupBtn" class="btn btn-secondary">Backup</button>
+              <button id="importBackupBtn" class="btn btn-secondary">Restore</button>
+              <input id="importFileInput" type="file" accept="application/json,.json" hidden>
+            </div>
+            <p class="hint">Backup/Restore now applies to passages only. Ports are managed separately below.</p>
+          </div>
         </div>
 
-        <div class="settings-card">
-          <h3>Ports</h3>
-          <div class="settings-row">
-            <button id="managePortsBtn" class="btn btn-secondary">Manage Ports</button>
+        <div class="settings-card" data-settings-card>
+          <div class="settings-card-header">
+            <h3>Ports</h3>
+            <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>Open</button>
           </div>
-          <div class="backup-row" style="margin-top:0.6rem;">
-            <button id="exportPortsBtn" class="btn btn-secondary">Export Ports</button>
-            <button id="importPortsBtn" class="btn btn-secondary">Import Ports</button>
-            <input id="importPortsFileInput" type="file" accept="application/json,.json" hidden>
+          <div class="settings-card-panel" data-settings-panel hidden>
+            <div class="settings-row">
+              <button id="managePortsBtn" class="btn btn-secondary">Manage Ports</button>
+            </div>
+            <div class="backup-row" style="margin-top:0.6rem;">
+              <button id="exportPortsBtn" class="btn btn-secondary">Export Ports</button>
+              <button id="importPortsBtn" class="btn btn-secondary">Import Ports</button>
+              <input id="importPortsFileInput" type="file" accept="application/json,.json" hidden>
+            </div>
+            <p class="hint">Ports, coordinates and Comms / Pilotage are stored separately from passage backups. Import merges by port name.</p>
           </div>
-          <p class="hint">Ports, coordinates and Comms / Pilotage are stored separately from passage backups. Import merges by port name.</p>
         </div>
 
       </section>
