@@ -5,7 +5,7 @@ const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 
-const APP_VERSION = "1.0.0";
+const APP_VERSION = "1.0.1-rc1";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -938,6 +938,8 @@ function closeSettingsPanels(){
     btn.textContent = "Open";
     card.classList.remove("open");
   });
+  if (dppTemplatesManager) dppTemplatesManager.style.display = "none";
+  if (manageDppTemplatesBtn) manageDppTemplatesBtn.textContent = "Manage DPP Templates";
 }
 
 function setupTidePasteModal(){
@@ -1445,6 +1447,11 @@ const importFileInput = document.getElementById("importFileInput");
 const exportPortsBtn = document.getElementById("exportPortsBtn");
 const importPortsBtn = document.getElementById("importPortsBtn");
 const importPortsFileInput = document.getElementById("importPortsFileInput");
+const manageDppTemplatesBtn = document.getElementById("manageDppTemplatesBtn");
+const exportDppTemplatesBtn = document.getElementById("exportDppTemplatesBtn");
+const importDppTemplatesBtn = document.getElementById("importDppTemplatesBtn");
+const importDppTemplatesFileInput = document.getElementById("importDppTemplatesFileInput");
+const dppTemplatesManager = document.getElementById("dppTemplatesManager");
 
 const planForm = document.getElementById("planForm");
 const planDate = document.getElementById("planDate");
@@ -2086,12 +2093,13 @@ function showModal({ title, bodyHtml, onOk, onCancel, okText = "OK", cancelText 
 function exportBackup() {
   const payload = {
     format: "steeler-logbook-backup",
-    version: 2,
+    version: 3,
     exportedAt: new Date().toISOString(),
     data: {
 						passages,
 						theme: storage.getItem(THEME_KEY) || "day",
-						safetyInfo: getSafetyInfo()
+						safetyInfo: getSafetyInfo(),
+      dppTemplates: loadDppTemplateStore()
 				}
   };
 
@@ -2147,6 +2155,37 @@ function exportPortsBackup() {
   URL.revokeObjectURL(url);
 }
 
+function exportDppTemplatesBackup() {
+  const payload = {
+    format: "steeler-dpp-templates-backup",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    data: {
+      dppTemplates: loadDppTemplateStore()
+    }
+  };
+
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+
+  const d = new Date();
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const da = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const filename = `STEELER-DPP-Templates-backup-${y}${mo}${da}${hh}${mm}.json`;
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function importBackupFile(file) {
   const reader = new FileReader();
   reader.onload = () => {
@@ -2160,7 +2199,12 @@ function importBackupFile(file) {
         alert("Backup file is missing expected passage data.");
         return;
       }
-      const ok = confirm("Restore backup? This will REPLACE the current passages and Safety / Emergency Info on this device if present in the backup. Ports will be left unchanged.");
+      const hasDppTemplates = !!obj.data.dppTemplates;
+      const ok = confirm(
+        "Restore backup? This will REPLACE the current passages and Safety / Emergency Info on this device if present in the backup." +
+        (hasDppTemplates ? " DPP templates in the backup will also replace current DPP templates." : "") +
+        " Ports will be left unchanged."
+      );
       if (!ok) return;
 
       passages = obj.data.passages;
@@ -2173,6 +2217,9 @@ function importBackupFile(file) {
 											warnStorageSaveFailed("Safety / Emergency Info", e);
 									}
 							}
+      if (hasDppTemplates) {
+        saveDppTemplateStore(obj.data.dppTemplates);
+      }
       // Legacy support: if an older full backup still contains ports, preserve current ports.
       // Ports are now managed separately via Export/Import Ports.
       applyTheme(obj.data.theme || "day");
@@ -2181,10 +2228,68 @@ function importBackupFile(file) {
       currentPassageId = passages[0]?.id || null;
       loadPassageIntoUI();
       try { injectSafetyEmergencySettingsBlock(); } catch(e) {}
+      renderDppTemplatesManager();
       alert("Backup restored successfully. Ports were left unchanged.");
     } catch (e) {
       console.error(e);
       alert("Could not restore that file (invalid JSON).");
+    }
+  };
+  reader.readAsText(file);
+}
+
+function importDppTemplatesBackupFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const obj = JSON.parse(reader.result);
+      const templatesPayload = obj?.data?.dppTemplates || obj?.dppTemplates;
+      const valid = obj && obj.format === "steeler-dpp-templates-backup" && templatesPayload;
+      if (!valid) {
+        alert("That file doesn’t look like a STEELER DPP Templates backup.");
+        return;
+      }
+
+      const imported = normaliseDppTemplateStore(templatesPayload).templates;
+      if (!imported.length) {
+        alert("That DPP Templates backup does not contain any templates.");
+        return;
+      }
+
+      const ok = confirm("Import DPP Templates? Matching template names will be updated; new templates will be added.");
+      if (!ok) return;
+
+      const store = loadDppTemplateStore();
+      const byName = new Map();
+      store.templates.forEach(tpl => {
+        const name = String(tpl.name || "").trim().toLowerCase();
+        if (name) byName.set(name, tpl);
+      });
+
+      imported.forEach(tpl => {
+        const name = String(tpl.name || "").trim();
+        if (!name) return;
+        const key = name.toLowerCase();
+        const existing = byName.get(key);
+        byName.set(key, {
+          id: existing?.id || tpl.id || ("dpp_tpl_" + Date.now() + "_" + Math.random().toString(36).slice(2)),
+          name,
+          createdAt: existing?.createdAt || tpl.createdAt || new Date().toISOString(),
+          updatedAt: tpl.updatedAt || new Date().toISOString(),
+          detailed: cloneDetailedPassagePlan(tpl.detailed, { regenerateIds: true })
+        });
+      });
+
+      saveDppTemplateStore({
+        version: 1,
+        updatedAt: new Date().toISOString(),
+        templates: Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name))
+      });
+      renderDppTemplatesManager();
+      alert("DPP templates imported successfully.");
+    } catch (e) {
+      console.error(e);
+      alert("Could not import that file (invalid JSON).");
     }
   };
   reader.readAsText(file);
@@ -2261,6 +2366,23 @@ importPortsFileInput?.addEventListener("change", (e) => {
   if (!file) return;
   importPortsBackupFile(file);
   e.target.value = "";
+});
+
+exportDppTemplatesBtn?.addEventListener("click", exportDppTemplatesBackup);
+importDppTemplatesBtn?.addEventListener("click", () => importDppTemplatesFileInput?.click());
+importDppTemplatesFileInput?.addEventListener("change", (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  importDppTemplatesBackupFile(file);
+  e.target.value = "";
+});
+
+manageDppTemplatesBtn?.addEventListener("click", () => {
+  if (!dppTemplatesManager) return;
+  const open = dppTemplatesManager.style.display === "none" || !dppTemplatesManager.style.display;
+  dppTemplatesManager.style.display = open ? "block" : "none";
+  manageDppTemplatesBtn.textContent = open ? "Hide DPP Templates" : "Manage DPP Templates";
+  if (open) renderDppTemplatesManager();
 });
 
 // --- HOME: passage list + delete + swipe ---------------------------
@@ -3248,6 +3370,103 @@ function deleteDppTemplate(id){
   if (store.templates.length === before) return false;
   saveDppTemplateStore(store);
   return true;
+}
+
+function renameDppTemplate(id, name){
+  const wanted = String(id || "");
+  const cleanName = String(name || "").trim();
+  if (!wanted || !cleanName) return false;
+
+  const store = loadDppTemplateStore();
+  const duplicate = store.templates.find((tpl) =>
+    String(tpl.id) !== wanted &&
+    String(tpl.name || "").trim().toLowerCase() === cleanName.toLowerCase()
+  );
+  if (duplicate) {
+    alert("A DPP template with that name already exists.");
+    return false;
+  }
+
+  let changed = false;
+  store.templates = store.templates.map((tpl) => {
+    if (String(tpl.id) !== wanted) return tpl;
+    changed = true;
+    return {
+      ...tpl,
+      name: cleanName,
+      updatedAt: new Date().toISOString()
+    };
+  });
+  if (!changed) return false;
+
+  store.templates.sort((a, b) => a.name.localeCompare(b.name));
+  saveDppTemplateStore(store);
+  return true;
+}
+
+function renderDppTemplatesManager(){
+  if (!dppTemplatesManager) return;
+
+  const templates = getDppTemplates();
+  if (!templates.length) {
+    dppTemplatesManager.innerHTML = '<p class="hint">No saved DPP templates yet.</p>';
+    return;
+  }
+
+  dppTemplatesManager.innerHTML = templates.map((tpl) => {
+    const detailed = normaliseDetailedPassagePlan(tpl.detailed);
+    const wps = detailed.waypoints || [];
+    const totals = calcDetailedPassagePlanTotals(wps);
+    const notes = [
+      detailed.hazards ? "Hazards" : "",
+      detailed.portsOfRefuge ? "Ports of Refuge" : "",
+      detailed.crewWelfare ? "Crew Welfare" : ""
+    ].filter(Boolean).join(", ");
+
+    return `
+      <div class="dpp-template-manager-row" data-dpp-template-id="${escapeHtml(tpl.id)}">
+        <div class="dpp-template-manager-main">
+          <input type="text" class="dpp-template-name-input" value="${escapeHtml(tpl.name)}" aria-label="DPP template name">
+          <div class="hint">
+            ${wps.length} waypoint${wps.length === 1 ? "" : "s"} · ${escapeHtml(String(totals.totalNm || 0))} NM · ${escapeHtml(totals.totalDuration || "00:00")}
+            ${notes ? ` · ${escapeHtml(notes)}` : ""}
+          </div>
+          <details class="dpp-template-preview">
+            <summary>Preview</summary>
+            <ol>
+              ${wps.map((wp) => `<li>${escapeHtml(wp.name || "Waypoint")} ${wp.plannedSpeed ? `· ${escapeHtml(String(wp.plannedSpeed))} kt` : ""}</li>`).join("")}
+            </ol>
+            ${detailed.hazards ? `<p><strong>Hazards:</strong> ${escapeHtml(detailed.hazards).replace(/\n/g, "<br>")}</p>` : ""}
+            ${detailed.portsOfRefuge ? `<p><strong>Ports of Refuge:</strong> ${escapeHtml(detailed.portsOfRefuge).replace(/\n/g, "<br>")}</p>` : ""}
+            ${detailed.crewWelfare ? `<p><strong>Crew Welfare:</strong> ${escapeHtml(detailed.crewWelfare).replace(/\n/g, "<br>")}</p>` : ""}
+          </details>
+        </div>
+        <div class="dpp-template-manager-actions">
+          <button type="button" class="btn btn-secondary btn-small dpp-template-rename-btn">Rename</button>
+          <button type="button" class="btn btn-secondary btn-small dpp-template-delete-btn">Delete</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  dppTemplatesManager.querySelectorAll("[data-dpp-template-id]").forEach((row) => {
+    const id = row.getAttribute("data-dpp-template-id") || "";
+    const input = row.querySelector(".dpp-template-name-input");
+
+    row.querySelector(".dpp-template-rename-btn")?.addEventListener("click", () => {
+      const name = input?.value || "";
+      if (renameDppTemplate(id, name)) renderDppTemplatesManager();
+    });
+
+    row.querySelector(".dpp-template-delete-btn")?.addEventListener("click", () => {
+      const tpl = getDppTemplateById(id);
+      if (!tpl) return;
+      if (!confirm(`Delete DPP template "${tpl.name}"?`)) return;
+      deleteDppTemplate(id);
+      renderDppTemplatesManager();
+      try { renderDetailedPassagePlan(getCurrentPassage()); } catch(e) {}
+    });
+  });
 }
 
 // --- Detailed Passage Plan UI -------------------------------------
@@ -5723,9 +5942,10 @@ function __wxAbbrFindSettingsContainer() {
   if (!settingsTab) return null;
 
   const elPorts  = document.getElementById("managePortsBtn");
+  const elDpp = document.getElementById("manageDppTemplatesBtn");
   const elBackup = document.getElementById("exportBackupBtn");
 
-  const els = [elPorts, elBackup].filter(Boolean);
+  const els = [elPorts, elDpp, elBackup].filter(Boolean);
   if (els.length < 2) return null;
 
   const chain = (el) => {
@@ -5764,9 +5984,11 @@ function reorderSettingsBlocksAndInjectWx() {
   if (!container) return;
 
   const portsBtn  = document.getElementById("managePortsBtn");
+  const dppBtn = document.getElementById("manageDppTemplatesBtn");
   const backupBtn = document.getElementById("exportBackupBtn");
 
   const portsBlock  = __wxAbbrBlockForEl(portsBtn, container);
+  const dppBlock = __wxAbbrBlockForEl(dppBtn, container);
   const backupBlock = __wxAbbrBlockForEl(backupBtn, container);
 
   if (!portsBlock || !backupBlock) return;
@@ -5800,11 +6022,12 @@ function reorderSettingsBlocksAndInjectWx() {
   }
 
   // Detach blocks first (preserve any other content)
-  const blocks = [portsBlock, wxBlock, backupBlock];
+  const blocks = [portsBlock, dppBlock, wxBlock, backupBlock].filter(Boolean);
   blocks.forEach(b => { if (b && b.parentElement === container) container.removeChild(b); });
 
-  // Re-insert in desired order: Ports, Weather Shorthand, Backup
+  // Re-insert in desired order: Ports, DPP Templates, Weather Shorthand, Backup
   container.appendChild(portsBlock);
+  if (dppBlock) container.appendChild(dppBlock);
   container.appendChild(wxBlock);
   container.appendChild(backupBlock);
 

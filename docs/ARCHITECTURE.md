@@ -1,6 +1,6 @@
 # STEELER Logbook Architecture
 
-This document records the v1.0.0 architecture foundation, including the v0.20.x sea-use tweaks.
+This document records the v1.0.1-rc1 staging architecture foundation, including the v0.20.x sea-use tweaks and DPP template management.
 
 STEELER Logbook is a vanilla HTML/CSS/JavaScript offline-first PWA intended for iPad use at sea. Reliability, predictable offline behaviour and preservation of existing passage data are more important than reducing file size or changing code shape for its own sake.
 
@@ -72,5 +72,6 @@ These areas are still tightly coupled to application state, DOM event binding, m
 - Safety/Emergency Info sits within the Settings card flow.
 - Manage Ports layout and coordinate links are tuned for iPad use.
 - Detailed Passage Plan templates are stored globally in a separate localStorage key and can be applied to the selected leg after confirmation.
+- DPP templates can be renamed/deleted in Settings, are included in full backups, and have separate export/import.
 - DPP hazards, ports of refuge and crew welfare fields are leg-specific within the existing multi-leg DPP model.
 - Multi-leg EC start/end SMS wording reflects transit stops and per-leg passage completion.

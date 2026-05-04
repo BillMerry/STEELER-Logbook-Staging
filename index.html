@@ -268,7 +268,7 @@
               <button id="importBackupBtn" class="btn btn-secondary">Restore</button>
               <input id="importFileInput" type="file" accept="application/json,.json" hidden>
             </div>
-            <p class="hint">Backup/Restore now applies to passages only. Ports are managed separately below.</p>
+            <p class="hint">Backup/Restore includes passages, Safety / Emergency Info and DPP templates. Ports are managed separately below.</p>
           </div>
         </div>
 
@@ -287,6 +287,25 @@
               <input id="importPortsFileInput" type="file" accept="application/json,.json" hidden>
             </div>
             <p class="hint">Ports, coordinates and Comms / Pilotage are stored separately from passage backups. Import merges by port name.</p>
+          </div>
+        </div>
+
+        <div class="settings-card" data-settings-card>
+          <div class="settings-card-header">
+            <h3>DPP Templates</h3>
+            <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>Open</button>
+          </div>
+          <div class="settings-card-panel" data-settings-panel hidden>
+            <div class="settings-row">
+              <button id="manageDppTemplatesBtn" class="btn btn-secondary">Manage DPP Templates</button>
+            </div>
+            <div class="backup-row" style="margin-top:0.6rem;">
+              <button id="exportDppTemplatesBtn" class="btn btn-secondary">Export DPP Templates</button>
+              <button id="importDppTemplatesBtn" class="btn btn-secondary">Import DPP Templates</button>
+              <input id="importDppTemplatesFileInput" type="file" accept="application/json,.json" hidden>
+            </div>
+            <div id="dppTemplatesManager" style="display:none; margin-top:0.8rem;"></div>
+            <p class="hint">DPP templates are reusable across passages and are also included in full logbook backups.</p>
           </div>
         </div>
 

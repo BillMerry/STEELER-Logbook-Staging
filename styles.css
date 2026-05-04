@@ -769,6 +769,36 @@ body[data-theme="night"] .ports-delete { border-color: rgba(255,255,255,0.18); c
 .settings-card-panel[hidden]{
   display:none !important;
 }
+.dpp-template-manager-row{
+  display:flex;
+  gap:0.6rem;
+  align-items:flex-start;
+  justify-content:space-between;
+  padding:0.55rem 0;
+  border-bottom:1px solid var(--border);
+}
+.dpp-template-manager-main{
+  flex:1 1 auto;
+  min-width:0;
+}
+.dpp-template-name-input{
+  width:100%;
+  max-width:28rem;
+}
+.dpp-template-manager-actions{
+  flex:0 0 auto;
+  display:flex;
+  gap:0.4rem;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+.dpp-template-preview{
+  margin-top:0.35rem;
+}
+.dpp-template-preview ol{
+  margin:0.35rem 0 0.4rem 1.2rem;
+  padding:0;
+}
 .safety-emergency-panel{
   gap:14px;
   margin-top:12px;

@@ -1,6 +1,6 @@
 # STEELER Logbook Data Model
 
-This document records the local data shapes used by the v1.0.0 build. It began as the v0.11.5 baseline documentation and has been updated as the architecture foundation work added safety mirrors, modules, v0.20.x sea-use tweaks, and reusable Detailed Passage Plan templates.
+This document records the local data shapes used by the v1.0.1-rc1 staging build. It began as the v0.11.5 baseline documentation and has been updated as the architecture foundation work added safety mirrors, modules, v0.20.x sea-use tweaks, and reusable Detailed Passage Plan templates.
 
 The app is an offline-first browser PWA. User data is stored in `localStorage` as JSON strings, except for the theme value. Storage keys and data shapes must not be changed without an explicit migration plan and backup/restore testing.
 
@@ -428,15 +428,18 @@ Full logbook backup:
 ```js
 {
   format: "steeler-logbook-backup",
-  version: 2,
+  version: 3,
   exportedAt: "2026-05-03T12:00:00.000Z",
   data: {
     passages: Passage[],
     theme: "day",
-    safetyInfo: SafetyEmergencyInfo
+    safetyInfo: SafetyEmergencyInfo,
+    dppTemplates: DppTemplateStore
   }
 }
 ```
+
+`dppTemplates` is optional for backwards compatibility. Backups created before v1.0.1 do not include it and still restore normally. Restoring a full backup that contains `dppTemplates` replaces the current DPP template store; ports remain separate.
 
 Ports backup:
 
@@ -453,6 +456,21 @@ Ports backup:
   }
 }
 ```
+
+DPP Templates backup:
+
+```js
+{
+  format: "steeler-dpp-templates-backup",
+  version: 1,
+  exportedAt: "2026-05-03T12:00:00.000Z",
+  data: {
+    dppTemplates: DppTemplateStore
+  }
+}
+```
+
+DPP Template import merges by template name: matching names are updated, and new names are added.
 
 ## Migration Rules
 

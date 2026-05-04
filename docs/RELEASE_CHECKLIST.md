@@ -50,9 +50,12 @@ Test from a clean browser profile or an iPad where possible:
 ## Backup / Restore Checks
 
 - Export a full logbook backup.
+- Confirm full logbook backup includes DPP templates and restore brings them back when present.
 - Export a ports backup.
+- Export a DPP Templates backup.
 - Restore the full logbook backup and confirm passages and Safety / Emergency Info return.
 - Import the ports backup and confirm ports merge by name.
+- Import the DPP Templates backup and confirm templates merge by name.
 - Confirm current ports are not overwritten by full logbook restore.
 
 ## Data Safety / Recovery Checks
