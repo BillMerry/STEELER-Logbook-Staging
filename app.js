@@ -3,8 +3,9 @@
 const STORAGE_KEY = "steeler_logbook_passages_v5";
 const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
+const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 
-const APP_VERSION = "0.20.1-staging";
+const APP_VERSION = "0.20.2-staging";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -34,6 +35,11 @@ const STORAGE_SAFETY_CONFIG = {
     label: "weather abbreviations",
     mirrorKey: "steeler_lkg_abbr_db_v1",
     mirrorMetaKey: "steeler_lkg_abbr_db_v1_meta"
+  },
+  "steeler_dpp_templates_v1": {
+    label: "DPP templates",
+    mirrorKey: "steeler_lkg_dpp_templates_v1",
+    mirrorMetaKey: "steeler_lkg_dpp_templates_v1_meta"
   }
 };
 
@@ -3161,6 +3167,87 @@ function getDetailedPlanFromTarget(target, legIdx = null){
   if (target && Array.isArray(target.waypoints)) return target;
   if (target && target.plan) return getDetailedPassagePlanForLeg(target, legIdx);
   return createBlankDetailedPassagePlan();
+}
+
+function normaliseDppTemplateStore(store){
+  const source = store && typeof store === "object" ? store : {};
+  const rawTemplates = Array.isArray(source.templates) ? source.templates : [];
+
+  return {
+    version: 1,
+    updatedAt: String(source.updatedAt || ""),
+    templates: rawTemplates
+      .map((tpl) => ({
+        id: String(tpl?.id || "").trim(),
+        name: String(tpl?.name || "").trim(),
+        createdAt: String(tpl?.createdAt || ""),
+        updatedAt: String(tpl?.updatedAt || ""),
+        detailed: normaliseDetailedPassagePlan(tpl?.detailed || tpl?.plan || {})
+      }))
+      .filter((tpl) => tpl.id && tpl.name)
+  };
+}
+
+function loadDppTemplateStore(){
+  const fallback = { version: 1, updatedAt: "", templates: [] };
+  const stored = loadLocalStorageJsonItem(
+    DPP_TEMPLATES_KEY,
+    "DPP templates",
+    fallback,
+    (v) => v && typeof v === "object"
+  );
+  return normaliseDppTemplateStore(stored);
+}
+
+function saveDppTemplateStore(store){
+  const clean = normaliseDppTemplateStore(store);
+  clean.updatedAt = new Date().toISOString();
+  return saveLocalStorageItem(DPP_TEMPLATES_KEY, JSON.stringify(clean), "DPP templates");
+}
+
+function getDppTemplates(){
+  return loadDppTemplateStore().templates;
+}
+
+function getDppTemplateById(id){
+  const wanted = String(id || "");
+  return getDppTemplates().find((tpl) => String(tpl.id) === wanted) || null;
+}
+
+function saveDppTemplate(name, detailed){
+  const cleanName = String(name || "").trim();
+  if (!cleanName) throw new Error("Please enter a name for this DPP template.");
+
+  const now = new Date().toISOString();
+  const store = loadDppTemplateStore();
+  const existing = store.templates.find((tpl) => tpl.name.toLowerCase() === cleanName.toLowerCase());
+  const template = {
+    id: existing?.id || ("dpp_tpl_" + Date.now() + "_" + Math.random().toString(36).slice(2)),
+    name: cleanName,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+    detailed: cloneDetailedPassagePlan(detailed, { regenerateIds: true })
+  };
+
+  if (existing) {
+    store.templates = store.templates.map((tpl) => tpl.id === existing.id ? template : tpl);
+  } else {
+    store.templates.push(template);
+  }
+
+  store.templates.sort((a, b) => a.name.localeCompare(b.name));
+  saveDppTemplateStore(store);
+  return template;
+}
+
+function deleteDppTemplate(id){
+  const wanted = String(id || "");
+  const store = loadDppTemplateStore();
+  const before = store.templates.length;
+  store.templates = store.templates.filter((tpl) => String(tpl.id) !== wanted);
+  if (store.templates.length === before) return false;
+  saveDppTemplateStore(store);
+  return true;
 }
 
 // --- Detailed Passage Plan UI -------------------------------------

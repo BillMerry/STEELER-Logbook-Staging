@@ -100,6 +100,22 @@ function getPassageEtaInfo(p, detailedPlan = null){
   return { etaText, overdueText };
 }
 
+function getSmsMultiLegContext(p, activeLeg){
+  const legCount = typeof getLegCount === "function" ? getLegCount(p) : 1;
+  if (legCount <= 1) return "";
+
+  const names = typeof getRouteNames === "function" ? getRouteNames(p) : [];
+  const fullRoute = names.length > 1 ? names.join(" → ") : "";
+  const routeLeg = getRouteLegNames(p, activeLeg);
+  const origin = String(routeLeg.origin || "").trim();
+  const destination = String(routeLeg.destination || "").trim();
+  const legText = `This message covers leg ${activeLeg + 1} of ${legCount}${origin || destination ? `: ${origin || "origin"} to ${destination || "destination"}` : ""}.`;
+
+  return fullRoute
+    ? `Full passage route: ${fullRoute}. ${legText} `
+    : `${legText} `;
+}
+
 function buildEcStartSms(p, legIdx = null){
   const sOld = getEcSettings(); // fallback
   const sNew = getSafetyInfo();
@@ -123,10 +139,11 @@ function buildEcStartSms(p, legIdx = null){
   const por = buildPorList(p, detailedPlan);
   const etaInfo = getPassageEtaInfo(p, detailedPlan);
   const pob = p.pob || "?";
+  const multiLegContext = getSmsMultiLegContext(p, activeLeg);
 
   const intro = `LOOKOUT REQUEST
 
-Thanks for agreeing to look out for us during ${vessel.boatName || "our vessel"}'s passage from ${origin || "our origin"} to ${destination || "our destination"} today. ${etaInfo.etaText ? `We expect to arrive around ${etaInfo.etaText}. ` : ""}We'll message you once we've completed the passage to confirm our arrival.`;
+Thanks for agreeing to look out for us during ${vessel.boatName || "our vessel"}'s passage from ${origin || "our origin"} to ${destination || "our destination"} today. ${multiLegContext}${etaInfo.etaText ? `We expect to arrive around ${etaInfo.etaText}. ` : ""}We'll message you once we've completed the passage to confirm our arrival.`;
 
   const vesselBlock = `VESSEL
 Persons on Board: ${pob}
@@ -260,6 +277,7 @@ window.STEELER.ecSms = {
   buildPorList,
   getMarineTrafficLink,
   getPassageEtaInfo,
+  getSmsMultiLegContext,
   buildEcStartSms,
   buildEcEndSms,
   launchSms,

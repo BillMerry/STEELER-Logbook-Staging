@@ -39,6 +39,21 @@ function renderDetailedPassagePlan(p){
   const routeLabel = routeLeg.origin && routeLeg.destination
     ? `${routeLeg.origin} → ${routeLeg.destination}`
     : `Leg ${legIdx + 1}`;
+  const dppTemplates = typeof getDppTemplates === "function" ? getDppTemplates() : [];
+  const dppTemplateOptions = dppTemplates.length
+    ? dppTemplates.map((tpl) => `<option value="${escapeHtml(tpl.id)}">${escapeHtml(tpl.name)}</option>`).join("")
+    : '<option value="">No saved DPPs</option>';
+  const dppTemplateControlsHtml = `
+    <div style="margin-top:0.75rem; display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+      <input type="text" id="dppTemplateName" value="${escapeHtml(routeLabel)}" placeholder="DPP template name" style="min-width:220px; flex:1 1 220px;">
+      <button type="button" class="btn btn-secondary btn-small" id="dppSaveTemplateBtn">Save DPP Template</button>
+      <select id="dppTemplateSelect" style="min-width:220px; flex:1 1 220px;" ${dppTemplates.length ? "" : "disabled"}>
+        ${dppTemplateOptions}
+      </select>
+      <button type="button" class="btn btn-secondary btn-small" id="dppUseTemplateBtn" ${dppTemplates.length ? "" : "disabled"}>Use Template</button>
+      <button type="button" class="btn btn-secondary btn-small" id="dppDeleteTemplateBtn" ${dppTemplates.length ? "" : "disabled"}>Delete Template</button>
+    </div>
+  `;
   const legTabsHtml = legCount > 1
     ? `<div class="dpp-leg-tabs">${Array.from({ length: legCount }, (_, i) => {
         const leg = getRouteLegNames(p, i);
@@ -112,24 +127,25 @@ function renderDetailedPassagePlan(p){
 	      <button type="button" class="btn btn-secondary btn-small" id="dppReverseBtn">Reverse Route</button>
 	      ${legIdx > 0 ? '<button type="button" class="btn btn-secondary btn-small" id="dppReversePreviousBtn">Reverse Previous Passage Plan</button>' : ''}
 	    </div>
+    ${dppTemplateControlsHtml}
 
     <div style="margin-top:0.85rem;">
       <label>
-        Hazards
+        Hazards (this leg)
         <textarea id="dppHazards" rows="2">${escapeHtml(detailed.hazards || "")}</textarea>
       </label>
     </div>
 
     <div style="margin-top:0.6rem;">
       <label>
-        Ports of Refuge
+        Ports of Refuge (this leg)
         <textarea id="dppPortsOfRefuge" rows="2">${escapeHtml(detailed.portsOfRefuge || "")}</textarea>
       </label>
     </div>
 
     <div style="margin-top:0.6rem;">
       <label>
-        Crew Welfare
+        Crew Welfare (this leg)
         <textarea id="dppCrewWelfare" rows="2">${escapeHtml(detailed.crewWelfare || "")}</textarea>
       </label>
     </div>
@@ -143,6 +159,57 @@ function renderDetailedPassagePlan(p){
       renderDetailedPassagePlan(p);
       updatePlanSummaryPanel();
     });
+  });
+
+  mount.querySelector("#dppSaveTemplateBtn")?.addEventListener("click", () => {
+    try {
+      const activeDetailed = readDetailedPassagePlanFromForm();
+      const templateNameEl = mount.querySelector("#dppTemplateName");
+      const templateName = (templateNameEl?.value || routeLabel || `Leg ${legIdx + 1}`).trim();
+
+      saveDppTemplate(templateName, activeDetailed);
+      savePassages();
+      renderDetailedPassagePlan(p);
+      updatePlanSummaryPanel();
+    } catch (err) {
+      console.error(err);
+      alert(err?.message || "Could not save that DPP template.");
+    }
+  });
+
+  mount.querySelector("#dppUseTemplateBtn")?.addEventListener("click", () => {
+    try {
+      const selectedId = mount.querySelector("#dppTemplateSelect")?.value || "";
+      const template = getDppTemplateById(selectedId);
+      if (!template) return;
+      if (!confirm(`Replace this leg's Detailed Passage Plan with "${template.name}"?`)) return;
+
+      const replacement = cloneDetailedPassagePlan(template.detailed, { regenerateIds: true });
+      setDetailedPassagePlanForLeg(p, legIdx, replacement);
+      recalcDetailedPassagePlan(p, legIdx);
+      savePassages();
+      renderDetailedPassagePlan(p);
+      updatePlanSummaryPanel();
+    } catch (err) {
+      console.error(err);
+      alert(err?.message || "Could not use that DPP template.");
+    }
+  });
+
+  mount.querySelector("#dppDeleteTemplateBtn")?.addEventListener("click", () => {
+    try {
+      const selectedId = mount.querySelector("#dppTemplateSelect")?.value || "";
+      const template = getDppTemplateById(selectedId);
+      if (!template) return;
+      if (!confirm(`Delete DPP template "${template.name}"?`)) return;
+
+      deleteDppTemplate(selectedId);
+      renderDetailedPassagePlan(p);
+      updatePlanSummaryPanel();
+    } catch (err) {
+      console.error(err);
+      alert(err?.message || "Could not delete that DPP template.");
+    }
   });
 
   mount.querySelector("#dppAddWaypointBtn")?.addEventListener("click", () => {

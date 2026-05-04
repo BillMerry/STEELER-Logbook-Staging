@@ -1,6 +1,6 @@
 # STEELER Logbook Data Model
 
-This document records the local data shapes used by the v0.19.0 release-hardening build. It began as the v0.11.5 baseline documentation and has been updated as the architecture foundation work added safety mirrors and modules.
+This document records the local data shapes used by the v0.20.2 staging build. It began as the v0.11.5 baseline documentation and has been updated as the architecture foundation work added safety mirrors, modules, and reusable Detailed Passage Plan templates.
 
 The app is an offline-first browser PWA. User data is stored in `localStorage` as JSON strings, except for the theme value. Storage keys and data shapes must not be changed without an explicit migration plan and backup/restore testing.
 
@@ -14,6 +14,7 @@ The app is an offline-first browser PWA. User data is stored in `localStorage` a
 | `steeler_safety_emergency_info_v1` | Vessel, safety, owner, emergency contacts, and notification defaults | JSON safety info object |
 | `steeler_ec_settings_v1` | Legacy emergency contact settings | JSON legacy object; migrated into safety info when present |
 | `STEELER_ABBR_DB_V1` | Weather abbreviation database and user edits | JSON abbreviation database; flat and legacy grouped shapes are accepted |
+| `steeler_dpp_templates_v1` | Globally reusable Detailed Passage Plan templates | JSON `DppTemplateStore` object |
 
 ## Safety Mirror Keys
 
@@ -31,6 +32,8 @@ The v0.14.0 data safety pass adds separate last-known-good mirror keys. These do
 | `steeler_lkg_ec_settings_v1_meta` | Mirror metadata for legacy EC settings |
 | `steeler_lkg_abbr_db_v1` | `STEELER_ABBR_DB_V1` |
 | `steeler_lkg_abbr_db_v1_meta` | Mirror metadata for weather abbreviations |
+| `steeler_lkg_dpp_templates_v1` | `steeler_dpp_templates_v1` |
+| `steeler_lkg_dpp_templates_v1_meta` | Mirror metadata for DPP templates |
 
 Mirror metadata has this shape:
 
@@ -186,6 +189,32 @@ Tide stations are planned data. Manual fields are the editable source of truth; 
 ```
 
 `distToNext`, `cogToNext`, `timeToNext`, and `fuelToNext` are recalculated from coordinates and planned speed. They are stored in passage data today, but should be treated as derived values.
+
+## DppTemplateStore
+
+Stored separately from passages in `steeler_dpp_templates_v1`. These templates are global reusable copies of a single leg's Detailed Passage Plan. Applying a template replaces the currently selected leg's DPP only after confirmation and does not change the passage route, storage keys, or passage data shape.
+
+```js
+{
+  version: 1,
+  updatedAt: "2026-05-04T12:00:00.000Z",
+  templates: DppTemplate[]
+}
+```
+
+## DppTemplate
+
+```js
+{
+  id: "dpp_tpl_...",
+  name: "Lymington to Bembridge",
+  createdAt: "2026-05-04T12:00:00.000Z",
+  updatedAt: "2026-05-04T12:10:00.000Z",
+  detailed: DetailedPassagePlan
+}
+```
+
+DPP templates include waypoint planned speeds plus the leg-specific `hazards`, `portsOfRefuge`, and `crewWelfare` fields. When a template is used, waypoint IDs are regenerated for the target leg so the saved template remains independent of the passage.
 
 ## LogEntry
 
