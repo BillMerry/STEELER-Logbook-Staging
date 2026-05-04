@@ -1,6 +1,6 @@
 # STEELER Logbook Architecture
 
-This document records the v1.0.0-rc1 architecture foundation, including the v0.20.x sea-use tweaks.
+This document records the v1.0.0 architecture foundation, including the v0.20.x sea-use tweaks.
 
 STEELER Logbook is a vanilla HTML/CSS/JavaScript offline-first PWA intended for iPad use at sea. Reliability, predictable offline behaviour and preservation of existing passage data are more important than reducing file size or changing code shape for its own sake.
 
@@ -59,7 +59,7 @@ Saved manual log entries remain the source of truth. A liveData adapter must not
 
 ## Areas Deliberately Left In app.js
 
-Settings UI, Ports UI, log-entry workflow and PWA/update/reset handling remain in `app.js` for v1.0.0-rc1.
+Settings UI, Ports UI, log-entry workflow and PWA/update/reset handling remain in `app.js` for v1.0.0.
 
 These areas are still tightly coupled to application state, DOM event binding, modal behaviour, startup ordering and user workflows. Moving them before release hardening would add coordination risk without enough practical benefit. Future extraction should happen only when a specific defect, feature or repeated-maintenance pain makes the boundary clearer.
 

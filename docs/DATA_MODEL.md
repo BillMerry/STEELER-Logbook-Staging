@@ -1,6 +1,6 @@
 # STEELER Logbook Data Model
 
-This document records the local data shapes used by the v1.0.0-rc1 release-candidate build. It began as the v0.11.5 baseline documentation and has been updated as the architecture foundation work added safety mirrors, modules, v0.20.x sea-use tweaks, and reusable Detailed Passage Plan templates.
+This document records the local data shapes used by the v1.0.0 build. It began as the v0.11.5 baseline documentation and has been updated as the architecture foundation work added safety mirrors, modules, v0.20.x sea-use tweaks, and reusable Detailed Passage Plan templates.
 
 The app is an offline-first browser PWA. User data is stored in `localStorage` as JSON strings, except for the theme value. Storage keys and data shapes must not be changed without an explicit migration plan and backup/restore testing.
 
