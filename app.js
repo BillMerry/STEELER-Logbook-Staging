@@ -4,7 +4,7 @@ const STORAGE_KEY = "steeler_logbook_passages_v5";
 const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 
-const APP_VERSION = "0.20.1-staging";
+const APP_VERSION = "0.20.1a-staging";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
