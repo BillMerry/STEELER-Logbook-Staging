@@ -73,6 +73,10 @@ Run these before a v1.0.0-facing release:
 - Import a GPX file if available.
 - Add Engine Start, Slip, manual underway entry, Dock, and Shutdown entries.
 - Confirm EC start/end SMS text generation still opens the SMS flow.
+- For a multi-leg passage, confirm EC start SMS mentions the transit stop and active leg, and non-final EC end SMS says another start message will follow.
+- Save a Detailed Passage Plan as a reusable template, apply it to another leg after confirmation, and delete the template.
+- Confirm DPP Hazards, Ports of Refuge and Crew Welfare remain separate per leg.
+- Confirm Manage Ports coordinate links open Apple Maps and Apple Maps-style decimal coordinates can be pasted into coordinate fields.
 - Fetch weather online, then confirm typed weather remains usable offline.
 - Paste tide data into a tide station.
 - Export CSV and PDF/print.

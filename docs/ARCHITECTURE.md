@@ -1,6 +1,6 @@
 # STEELER Logbook Architecture
 
-This document records the v0.19.0 release-hardening architecture foundation.
+This document records the v1.0.0-rc1 architecture foundation, including the v0.20.x sea-use tweaks.
 
 STEELER Logbook is a vanilla HTML/CSS/JavaScript offline-first PWA intended for iPad use at sea. Reliability, predictable offline behaviour and preservation of existing passage data are more important than reducing file size or changing code shape for its own sake.
 
@@ -59,6 +59,18 @@ Saved manual log entries remain the source of truth. A liveData adapter must not
 
 ## Areas Deliberately Left In app.js
 
-Settings UI, Ports UI, log-entry workflow and PWA/update/reset handling remain in `app.js` for v0.19.0.
+Settings UI, Ports UI, log-entry workflow and PWA/update/reset handling remain in `app.js` for v1.0.0-rc1.
 
 These areas are still tightly coupled to application state, DOM event binding, modal behaviour, startup ordering and user workflows. Moving them before release hardening would add coordination risk without enough practical benefit. Future extraction should happen only when a specific defect, feature or repeated-maintenance pain makes the boundary clearer.
+
+## v0.20.x Sea-Use Tweaks Included In RC1
+
+- New app icon assets are part of the cached PWA shell.
+- Apple Maps is used for port coordinate links where location correction/copy-back is useful.
+- Apple Maps-style decimal coordinate input is accepted at coordinate entry points.
+- Settings panels open/close consistently and reset to closed when Settings is reopened.
+- Safety/Emergency Info sits within the Settings card flow.
+- Manage Ports layout and coordinate links are tuned for iPad use.
+- Detailed Passage Plan templates are stored globally in a separate localStorage key and can be applied to the selected leg after confirmation.
+- DPP hazards, ports of refuge and crew welfare fields are leg-specific within the existing multi-leg DPP model.
+- Multi-leg EC start/end SMS wording reflects transit stops and per-leg passage completion.
