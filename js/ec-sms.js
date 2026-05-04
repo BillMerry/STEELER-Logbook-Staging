@@ -102,18 +102,19 @@ function getPassageEtaInfo(p, detailedPlan = null){
 
 function getSmsMultiLegContext(p, activeLeg){
   const legCount = typeof getLegCount === "function" ? getLegCount(p) : 1;
-  if (legCount <= 1) return "";
+  if (legCount <= 1) return null;
 
   const names = typeof getRouteNames === "function" ? getRouteNames(p) : [];
-  const fullRoute = names.length > 1 ? names.join(" → ") : "";
+  const transitPorts = names.slice(1, -1).filter(Boolean);
   const routeLeg = getRouteLegNames(p, activeLeg);
   const origin = String(routeLeg.origin || "").trim();
   const destination = String(routeLeg.destination || "").trim();
-  const legText = `This message covers leg ${activeLeg + 1} of ${legCount}${origin || destination ? `: ${origin || "origin"} to ${destination || "destination"}` : ""}.`;
 
-  return fullRoute
-    ? `Full passage route: ${fullRoute}. ${legText} `
-    : `${legText} `;
+  return {
+    legCount,
+    transitText: transitPorts.join(", "),
+    legText: `This message covers leg ${activeLeg + 1} of ${legCount}: ${origin || "origin"} to ${destination || "destination"}.`
+  };
 }
 
 function buildEcStartSms(p, legIdx = null){
@@ -140,10 +141,16 @@ function buildEcStartSms(p, legIdx = null){
   const etaInfo = getPassageEtaInfo(p, detailedPlan);
   const pob = p.pob || "?";
   const multiLegContext = getSmsMultiLegContext(p, activeLeg);
+  const fullOrigin = String(p?.plan?.from || origin || "").trim();
+  const fullDestination = String(p?.plan?.to || destination || "").trim();
 
-  const intro = `LOOKOUT REQUEST
+  const intro = multiLegContext
+    ? `LOOKOUT REQUEST
 
-Thanks for agreeing to look out for us during ${vessel.boatName || "our vessel"}'s passage from ${origin || "our origin"} to ${destination || "our destination"} today. ${multiLegContext}${etaInfo.etaText ? `We expect to arrive around ${etaInfo.etaText}. ` : ""}We'll message you once we've completed the passage to confirm our arrival.`;
+Thanks for agreeing to look out for us during ${vessel.boatName || "our vessel"}'s passage from ${fullOrigin || "our origin"} to ${fullDestination || "our destination"} today. We will be making a stop off at ${multiLegContext.transitText || "our transit port"}. ${multiLegContext.legText} We'll message you once we've completed this leg of the passage to confirm our arrival.`
+    : `LOOKOUT REQUEST
+
+Thanks for agreeing to look out for us during ${vessel.boatName || "our vessel"}'s passage from ${origin || "our origin"} to ${destination || "our destination"} today. ${etaInfo.etaText ? `We expect to arrive around ${etaInfo.etaText}. ` : ""}We'll message you once we've completed the passage to confirm our arrival.`;
 
   const vesselBlock = `VESSEL
 Persons on Board: ${pob}
@@ -197,8 +204,16 @@ MMSI: ${mmsi}`;
 
 function buildEcEndSms(p, legIdx = null){
   const activeLeg = Number.isFinite(Number(legIdx)) ? Number(legIdx) : getCurrentLegIndex(p);
+  const legCount = typeof getLegCount === "function" ? getLegCount(p) : 1;
   const routeLeg = getRouteLegNames(p, activeLeg);
   const destination = String(routeLeg.destination || p?.plan?.to || "").trim();
+
+  if (legCount > 1 && activeLeg < legCount - 1) {
+    return destination
+      ? `Thanks for looking out for us during our passage to ${destination} today. We've arrived safely and our passage plan is now ended. We will message you when we start the next leg of the passage.`
+      : `Thanks for looking out for us during this leg of our passage today. We've arrived safely and our passage plan is now ended. We will message you when we start the next leg of the passage.`;
+  }
+
   return destination
     ? `Thanks for looking out for us during our passage to ${destination} today. We've arrived safely and our passage plan is now ended.`
     : `Thanks for looking out for us during our passage today. We've arrived safely and our passage plan is now ended.`;
