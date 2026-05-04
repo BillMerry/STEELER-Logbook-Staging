@@ -41,6 +41,25 @@ body[data-theme="night"]{
   background:var(--bg);
   padding:0.5rem 0.75rem 0.35rem;
   border-bottom:3px solid var(--accent);
+  display:flex;
+  align-items:stretch;
+  gap:0.7rem;
+}
+
+.app-header-logo{
+  flex:0 0 auto;
+  width:auto;
+  height:auto;
+  max-height:5.45rem;
+  aspect-ratio:1 / 1;
+  object-fit:contain;
+  align-self:stretch;
+  border-radius:10px;
+}
+
+.header-content{
+  flex:1 1 auto;
+  min-width:0;
 }
 
 .header-top{display:flex;align-items:center;justify-content:space-between}
