@@ -1,6 +1,6 @@
 # STEELER Logbook Architecture
 
-This document records the v1.0.1-rc2 staging architecture foundation, including the v0.20.x sea-use tweaks and Detailed Passage Plan template management.
+This document records the v1.0.1 architecture foundation, including the v0.20.x sea-use tweaks and Detailed Passage Plan template management.
 
 STEELER Logbook is a vanilla HTML/CSS/JavaScript offline-first PWA intended for iPad use at sea. Reliability, predictable offline behaviour and preservation of existing passage data are more important than reducing file size or changing code shape for its own sake.
 
