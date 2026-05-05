@@ -3516,13 +3516,13 @@ function openDppTemplateEditor(id){
       </div>
       <button type="button" class="btn btn-secondary btn-small" id="templateDppAddWaypoint" style="margin-top:0.55rem;">+ Add Waypoint</button>
       <div style="margin-top:0.8rem;">
-        <label>Hazards <textarea id="templateDppHazards" rows="2">${escapeHtml(detailed.hazards || "")}</textarea></label>
+        <label class="template-dpp-notes-label"><span>Hazards</span><textarea id="templateDppHazards" rows="2">${escapeHtml(detailed.hazards || "")}</textarea></label>
       </div>
       <div style="margin-top:0.6rem;">
-        <label>Ports of Refuge <textarea id="templateDppPortsOfRefuge" rows="2">${escapeHtml(detailed.portsOfRefuge || "")}</textarea></label>
+        <label class="template-dpp-notes-label"><span>Ports of Refuge</span><textarea id="templateDppPortsOfRefuge" rows="2">${escapeHtml(detailed.portsOfRefuge || "")}</textarea></label>
       </div>
       <div style="margin-top:0.6rem;">
-        <label>Crew Welfare <textarea id="templateDppCrewWelfare" rows="2">${escapeHtml(detailed.crewWelfare || "")}</textarea></label>
+        <label class="template-dpp-notes-label"><span>Crew Welfare</span><textarea id="templateDppCrewWelfare" rows="2">${escapeHtml(detailed.crewWelfare || "")}</textarea></label>
       </div>
     `,
     onOk: () => {
