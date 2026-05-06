@@ -11,9 +11,11 @@ function getDetailedPassagePlanMount(){
   mount.id = "detailedPassagePlanSection";
   mount.className = "card";
 
-  const anchor = addDailySummaryBtn;
-  if (anchor && anchor.parentNode) {
-    anchor.parentNode.insertBefore(mount, anchor.nextSibling);
+  const host = document.getElementById("detailedPassagePlanHost");
+  if (host) {
+    host.appendChild(mount);
+  } else if (addDailySummaryBtn && addDailySummaryBtn.parentNode) {
+    addDailySummaryBtn.parentNode.insertBefore(mount, addDailySummaryBtn.nextSibling);
   } else if (dailySummariesContainer && dailySummariesContainer.parentNode) {
     dailySummariesContainer.parentNode.appendChild(mount);
   } else if (planForm) {

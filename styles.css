@@ -2201,6 +2201,177 @@ body[data-theme="night"] .settings-card-icon{
   outline-offset:3px;
 }
 
+/* --- v1.1.0-rc3 Passage Plan redesign ----------------------------------- */
+.plan-redesign-form{
+  max-width:1180px;
+  margin:0 auto;
+}
+
+.plan-page-heading{
+  align-items:center;
+  display:flex;
+  gap:var(--st-space-3);
+  justify-content:space-between;
+  margin-bottom:var(--st-space-4);
+}
+
+.plan-page-heading h2{
+  margin:0;
+}
+
+.plan-page-heading p{
+  margin:0.25rem 0 0;
+}
+
+.plan-card-grid{
+  display:grid;
+  gap:var(--st-space-3);
+  grid-template-columns:repeat(12,minmax(0,1fr));
+}
+
+.st-plan-card{
+  background:var(--st-surface);
+  border:1px solid var(--st-border);
+  border-radius:var(--st-radius-md);
+  box-shadow:var(--st-shadow-card);
+  padding:var(--st-space-3);
+}
+
+.st-plan-card-header{
+  align-items:flex-start;
+  border-bottom:1px solid var(--st-border);
+  display:flex;
+  gap:var(--st-space-3);
+  justify-content:space-between;
+  margin:calc(var(--st-space-3) * -1) calc(var(--st-space-3) * -1) var(--st-space-3);
+  padding:var(--st-space-3);
+}
+
+.st-plan-card-header h3{
+  color:var(--st-text);
+  font-size:0.98rem;
+  margin:0.1rem 0 0;
+}
+
+.st-card-kicker{
+  color:var(--st-accent-strong);
+  font-size:0.72rem;
+  font-weight:850;
+  letter-spacing:0.06em;
+  margin:0;
+  text-transform:uppercase;
+}
+
+.st-plan-card-actions{
+  align-items:center;
+  display:flex;
+  flex-wrap:wrap;
+  gap:var(--st-space-2);
+  justify-content:flex-end;
+}
+
+.plan-overview-card,
+.plan-crew-card{
+  grid-column:span 6;
+}
+
+.plan-route-card,
+.plan-environment-card,
+.plan-tides-card,
+.plan-daily-card,
+.planning-summary-card,
+.plan-dpp-host{
+  grid-column:1 / -1;
+}
+
+.plan-field-grid{
+  display:grid;
+  gap:var(--st-space-3);
+}
+
+.plan-field-grid.two-col{
+  grid-template-columns:repeat(2,minmax(0,1fr));
+}
+
+.plan-textarea-grid textarea{
+  min-height:7rem;
+}
+
+.weather-action-row{
+  align-items:center;
+  display:flex;
+  flex-wrap:wrap;
+  gap:var(--st-space-2);
+  margin:0.35rem 0 0.45rem;
+}
+
+.plan-redesign-form label{
+  color:var(--st-text-muted);
+  font-size:0.78rem;
+  font-weight:750;
+}
+
+.plan-redesign-form input,
+.plan-redesign-form textarea,
+.plan-redesign-form select{
+  margin-top:0.25rem;
+}
+
+.plan-redesign-form .grid-span-2{
+  grid-column:1 / -1;
+}
+
+.plan-redesign-form .plan-ports-grid{
+  gap:var(--st-space-3);
+}
+
+.plan-redesign-form .transit-remove-btn{
+  align-self:flex-start;
+  margin-top:0.45rem;
+}
+
+.plan-page-summary-strip{
+  grid-template-columns:repeat(4,minmax(7.5rem,1fr));
+  margin:0;
+}
+
+.plan-dpp-host{
+  margin-top:var(--st-space-3);
+}
+
+#detailedPassagePlanSection.card{
+  background:var(--st-surface);
+  border:1px solid var(--st-border);
+  border-radius:var(--st-radius-md);
+  box-shadow:var(--st-shadow-card);
+  margin:0;
+  padding:var(--st-space-3);
+}
+
+#detailedPassagePlanSection h3{
+  color:var(--st-text);
+  font-size:1rem;
+  margin:0 0 var(--st-space-3);
+}
+
+#detailedPassagePlanSection .dpp-leg-tabs{
+  margin-bottom:var(--st-space-3);
+}
+
+#detailedPassagePlanSection .dpp-leg-tab.active{
+  background:var(--st-accent-soft);
+  border-color:var(--st-accent-border);
+  color:var(--st-accent-strong);
+}
+
+#detailedPassagePlanSection .log-table{
+  border:1px solid var(--st-border);
+}
+
+#detailedPassagePlanSection .dpp-totals-row td{
+  background:var(--st-surface-muted);
+}
+
 .log-layout{
   gap:var(--st-space-3);
 }
@@ -2383,6 +2554,15 @@ body[data-theme="night"] .log-entry-row:nth-child(even) .log-display-cell{
     flex-basis:50%;
     max-width:50%;
   }
+
+  .plan-overview-card,
+  .plan-crew-card{
+    grid-column:1 / -1;
+  }
+
+  .plan-page-summary-strip{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
 }
 
 @media (max-width: 760px){
@@ -2402,6 +2582,25 @@ body[data-theme="night"] .log-entry-row:nth-child(even) .log-display-cell{
   .log-status-primary{
     align-items:flex-start;
     flex-direction:column;
+  }
+
+  .plan-page-heading{
+    align-items:stretch;
+    flex-direction:column;
+  }
+
+  .st-plan-card-header{
+    align-items:stretch;
+    flex-direction:column;
+  }
+
+  .st-plan-card-actions{
+    justify-content:flex-start;
+  }
+
+  .plan-field-grid.two-col,
+  .plan-page-summary-strip{
+    grid-template-columns:1fr;
   }
 
   .log-layout{

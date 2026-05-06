@@ -71,131 +71,200 @@
 
     <!-- PLAN TAB -->
     <section id="planTab" class="tab">
-      <form id="planForm" class="form">
-        <h2>Passage Plan</h2>
-
-        <div class="row row-date">
-          <label class="field-compact">
-            Date
-            <input type="date" id="planDate" required />
-          </label>
-
-          <label class="field-compact">
-            Sunrise / Sunset
-            <input type="text" id="planSunriseSet" placeholder="e.g. 05:12 / 21:18 (BST)" />
-          </label>
-        </div>
-
-        <div class="row row-date">
-          <label class="field-compact">
-            Moon phase
-            <input type="text" id="planMoonPhase" placeholder="e.g. Waxing gibbous" />
-          </label>
-
-          <label class="field-compact">
-            Moon rise / set
-            <input type="text" id="planMoonRiseSet" placeholder="e.g. 14:22 / 03:10 (GMT)" />
-          </label>
-        </div>
-
-        <div class="plan-ports-header">
-          <h4 style="margin:0">Route</h4>
-          <div style="display:flex; gap:8px; align-items:center;">
-            <button type="button" id="extendLegBtn" class="btn btn-secondary btn-small" title="Add a new leg by making the current destination a transit port and choosing a new destination">
-              + Add Leg
-            </button>
-            <button type="button" id="addTransitPortBtn" class="btn btn-secondary btn-small">
-              + Transit Port
-            </button>
+      <form id="planForm" class="form plan-redesign-form">
+        <div class="plan-page-heading">
+          <div>
+            <h2>Passage Plan</h2>
+            <p class="st-helper-text">Review the passage context, route, crew, tides and planning notes before logging underway.</p>
           </div>
+          <button type="submit" class="btn btn-primary plan-save-btn">Save Plan</button>
         </div>
 
-        <div id="planPortsGrid" class="plan-ports-grid" style="--cols:2">
-          <label>
-            Origin
-            <input type="text" id="planFrom" placeholder="e.g. St Peter Port" autocomplete="off" />
-            <div id="planFromSuggest" class="port-suggest hidden"></div>
-          </label>
+        <div class="plan-card-grid">
+          <section class="st-plan-card plan-overview-card" id="planOverviewCard">
+            <div class="st-plan-card-header">
+              <div>
+                <p class="st-card-kicker">Passage Overview</p>
+                <h3>Date, light and astronomy</h3>
+              </div>
+            </div>
+            <div class="plan-field-grid two-col">
+              <label class="field-compact">
+                Date
+                <input type="date" id="planDate" required />
+              </label>
 
-          <label id="tp1Label" class="transit-label hidden">
-            Transit Port 1
-            <input type="text" id="planTransit1" placeholder="e.g. Cherbourg" autocomplete="off" />
-            <div id="planTransit1Suggest" class="port-suggest hidden"></div>
-            <button type="button" class="btn btn-secondary btn-small transit-remove-btn" data-transit-remove="0">Remove</button>
-          </label>
+              <label class="field-compact">
+                Sunrise / Sunset
+                <input type="text" id="planSunriseSet" placeholder="e.g. 05:12 / 21:18 (BST)" />
+              </label>
 
-          <label id="tp2Label" class="transit-label hidden">
-            Transit Port 2
-            <input type="text" id="planTransit2" placeholder="" autocomplete="off" />
-            <div id="planTransit2Suggest" class="port-suggest hidden"></div>
-            <button type="button" class="btn btn-secondary btn-small transit-remove-btn" data-transit-remove="1">Remove</button>
-          </label>
+              <label class="field-compact">
+                Moon phase
+                <input type="text" id="planMoonPhase" placeholder="e.g. Waxing gibbous" />
+              </label>
 
-          <label id="tp3Label" class="transit-label hidden">
-            Transit Port 3
-            <input type="text" id="planTransit3" placeholder="" autocomplete="off" />
-            <div id="planTransit3Suggest" class="port-suggest hidden"></div>
-            <button type="button" class="btn btn-secondary btn-small transit-remove-btn" data-transit-remove="2">Remove</button>
-          </label>
+              <label class="field-compact">
+                Moon rise / set
+                <input type="text" id="planMoonRiseSet" placeholder="e.g. 14:22 / 03:10 (GMT)" />
+              </label>
+            </div>
+          </section>
 
-          <label>
-            Intended Destination
-            <input type="text" id="planTo" placeholder="e.g. Lymington" autocomplete="off" />
-            <div id="planToSuggest" class="port-suggest hidden"></div>
-          </label>
+          <section class="st-plan-card plan-route-card" id="planRouteCard">
+            <div class="st-plan-card-header">
+              <div>
+                <p class="st-card-kicker">Route</p>
+                <h3>Origin, transit ports and destination</h3>
+              </div>
+              <div class="st-plan-card-actions">
+                <button type="button" id="extendLegBtn" class="btn btn-secondary btn-small" title="Add a new leg by making the current destination a transit port and choosing a new destination">
+                  + Add Leg
+                </button>
+                <button type="button" id="addTransitPortBtn" class="btn btn-secondary btn-small">
+                  + Transit Port
+                </button>
+              </div>
+            </div>
+
+            <div id="planPortsGrid" class="plan-ports-grid" style="--cols:2">
+              <label>
+                Origin
+                <input type="text" id="planFrom" placeholder="e.g. St Peter Port" autocomplete="off" />
+                <div id="planFromSuggest" class="port-suggest hidden"></div>
+              </label>
+
+              <label id="tp1Label" class="transit-label hidden">
+                Transit Port 1
+                <input type="text" id="planTransit1" placeholder="e.g. Cherbourg" autocomplete="off" />
+                <div id="planTransit1Suggest" class="port-suggest hidden"></div>
+                <button type="button" class="btn btn-secondary btn-small transit-remove-btn" data-transit-remove="0">Remove</button>
+              </label>
+
+              <label id="tp2Label" class="transit-label hidden">
+                Transit Port 2
+                <input type="text" id="planTransit2" placeholder="" autocomplete="off" />
+                <div id="planTransit2Suggest" class="port-suggest hidden"></div>
+                <button type="button" class="btn btn-secondary btn-small transit-remove-btn" data-transit-remove="1">Remove</button>
+              </label>
+
+              <label id="tp3Label" class="transit-label hidden">
+                Transit Port 3
+                <input type="text" id="planTransit3" placeholder="" autocomplete="off" />
+                <div id="planTransit3Suggest" class="port-suggest hidden"></div>
+                <button type="button" class="btn btn-secondary btn-small transit-remove-btn" data-transit-remove="2">Remove</button>
+              </label>
+
+              <label>
+                Intended Destination
+                <input type="text" id="planTo" placeholder="e.g. Lymington" autocomplete="off" />
+                <div id="planToSuggest" class="port-suggest hidden"></div>
+              </label>
+            </div>
+          </section>
+
+          <section class="st-plan-card plan-crew-card" id="planCrewCard">
+            <div class="st-plan-card-header">
+              <div>
+                <p class="st-card-kicker">Crew &amp; Vessel</p>
+                <h3>People and vessel details</h3>
+              </div>
+            </div>
+            <div class="plan-field-grid two-col">
+              <label>
+                Vessel
+                <input type="text" id="planVessel" value="STEELER" />
+              </label>
+              <label>
+                Skipper
+                <input type="text" id="planSkipper" placeholder="e.g. Bill" />
+              </label>
+
+              <label class="grid-span-2">
+                Crew
+                <input type="text" id="planCrew" placeholder="Names (optional)" />
+              </label>
+            </div>
+          </section>
+
+          <section class="st-plan-card plan-tides-card" id="planTidesCard">
+            <div class="st-plan-card-header">
+              <div>
+                <p class="st-card-kicker">Tides</p>
+                <h3>Coefficient and tide stations</h3>
+              </div>
+              <button type="button" id="addTideStationBtn" class="btn btn-secondary btn-small">
+                + Add Station
+              </button>
+            </div>
+            <div class="plan-field-grid">
+              <label>
+                Tidal Coefficient
+                <input type="text" id="planTidalCoeff" placeholder="e.g. Neaps +2 / 85%" />
+              </label>
+            </div>
+            <div id="tideStationsContainer" class="grid-container"></div>
+          </section>
+
+          <section class="st-plan-card plan-environment-card" id="planEnvironmentCard">
+            <div class="st-plan-card-header">
+              <div>
+                <p class="st-card-kicker">Environmental Planning</p>
+                <h3>Weather, tides, comms and notes</h3>
+              </div>
+            </div>
+            <div class="plan-field-grid two-col plan-textarea-grid">
+              <label>
+                Tidal Currents / Flows
+                <textarea id="planCurrents" rows="4" placeholder="Notes on tidal streams, overfalls, gates, etc."></textarea>
+              </label>
+
+              <label>
+                Comms / Pilotage Notes
+                <textarea id="planComms" rows="4" placeholder="VHF channels, phone numbers, pilotage notes..."></textarea>
+              </label>
+
+              <label class="grid-span-2">
+                Weather (Inshore Waters)
+                <div class="weather-action-row">
+                  <button id="btnFetchWeather" class="btn btn-secondary btn-small" type="button">Fetch Met Office</button>
+                  <button id="btnFetchWeatherFR" class="btn btn-secondary btn-small" type="button">Fetch Météo-France</button>
+                  <div id="weatherFetchStatus" class="hint"></div>
+                </div>
+                <textarea id="planWeather" rows="6" placeholder="Met Office Inshore Waters forecast summary..."></textarea>
+              </label>
+            </div>
+          </section>
+
+          <section class="st-plan-card plan-daily-card" id="planDailySummaryCard">
+            <div class="st-plan-card-header">
+              <div>
+                <p class="st-card-kicker">Daily Summary</p>
+                <h3>Daily fees and notes</h3>
+              </div>
+              <button type="button" id="addDailySummaryBtn" class="btn btn-secondary btn-small">
+                + Add Day
+              </button>
+            </div>
+            <div id="dailySummariesContainer" class="grid-container ds-grid"></div>
+          </section>
+
+          <section class="st-plan-card planning-summary-card" id="planningSummaryCard">
+            <div class="st-plan-card-header">
+              <div>
+                <p class="st-card-kicker">Planning Summary</p>
+                <h3>Route totals and detailed plan</h3>
+              </div>
+              <div class="st-plan-card-actions">
+                <button type="button" id="planOpenDppBtn" class="btn btn-secondary btn-small">Open Detailed Passage Plan</button>
+                <button type="submit" class="btn btn-primary btn-small">Save Plan</button>
+              </div>
+            </div>
+            <div id="planPageSummaryStrip" class="st-metric-strip plan-page-summary-strip" aria-live="polite"></div>
+          </section>
         </div>
 
-        <div class="grid-2">
-          <label>
-            Vessel
-            <input type="text" id="planVessel" value="STEELER" />
-          </label>
-          <label>
-            Skipper
-            <input type="text" id="planSkipper" placeholder="e.g. Bill" />
-          </label>
-
-          <label class="grid-span-2">
-            Crew
-            <input type="text" id="planCrew" placeholder="Names (optional)" />
-          </label>
-        </div>
-<h3>Tides</h3>
-        <div class="grid-2">
-          <label>
-            Tidal Coefficient
-            <input type="text" id="planTidalCoeff" placeholder="e.g. Neaps +2 / 85%" />
-          </label>
-        </div>
-
-        <div class="tide-stations-header">
-          <h4>Tide Stations</h4>
-          <button type="button" id="addTideStationBtn" class="btn btn-secondary btn-small">
-            + Add Station
-          </button>
-        </div>
-        <div id="tideStationsContainer" class="grid-container"></div>
-
-        <h3>Tidal Currents / Flows</h3>
-        <textarea id="planCurrents" rows="3" placeholder="Notes on tidal streams, overfalls, gates, etc."></textarea>
-
-        <h3>Weather (Inshore Waters)</h3>
-        <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-bottom:0.35rem">
-          <button id="btnFetchWeather" class="btn btn-secondary btn-small" type="button">Fetch Met Office</button>
-          <button id="btnFetchWeatherFR" class="btn btn-secondary btn-small" type="button">Fetch Météo-France</button>
-          <div id="weatherFetchStatus" class="hint"></div>
-        </div>
-        <textarea id="planWeather" rows="6" placeholder="Met Office Inshore Waters forecast summary..."></textarea>
-
-        <h3>Comms / Pilotage Notes</h3>
-        <textarea id="planComms" rows="4" placeholder="VHF channels, phone numbers, pilotage notes..."></textarea>
-<h3>Daily Summary</h3>
-        <div id="dailySummariesContainer" class="grid-container ds-grid"></div>
-        <button type="button" id="addDailySummaryBtn" class="btn btn-secondary btn-small">
-          + Add Day
-        </button>
-
-        <button type="submit" class="btn btn-primary plan-save-btn">Save Plan</button>
+        <div id="detailedPassagePlanHost" class="plan-dpp-host"></div>
       </form>
     </section>
 

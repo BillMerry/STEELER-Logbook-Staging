@@ -5,7 +5,7 @@ const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 
-const APP_VERSION = "1.1.0-rc2c";
+const APP_VERSION = "1.1.0-rc3";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -1494,6 +1494,8 @@ const tideStationsContainer = document.getElementById("tideStationsContainer");
 const addTideStationBtn = document.getElementById("addTideStationBtn");
 const dailySummariesContainer = document.getElementById("dailySummariesContainer");
 const addDailySummaryBtn = document.getElementById("addDailySummaryBtn");
+const planPageSummaryStrip = document.getElementById("planPageSummaryStrip");
+const planOpenDppBtn = document.getElementById("planOpenDppBtn");
 
 const addEntryBtn = document.getElementById("addEntryBtn");
 const logEntriesContainer = document.getElementById("logEntriesContainer");
@@ -3837,6 +3839,16 @@ addDailySummaryBtn.addEventListener("click", () => {
   renderDailySummaries(p);
 });
 
+planOpenDppBtn?.addEventListener("click", () => {
+  const p = getCurrentPassage();
+  if (p && typeof renderDetailedPassagePlan === "function") renderDetailedPassagePlan(p);
+  const target = document.getElementById("detailedPassagePlanSection");
+  if (target) {
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    flashNavigationTarget(target);
+  }
+});
+
 window.addEventListener("DOMContentLoaded", () => { try { const p = getCurrentPassage(); if (p) renderDetailedPassagePlan(p); } catch(e){} });
 
 // Sync auto tide stations on input (not just change)
@@ -4796,6 +4808,68 @@ function updatePlanSummaryPanel() {
   `;
 
   try { setupPlanSummaryIndependentScroll(); } catch (e) {}
+  try { updatePlanPageSummaryStrip(); } catch (e) {}
+}
+
+function getPlanPageDetailedTotals(p) {
+  if (!p || typeof ensureDetailedPassagePlans !== "function") {
+    return { legs: 0, distance: "–", duration: "–", fuel: "–" };
+  }
+
+  ensureDetailedPassagePlans(p);
+  const legCount = getLegCount(p);
+  let totalNm = 0;
+  let totalFuel = 0;
+  let totalMinutes = 0;
+  let hasNm = false;
+  let hasFuel = false;
+  let hasMinutes = false;
+
+  for (let i = 0; i < legCount; i += 1) {
+    recalcDetailedPassagePlan(p, i);
+    const detailed = getDetailedPassagePlanForLeg(p, i);
+    const totals = calcDetailedPassagePlanTotals(detailed?.waypoints || []);
+    const nm = parseFloat(totals.totalNm);
+    const fuel = parseFloat(totals.totalFuel);
+    const minutes = durationHHMMToMinutes(totals.totalDuration || "00:00");
+
+    if (Number.isFinite(nm) && nm > 0) {
+      totalNm += nm;
+      hasNm = true;
+    }
+    if (Number.isFinite(fuel) && fuel > 0) {
+      totalFuel += fuel;
+      hasFuel = true;
+    }
+    if (Number.isFinite(minutes) && minutes > 0) {
+      totalMinutes += minutes;
+      hasMinutes = true;
+    }
+  }
+
+  return {
+    legs: legCount,
+    distance: hasNm ? totalNm.toFixed(1) : "–",
+    duration: hasMinutes ? minutesToHHMM(totalMinutes) : "–",
+    fuel: hasFuel ? totalFuel.toFixed(1) : "–"
+  };
+}
+
+function updatePlanPageSummaryStrip() {
+  if (!planPageSummaryStrip) return;
+  const p = getCurrentPassage();
+  if (!p) {
+    planPageSummaryStrip.innerHTML = '<span class="st-metric-chip"><span>Passage</span><strong>None selected</strong></span>';
+    return;
+  }
+
+  const totals = getPlanPageDetailedTotals(p);
+  planPageSummaryStrip.innerHTML = `
+    <span class="st-metric-chip"><span>Legs</span><strong>${escapeHtml(String(totals.legs || "–"))}</strong></span>
+    <span class="st-metric-chip"><span>Distance (NM)</span><strong>${escapeHtml(totals.distance)}</strong></span>
+    <span class="st-metric-chip"><span>Est. Duration</span><strong>${escapeHtml(totals.duration)}</strong></span>
+    <span class="st-metric-chip"><span>Est. Fuel (L)</span><strong>${escapeHtml(totals.fuel)}</strong></span>
+  `;
 }
 
 function setupPlanSummaryIndependentScroll(){
