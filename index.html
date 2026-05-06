@@ -13,13 +13,13 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="STEELER Logbook">
 </head>
-<body>
-  <header class="app-header">
+<body class="st-app-shell st-build-staging">
+  <header class="app-header st-page-header">
     <img class="app-header-logo" src="icons/steeler-192.png" alt="" aria-hidden="true">
     <div class="header-content">
       <div class="header-top">
         <h1>STEELER Logbook</h1>
-        <button id="themeToggleBtn" class="btn btn-secondary btn-small">Night</button>
+        <button id="themeToggleBtn" class="btn btn-secondary btn-small st-button st-button-secondary">Night</button>
       </div>
 
       <div class="header-bottom">
@@ -33,11 +33,11 @@
         </div>
       </div>
 
-      <nav class="tabs">
-        <button class="tab-btn active" data-tab="homeTab">Home</button>
-        <button class="tab-btn" data-tab="planTab">Plan</button>
-        <button class="tab-btn" data-tab="logTab">Log</button>
-        <button class="tab-btn" data-tab="settingsTab">Settings</button>
+      <nav class="tabs st-tabs">
+        <button class="tab-btn active st-tab st-tab-active" data-tab="homeTab">Home</button>
+        <button class="tab-btn st-tab" data-tab="planTab">Plan</button>
+        <button class="tab-btn st-tab" data-tab="logTab">Log</button>
+        <button class="tab-btn st-tab" data-tab="settingsTab">Settings</button>
       </nav>
     </div>
   </header>
@@ -45,12 +45,23 @@
   <main>
     <!-- HOME TAB -->
     <section id="homeTab" class="tab active">
-      <section class="home-actions">
-        <button id="homeNewPassageBtn" class="btn btn-primary">+ New Passage</button>
+      <section class="home-actions st-action-row">
+        <button id="homeNewPassageBtn" class="btn btn-primary st-button st-button-primary">+ New Passage</button>
+        <div class="home-tools" aria-label="Passage tools">
+          <label class="home-search">
+            <span class="sr-only">Search passages</span>
+            <input id="homePassageSearch" type="search" placeholder="Search passages..." autocomplete="off">
+          </label>
+          <button type="button" id="homePassageFilterBtn" class="btn btn-secondary btn-small st-button st-button-tertiary">Filter</button>
+          <button type="button" id="homePassageSortBtn" class="btn btn-secondary btn-small st-button st-button-tertiary">Date</button>
+        </div>
       </section>
 
       <section class="home-passages">
-        <h2>Passages</h2>
+        <div class="st-section-heading">
+          <h2>Passages</h2>
+          <span id="homePassageCount" class="st-helper-text"></span>
+        </div>
         <div id="homePassageList" class="passage-list"></div>
       </section>
       <section class="home-hint">
@@ -256,10 +267,17 @@
     <section id="settingsTab" class="tab">
       <section class="settings-section">
         <h2>Settings</h2>
+        <p class="settings-intro hint">Manage the app in clear operational groups. Detailed panels open only when needed.</p>
 
         <div class="settings-card" data-settings-card>
           <div class="settings-card-header">
-            <h3>Backup &amp; Restore</h3>
+            <div class="settings-card-main">
+              <span class="settings-card-icon" aria-hidden="true">DB</span>
+              <div>
+                <h3>Data &amp; Backup</h3>
+                <p>Backup, restore and move logbook data safely.</p>
+              </div>
+            </div>
             <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>Open</button>
           </div>
           <div class="settings-card-panel" data-settings-panel hidden>
@@ -274,7 +292,13 @@
 
         <div class="settings-card" data-settings-card>
           <div class="settings-card-header">
-            <h3>Ports</h3>
+            <div class="settings-card-main">
+              <span class="settings-card-icon" aria-hidden="true">PT</span>
+              <div>
+                <h3>Weather &amp; Tides</h3>
+                <p>Manage saved ports, coordinates, tides and pilotage notes.</p>
+              </div>
+            </div>
             <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>Open</button>
           </div>
           <div class="settings-card-panel" data-settings-panel hidden>
@@ -292,7 +316,13 @@
 
         <div class="settings-card" data-settings-card>
           <div class="settings-card-header">
-            <h3>Detailed Passage Plan Templates</h3>
+            <div class="settings-card-main">
+              <span class="settings-card-icon" aria-hidden="true">DP</span>
+              <div>
+                <h3>Detailed Passage Plan Templates</h3>
+                <p>Maintain reusable route templates for detailed planning.</p>
+              </div>
+            </div>
             <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>Open</button>
           </div>
           <div class="settings-card-panel" data-settings-panel hidden>

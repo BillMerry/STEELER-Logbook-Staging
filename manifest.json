@@ -6,7 +6,7 @@
   "scope": "./",
   "display": "standalone",
   "background_color": "#050608",
-  "theme_color": "#c0182f",
+  "theme_color": "#4f5b61",
   "icons": [
     {
       "src": "icons/steeler-192.png",

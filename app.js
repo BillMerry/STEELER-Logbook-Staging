@@ -5,7 +5,7 @@ const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 
-const APP_VERSION = "1.0.1";
+const APP_VERSION = "1.1.0-rc1";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -1367,7 +1367,11 @@ function switchToTab(tabId) {
   } catch {}
 
 
-  tabButtons.forEach(b => b.classList.toggle("active", b.dataset.tab === tabId));
+  tabButtons.forEach(b => {
+    const isActive = b.dataset.tab === tabId;
+    b.classList.toggle("active", isActive);
+    b.classList.toggle("st-tab-active", isActive);
+  });
   tabs.forEach(t => t.classList.toggle("active", t.id === tabId));
 
   if (tabId === "settingsTab") {
@@ -1440,6 +1444,12 @@ const tabs       = document.querySelectorAll(".tab");
 
 const homeNewPassageBtn = document.getElementById("homeNewPassageBtn");
 const homePassageList   = document.getElementById("homePassageList");
+const homePassageSearch = document.getElementById("homePassageSearch");
+const homePassageFilterBtn = document.getElementById("homePassageFilterBtn");
+const homePassageSortBtn = document.getElementById("homePassageSortBtn");
+const homePassageCount = document.getElementById("homePassageCount");
+let homePassageFilterMode = "all";
+let homePassageSortMode = "newest";
 
 const exportBackupBtn = document.getElementById("exportBackupBtn");
 const importBackupBtn = document.getElementById("importBackupBtn");
@@ -2505,53 +2515,127 @@ function attachSwipeToCard(card, passageId) {
   }, true);
 }
 
+function getPassageDashboardStatus(passage) {
+  const hasEngineStart = (passage.entries || []).some(e => inferEntryType(e) === "engine-start");
+  if (passage.finish?.shutdownLogged) return "Complete";
+  if (hasEngineStart) return "Under Way";
+  return "Planned";
+}
+
+function getPassageDateValue(passage) {
+  return passage.plan?.date || passage.createdAt?.slice(0, 10) || "";
+}
+
+function passageMatchesHomeFilter(passage) {
+  const status = getPassageDashboardStatus(passage);
+  if (homePassageFilterMode === "active") return passage.id === currentPassageId || status === "Under Way";
+  if (homePassageFilterMode === "complete") return status === "Complete";
+  return true;
+}
+
+function passageMatchesHomeSearch(passage) {
+  const q = (homePassageSearch?.value || "").trim().toLowerCase();
+  if (!q) return true;
+  const haystack = [
+    getRouteNames(passage).join(" "),
+    getPassageDateValue(passage),
+    getPassageDashboardStatus(passage),
+    passage.plan?.skipper || "",
+    passage.plan?.crew || ""
+  ].join(" ").toLowerCase();
+  return haystack.includes(q);
+}
+
+function getPassageDashboardMetrics(passage) {
+  const status = getPassageDashboardStatus(passage);
+  const legIdx = getCurrentLegIndex(passage);
+  const summary = status === "Complete"
+    ? computePassageLogSummary(passage)
+    : computeLegLogSummary(passage, legIdx);
+
+  return [
+    { label: "Under Way", value: summary.durationText || "–" },
+    { label: "Engine Hours", value: summary.ehText || "–" },
+    { label: "Fuel Used", value: summary.fuelUsed || "–" },
+    { label: "NM(G)", value: summary.gLog || summary.nmG || "–" }
+  ].map(m => `
+    <span class="st-metric-chip passage-metric">
+      <span>${escapeHtml(m.label)}</span>
+      <strong>${escapeHtml(m.value && m.value !== "undefined" ? String(m.value) : "–")}</strong>
+    </span>
+  `).join("");
+}
+
+function getPassageStatusClass(status) {
+  return String(status || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 function refreshHomePassageList() {
   homePassageList.innerHTML = "";
 
   if (passages.length === 0) {
     const p = document.createElement("p");
     p.textContent = "No passages yet. Tap “+ New Passage” to get started.";
-    p.style.opacity = "0.8";
-    p.style.fontSize = "0.85rem";
+    p.className = "hint";
+    homePassageList.appendChild(p);
+    if (homePassageCount) homePassageCount.textContent = "0 passages";
+    return;
+  }
+
+  const visiblePassages = passages
+    .filter(passage => passageMatchesHomeFilter(passage) && passageMatchesHomeSearch(passage))
+    .slice()
+    .sort((a, b) => {
+      const av = getPassageDateValue(a);
+      const bv = getPassageDateValue(b);
+      return homePassageSortMode === "oldest" ? av.localeCompare(bv) : bv.localeCompare(av);
+    });
+
+  if (homePassageCount) {
+    const totalEntries = passages.reduce((sum, p) => sum + (p.entries?.length || 0), 0);
+    homePassageCount.textContent = `${visiblePassages.length} passages • ${totalEntries} entries`;
+  }
+
+  if (visiblePassages.length === 0) {
+    const p = document.createElement("p");
+    p.textContent = "No passages match the current search or filter.";
+    p.className = "hint";
     homePassageList.appendChild(p);
     return;
   }
 
-  passages.forEach(passage => {
+  visiblePassages.forEach(passage => {
     const card = document.createElement("div");
     card.className = "passage-card" + (passage.id === currentPassageId ? " selected" : "");
 
-    const date = passage.plan.date || passage.createdAt.slice(0, 10);
+    const date = getPassageDateValue(passage);
     const routeText = getRouteNames(passage).join(" → ") || "?";
-    const hasEngineStart = (passage.entries || []).some(e => inferEntryType(e) === "engine-start");
-    const status = passage.finish?.shutdownLogged ? "Complete" : (hasEngineStart ? "In progress" : "Planned");
+    const status = getPassageDashboardStatus(passage);
     const entriesCount = passage.entries?.length || 0;
 
     const left = document.createElement("div");
     left.className = "passage-card-left";
     left.innerHTML = `
-      <div class="passage-card-title">${escapeHtml(`${date} – ${routeText}`)}</div>
-      <div class="passage-card-meta"><span>${entriesCount} entries</span><span>${status}</span></div>
+      <div class="passage-card-title">${escapeHtml(routeText)}</div>
+      <div class="passage-card-meta"><span>${escapeHtml(date)}</span><span>${entriesCount} entries</span><span class="st-status-chip status-${escapeHtml(getPassageStatusClass(status))}">${escapeHtml(status)}</span></div>
     `;
 
-
-    // Only show the passage summary once a Shutdown entry has been recorded.
-    const hasShutdown = !!passage.finish?.shutdownLogged;
-    const s = hasShutdown ? computePassageLogSummary(passage) : null;
-    const summaryBits = [];
-    if (s?.durationText && s.durationText !== "–") summaryBits.push(`UW ${s.durationText}`);
-    if (s?.ehText && s.ehText !== "–") summaryBits.push(`EH ${s.ehText}`);
-    if (s?.fuelUsed && s.fuelUsed !== "–") summaryBits.push(`Fuel Used ${s.fuelUsed}`);
-    if (s?.gLog && s.gLog !== "–") summaryBits.push(`NM(G) ${s.gLog}`);
-
     const summary = document.createElement("div");
-    summary.className = "passage-card-summary" + (hasShutdown ? "" : " empty");
-    summary.textContent = hasShutdown ? (summaryBits.join(" • ") || "—") : "";
+    summary.className = "passage-card-summary";
+    summary.innerHTML = getPassageDashboardMetrics(passage);
+
+    const chevron = document.createElement("div");
+    chevron.className = "passage-card-chevron";
+    chevron.textContent = ">";
 
     const main = document.createElement("div");
     main.className = "passage-card-main";
     main.appendChild(left);
     main.appendChild(summary);
+    main.appendChild(chevron);
 
     const actions = document.createElement("div");
     actions.className = "passage-card-actions";
@@ -2577,7 +2661,6 @@ function refreshHomePassageList() {
 
       currentPassageId = passage.id;
       loadPassageIntoUI();
-      // Keep Home selection highlight in sync (even if we immediately jump tabs)
       refreshHomePassageList();
       switchToTab("logTab");
     });
@@ -6083,6 +6166,22 @@ homeNewPassageBtn.addEventListener("click", () => {
   }
   createPassage();
   switchToTab("planTab");
+});
+
+homePassageSearch?.addEventListener("input", refreshHomePassageList);
+homePassageFilterBtn?.addEventListener("click", () => {
+  homePassageFilterMode = homePassageFilterMode === "all"
+    ? "active"
+    : homePassageFilterMode === "active" ? "complete" : "all";
+  const label = homePassageFilterMode === "active" ? "Active" : homePassageFilterMode === "complete" ? "Complete" : "Filter";
+  homePassageFilterBtn.textContent = label;
+  homePassageFilterBtn.classList.toggle("active", homePassageFilterMode !== "all");
+  refreshHomePassageList();
+});
+homePassageSortBtn?.addEventListener("click", () => {
+  homePassageSortMode = homePassageSortMode === "newest" ? "oldest" : "newest";
+  homePassageSortBtn.textContent = homePassageSortMode === "newest" ? "Date" : "Oldest";
+  refreshHomePassageList();
 });
 
 // --- Cache / service-worker reset ----------------------------------------
