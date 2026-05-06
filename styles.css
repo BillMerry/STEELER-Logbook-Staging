@@ -2093,6 +2093,24 @@ body[data-theme="night"] .settings-card-icon{
   min-width:0;
 }
 
+.log-status-link{
+  appearance:none;
+  cursor:pointer;
+  font:inherit;
+  text-align:left;
+  transition:border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.log-status-link:hover,
+.log-status-link:focus-visible{
+  border-color:var(--st-accent-border);
+  box-shadow:0 0 0 3px rgba(200,16,46,0.08), var(--st-shadow-card);
+}
+
+.log-status-link:active{
+  transform:translateY(1px);
+}
+
 .log-status-route{
   display:grid;
   gap:0.12rem;
@@ -2176,6 +2194,11 @@ body[data-theme="night"] .settings-card-icon{
 
 .log-status-crew strong{
   font-size:0.86rem;
+}
+
+.status-nav-highlight{
+  outline:3px solid rgba(200,16,46,0.2);
+  outline-offset:3px;
 }
 
 .log-layout{

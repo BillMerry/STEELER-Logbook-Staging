@@ -5,7 +5,7 @@ const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 
-const APP_VERSION = "1.1.0-rc2a";
+const APP_VERSION = "1.1.0-rc2b";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -2790,20 +2790,65 @@ function updateLogStatusStrip() {
 
   logStatusStrip.hidden = false;
   logStatusStrip.innerHTML = `
-    <div class="log-status-route">
+    <button type="button" class="log-status-route log-status-link" data-status-nav="dpp">
       <span class="log-status-label">Current Passage</span>
       <strong>${escapeHtml(routeText)}</strong>
       <span>${escapeHtml(legLabel)}</span>
-    </div>
-    <div class="log-status-state">
+    </button>
+    <button type="button" class="log-status-state log-status-link" data-status-nav="home-status">
       <span class="log-status-label">Status</span>
       <strong class="log-status-badge status-${escapeHtml(statusClass)}">${escapeHtml(status)}</strong>
-    </div>
-    <span class="st-metric-chip"><span>Date</span><strong>${escapeHtml(passageDate)}</strong></span>
-    <span class="st-metric-chip log-status-crew"><span>Crew</span><strong>${escapeHtml(crewText)}</strong></span>
-    <span class="st-metric-chip"><span>Under Way</span><strong>${escapeHtml(legSummary.durationText || "–")}</strong></span>
-    <span class="st-metric-chip"><span>Entries</span><strong>${entries.length}</strong></span>
+    </button>
+    <button type="button" class="st-metric-chip log-status-link" data-status-nav="home-date"><span>Date</span><strong>${escapeHtml(passageDate)}</strong></button>
+    <button type="button" class="st-metric-chip log-status-link log-status-crew" data-status-nav="home-crew"><span>Crew</span><strong>${escapeHtml(crewText)}</strong></button>
+    <button type="button" class="st-metric-chip log-status-link" data-status-nav="latest-log"><span>Under Way</span><strong>${escapeHtml(legSummary.durationText || "–")}</strong></button>
+    <button type="button" class="st-metric-chip log-status-link" data-status-nav="latest-log"><span>Entries</span><strong>${entries.length}</strong></button>
   `;
+  logStatusStrip.querySelectorAll("[data-status-nav]").forEach((btn) => {
+    btn.addEventListener("click", () => handleStatusStripNavigation(btn.dataset.statusNav));
+  });
+}
+
+function flashNavigationTarget(el) {
+  if (!el || !el.classList) return;
+  el.classList.remove("status-nav-highlight");
+  void el.offsetWidth;
+  el.classList.add("status-nav-highlight");
+  window.setTimeout(() => el.classList.remove("status-nav-highlight"), 1400);
+}
+
+function scrollToSelectedHomePassage() {
+  const target = homePassageList?.querySelector(".passage-card.selected") || homePassageList?.querySelector(".passage-card");
+  if (!target) return;
+  target.scrollIntoView({ behavior: "smooth", block: "center" });
+  flashNavigationTarget(target);
+}
+
+function handleStatusStripNavigation(action) {
+  if (action === "dpp") {
+    switchToTab("planTab");
+    const p = getCurrentPassage();
+    if (p && typeof renderDetailedPassagePlan === "function") renderDetailedPassagePlan(p);
+    window.setTimeout(() => {
+      const target = document.getElementById("detailedPassagePlanSection");
+      if (!target) return;
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      flashNavigationTarget(target);
+    }, 80);
+    return;
+  }
+
+  if (action === "latest-log") {
+    switchToTab("logTab");
+    requestScrollToNewestLogEntry();
+    renderLogEntries();
+    return;
+  }
+
+  if (action === "home-status" || action === "home-date" || action === "home-crew") {
+    switchToTab("homeTab");
+    window.setTimeout(scrollToSelectedHomePassage, 80);
+  }
 }
 
 function ensureAutoTideStations(p) {
@@ -5923,7 +5968,8 @@ function renderLogEntries() {
     __scrollLogToNewestOnRender = false;
     requestAnimationFrame(() => {
       const wrapper = document.querySelector("#logLayout .log-table-wrapper");
-      const newestRow = logEntriesContainer.lastElementChild;
+      const newestRows = logEntriesContainer.querySelectorAll(".log-entry-row");
+      const newestRow = newestRows[newestRows.length - 1] || logEntriesContainer.lastElementChild;
       if (wrapper) {
         wrapper.scrollTop = wrapper.scrollHeight;
       }
