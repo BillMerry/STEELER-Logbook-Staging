@@ -5,7 +5,7 @@ const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 
-const APP_VERSION = "1.1.0-rc2b";
+const APP_VERSION = "1.1.0-rc2c";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -2799,8 +2799,8 @@ function updateLogStatusStrip() {
       <span class="log-status-label">Status</span>
       <strong class="log-status-badge status-${escapeHtml(statusClass)}">${escapeHtml(status)}</strong>
     </button>
-    <button type="button" class="st-metric-chip log-status-link" data-status-nav="home-date"><span>Date</span><strong>${escapeHtml(passageDate)}</strong></button>
-    <button type="button" class="st-metric-chip log-status-link log-status-crew" data-status-nav="home-crew"><span>Crew</span><strong>${escapeHtml(crewText)}</strong></button>
+    <button type="button" class="st-metric-chip log-status-link" data-status-nav="plan-date"><span>Date</span><strong>${escapeHtml(passageDate)}</strong></button>
+    <button type="button" class="st-metric-chip log-status-link log-status-crew" data-status-nav="plan-crew"><span>Crew</span><strong>${escapeHtml(crewText)}</strong></button>
     <button type="button" class="st-metric-chip log-status-link" data-status-nav="latest-log"><span>Under Way</span><strong>${escapeHtml(legSummary.durationText || "–")}</strong></button>
     <button type="button" class="st-metric-chip log-status-link" data-status-nav="latest-log"><span>Entries</span><strong>${entries.length}</strong></button>
   `;
@@ -2824,6 +2824,19 @@ function scrollToSelectedHomePassage() {
   flashNavigationTarget(target);
 }
 
+function scrollToPlanFields(ids) {
+  switchToTab("planTab");
+  window.setTimeout(() => {
+    const fields = ids.map((id) => document.getElementById(id)).filter(Boolean);
+    const target = fields[0];
+    if (!target) return;
+    const scrollTarget = target.closest(".row") || target.closest("label") || target;
+    scrollTarget.scrollIntoView({ behavior: "smooth", block: "center" });
+    fields.forEach((field) => flashNavigationTarget(field.closest("label") || field));
+    if (typeof target.focus === "function") target.focus({ preventScroll: true });
+  }, 80);
+}
+
 function handleStatusStripNavigation(action) {
   if (action === "dpp") {
     switchToTab("planTab");
@@ -2845,7 +2858,17 @@ function handleStatusStripNavigation(action) {
     return;
   }
 
-  if (action === "home-status" || action === "home-date" || action === "home-crew") {
+  if (action === "plan-date") {
+    scrollToPlanFields(["planDate"]);
+    return;
+  }
+
+  if (action === "plan-crew") {
+    scrollToPlanFields(["planSkipper", "planCrew"]);
+    return;
+  }
+
+  if (action === "home-status") {
     switchToTab("homeTab");
     window.setTimeout(scrollToSelectedHomePassage, 80);
   }
