@@ -5,7 +5,7 @@ const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 
-const APP_VERSION = "1.1.0-rc1";
+const APP_VERSION = "1.1.0-rc2";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -1499,6 +1499,7 @@ const addEntryBtn = document.getElementById("addEntryBtn");
 const logEntriesContainer = document.getElementById("logEntriesContainer");
 const logEmptyMessage = document.getElementById("logEmptyMessage");
 const planSummaryPanel = document.getElementById("planSummaryPanel");
+const logStatusStrip = document.getElementById("logStatusStrip");
 const logLayout = document.getElementById("logLayout");
 const splitViewBtn = document.getElementById("splitViewBtn");
 const expandPlanBtn = document.getElementById("expandPlanBtn");
@@ -2770,6 +2771,46 @@ function updateLegIndicator() {
   if (legs <= 1) { el.textContent = ''; return; }
   const idx = getCurrentLegIndex(p) + 1;
   el.textContent = `Leg ${idx} of ${legs}`;
+}
+
+function updateLogStatusStrip() {
+  if (!logStatusStrip) return;
+  const p = getCurrentPassage();
+  if (!p) {
+    logStatusStrip.innerHTML = "";
+    logStatusStrip.hidden = true;
+    return;
+  }
+
+  const legIdx = getCurrentLegIndex(p);
+  const legCount = getLegCount(p);
+  const route = getRouteLegNames(p, legIdx);
+  const legSummary = computeLegLogSummary(p, legIdx);
+  const entries = Array.isArray(p.entries) ? p.entries : [];
+  const hasEngineStart = hasSpecialForLeg(p, "engine start", legIdx);
+  const hasSlip = hasSpecialForLeg(p, "slipped lines", legIdx);
+  const hasDock = hasSpecialForLeg(p, "alongside", legIdx) || hasSpecialForLeg(p, "docked", legIdx);
+  const hasShutdown = hasSpecialForLeg(p, "shutdown", legIdx);
+  const status = p.finish?.shutdownLogged
+    ? "Passage Complete"
+    : hasShutdown ? "Leg Complete" : hasDock ? "Docked" : hasSlip ? "Under Way" : hasEngineStart ? "Engine Started" : "Planned";
+
+  const legLabel = legCount > 1 ? `Leg ${legIdx + 1} of ${legCount}` : "Current Passage";
+  const routeText = [route.origin, route.destination].filter(Boolean).join(" → ") || getRouteNames(p).join(" → ") || "Route not set";
+
+  logStatusStrip.hidden = false;
+  logStatusStrip.innerHTML = `
+    <div class="log-status-primary">
+      <span class="st-status-chip status-${escapeHtml(getPassageStatusClass(status))}">${escapeHtml(status)}</span>
+      <strong>${escapeHtml(legLabel)}</strong>
+      <span>${escapeHtml(routeText)}</span>
+    </div>
+    <span class="st-metric-chip"><span>Engine Hours</span><strong>${escapeHtml(legSummary.ehText || "–")}</strong></span>
+    <span class="st-metric-chip"><span>Fuel Used</span><strong>${escapeHtml(legSummary.fuelUsed || "–")}</strong></span>
+    <span class="st-metric-chip"><span>NM(G)</span><strong>${escapeHtml(legSummary.nmG || "–")}</strong></span>
+    <span class="st-metric-chip"><span>Under Way</span><strong>${escapeHtml(legSummary.durationText || "–")}</strong></span>
+    <span class="st-metric-chip"><span>Entries</span><strong>${entries.length}</strong></span>
+  `;
 }
 
 function ensureAutoTideStations(p) {
@@ -5118,10 +5159,10 @@ async function openEngineStartEntryDialog(p, legIdx, entry = null) {
       title: 'Engine Start',
       okText: entry ? 'Save changes' : 'Add entry',
       bodyHtml: `
-        <div class="engine-start-grid">
+        <div class="st-task-sheet engine-start-grid">
 
-          <div class="engine-start-title">Start values</div>
-          <div class="engine-start-row engine-start-values">
+          <div class="engine-start-title st-modal-section-title">Start values</div>
+          <div class="engine-start-row engine-start-values st-modal-section">
             <label class="entry-dialog-field">
               <span>Time</span>
               <input id="esTime" type="text" inputmode="numeric" value="${escapeHtml(entry?.time ? timeOnlyFromIso(entry.time) : timeOnlyFromIso(localDateTimeInputValue(new Date())))}">
@@ -5150,8 +5191,8 @@ async function openEngineStartEntryDialog(p, legIdx, entry = null) {
             <div></div>
           </div>
 
-          <div class="engine-start-title">Environment</div>
-          <div class="engine-start-row engine-start-env">
+          <div class="engine-start-title st-modal-section-title">Environment / checks</div>
+          <div class="engine-start-row engine-start-env st-modal-section">
             <label class="entry-dialog-field">
               <span>Air press</span>
               <input id="esAirPress" type="number" inputmode="numeric" step="1" value="${escapeHtml(prevEnv.airPressureMb || '')}">
@@ -5188,7 +5229,7 @@ async function openEngineStartEntryDialog(p, legIdx, entry = null) {
             <div></div>
           </div>
 
-          <div class="engine-start-vhf-notes">
+          <div class="engine-start-vhf-notes st-modal-section">
             <div class="vhf-box">
               <label>
                 <input id="esVhfCheck" type="checkbox">
@@ -5328,7 +5369,7 @@ async function openShutdownEntryDialog(p, legIdx, isFinalLeg, entry = null) {
       title: isFinalLeg ? 'Shutdown (final leg)' : 'Shutdown (end of leg)',
       okText: entry ? 'Save changes' : 'Add entry',
       bodyHtml: `
-        <div class="entry-dialog-grid entry-dialog-grid-two">
+        <div class="st-task-sheet shutdown-sheet entry-dialog-grid entry-dialog-grid-two">
           ${dialogSection('Shutdown values',
             dialogField('Time', 'shTime', entry?.time ? timeOnlyFromIso(entry.time) : timeOnlyFromIso(localDateTimeInputValue(new Date())), { inputMode: 'numeric' }) +
             dialogField('Fuel %(R)', 'shFuelR', prev.fuelEndPercentR || prev.fuelEndPercent || '', { type: 'number', inputMode: 'numeric', step: '1' }) +
@@ -5341,7 +5382,7 @@ async function openShutdownEntryDialog(p, legIdx, isFinalLeg, entry = null) {
             dialogField('Fuel Used', 'shFuelUsed', prev.fuelUsed || '', { inputMode: 'decimal', step: '0.1' })
           )}
         </div>
-        ${dialogField('Notes / defects', 'shNotes', prev.notes || '', { tag: 'textarea', rows: 3 })}
+        <div class="shutdown-notes">${dialogField('Notes / defects', 'shNotes', prev.notes || '', { tag: 'textarea', rows: 3 })}</div>
       `,
       onOk: () => {
         const vals = getDialogFieldValues(['shTime','shFuelR','shFuelC','shEh','shWLog','shGLog','shFuelUsed','shNotes']);
@@ -5777,6 +5818,7 @@ shutdownBtn.addEventListener("click", async () => {
 });
 function renderLogEntries() {
   updateLegIndicator();
+  updateLogStatusStrip();
   const p = getCurrentPassage();
   logEntriesContainer.innerHTML = "";
   const showLegSummaries = p ? getLegCount(p) > 1 : false;
@@ -6105,6 +6147,7 @@ function computeLegLogSummary(p, legIdx) {
 }
 
 function updateLogSummary() {
+  updateLogStatusStrip();
   const p = getCurrentPassage();
   if (!p) {
     logSummaryPanel.textContent = "";
@@ -6143,6 +6186,7 @@ function loadPassageIntoUI() {
     logEmptyMessage.style.display = "block";
     planSummaryPanel.innerHTML = "<p>No passage selected.</p>";
     logSummaryPanel.textContent = "";
+    updateLogStatusStrip();
     updatePassageHeader();
     return;
   }

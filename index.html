@@ -202,15 +202,15 @@
     <!-- LOG TAB -->
     <section id="logTab" class="tab">
       <div class="log-header">
-        <div class="log-header-left">
-          <button id="addEntryBtn" class="btn btn-primary">+ New Log Entry</button>
+        <div class="log-header-left st-action-row log-operational-actions">
+          <button id="addEntryBtn" class="btn btn-primary st-button st-button-primary">+ New Log Entry</button>
           <button id="engineStartBtn" class="btn btn-secondary btn-small">Engine start</button>
           <button id="slipLinesBtn" class="btn btn-secondary btn-small">Slip</button>
           <button id="dockLinesBtn" class="btn btn-secondary btn-small">Dock</button>
           <button id="shutdownBtn" class="btn btn-secondary btn-small">Shutdown</button>
           <span id="legIndicator" class="leg-indicator"></span>
         </div>
-        <div class="log-header-right">
+        <div class="log-header-right log-view-actions">
           <button id="splitViewBtn" class="btn btn-secondary btn-small view-btn active">Split view</button>
           <button id="expandPlanBtn" class="btn btn-secondary btn-small view-btn">Plan full</button>
           <button id="expandLogBtn" class="btn btn-secondary btn-small view-btn">Log full</button>
@@ -218,6 +218,8 @@
           <button id="exportPdfBtn" class="btn btn-secondary btn-small">Export PDF</button>
         </div>
       </div>
+
+      <div id="logStatusStrip" class="st-metric-strip log-status-strip" aria-live="polite"></div>
 
       <div class="log-layout split" id="logLayout">
         <aside class="plan-summary scroll-pane" id="planSummaryPanel"></aside>
