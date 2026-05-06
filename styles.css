@@ -2045,6 +2045,139 @@ body[data-theme="night"] .settings-card-icon{
   color:var(--st-success);
 }
 
+/* --- v1.1.0-rc2a Header and status strip tuning ------------------------- */
+.app-header{
+  align-items:center;
+  padding:var(--st-space-3) var(--st-space-5) var(--st-space-2);
+}
+
+.app-header-logo{
+  max-height:4.35rem;
+}
+
+.app-header h1{
+  font-size:1.42rem;
+}
+
+.header-bottom{
+  display:none;
+}
+
+.tabs{
+  margin-top:var(--st-space-2);
+}
+
+.tab-btn,
+.btn,
+.btn-secondary{
+  min-height:40px;
+}
+
+.st-build-staging .app-header::after{
+  top:0.35rem;
+}
+
+.log-status-strip{
+  grid-template-columns:minmax(21rem,1.8fr) minmax(8.75rem,0.75fr) minmax(8rem,0.7fr) minmax(15rem,1.1fr) minmax(8rem,0.7fr) minmax(6.5rem,0.55fr);
+  align-items:stretch;
+}
+
+.log-status-route,
+.log-status-state{
+  min-height:3.35rem;
+  padding:0.5rem 0.65rem;
+  border:1px solid var(--st-border);
+  border-radius:var(--st-radius-md);
+  background:var(--st-surface);
+  box-shadow:var(--st-shadow-card);
+  min-width:0;
+}
+
+.log-status-route{
+  display:grid;
+  gap:0.12rem;
+}
+
+.log-status-state{
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  gap:0.22rem;
+}
+
+.log-status-label{
+  color:var(--st-text-muted);
+  font-size:0.68rem;
+  font-weight:800;
+  letter-spacing:0.06em;
+  line-height:1;
+  text-transform:uppercase;
+}
+
+.log-status-route strong{
+  color:var(--st-text);
+  font-size:0.96rem;
+  line-height:1.2;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.log-status-route span:last-child{
+  color:var(--st-text-muted);
+  font-size:0.8rem;
+  font-weight:750;
+}
+
+.log-status-badge{
+  align-items:center;
+  align-self:flex-start;
+  background:var(--st-surface-muted);
+  border:1px solid var(--st-border);
+  border-radius:var(--st-radius-sm);
+  color:var(--st-text);
+  display:inline-flex;
+  font-size:0.84rem;
+  font-weight:850;
+  line-height:1.05;
+  min-height:1.8rem;
+  padding:0.18rem 0.5rem;
+}
+
+.log-status-badge.status-engine-started{
+  background:var(--st-accent-soft);
+  border-color:var(--st-accent-border);
+  color:var(--st-accent-strong);
+}
+
+.log-status-badge.status-under-way{
+  background:rgba(31,111,235,0.1);
+  border-color:rgba(31,111,235,0.24);
+  color:#1f5fae;
+}
+
+.log-status-badge.status-docked,
+.log-status-badge.status-leg-complete,
+.log-status-badge.status-passage-complete{
+  background:rgba(38,122,62,0.12);
+  border-color:rgba(38,122,62,0.25);
+  color:var(--st-success);
+}
+
+.log-status-strip .st-metric-chip{
+  min-width:0;
+}
+
+.log-status-strip .st-metric-chip strong{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.log-status-crew strong{
+  font-size:0.86rem;
+}
+
 .log-layout{
   gap:var(--st-space-3);
 }
@@ -2213,8 +2346,13 @@ body[data-theme="night"] .log-entry-row:nth-child(even) .log-display-cell{
     grid-template-columns:repeat(3,minmax(0,1fr));
   }
 
+  .log-status-route,
   .log-status-primary{
     grid-column:1 / -1;
+  }
+
+  .log-status-crew{
+    grid-column:span 2;
   }
 
   .log-layout.split .plan-summary,
@@ -2227,6 +2365,15 @@ body[data-theme="night"] .log-entry-row:nth-child(even) .log-display-cell{
 @media (max-width: 760px){
   .log-status-strip{
     grid-template-columns:1fr 1fr;
+  }
+
+  .log-status-route,
+  .log-status-crew{
+    grid-column:1 / -1;
+  }
+
+  .log-status-state{
+    align-items:flex-start;
   }
 
   .log-status-primary{

@@ -5,7 +5,7 @@ const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 
-const APP_VERSION = "1.1.0-rc2";
+const APP_VERSION = "1.1.0-rc2a";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -1546,25 +1546,9 @@ tabButtons.forEach(btn => {
 // --- Header info ---------------------------------------------------
 
 function updatePassageHeader() {
-  const p = getCurrentPassage();
-  if (!p) {
-    headerPassageMain.textContent = "";
-    headerSunrise.textContent = "";
-    headerCrew.textContent = "";
-    return;
-  }
-
-  const date = p.plan.date || p.createdAt.slice(0, 10);
-  const routeNames = getRouteNames(p);
-  const routeText = routeNames.length ? routeNames.join(" → ") : "?";
-  headerPassageMain.textContent = `${date} – ${routeText}`;
-  // Group C: CL-076-10 — Sunrise/Moon moved into Log > Plan panel
+  headerPassageMain.textContent = "";
   headerSunrise.textContent = "";
-
-  const crewParts = [];
-  if (p.plan.skipper) crewParts.push(`Skipper: ${p.plan.skipper}`);
-  if (p.plan.crew)    crewParts.push(`Crew: ${p.plan.crew}`);
-  headerCrew.textContent = crewParts.join("  |  ");
+  headerCrew.textContent = "";
 }
 
 // Route helper (Origin → Transit(s) → Destination)
@@ -2797,17 +2781,26 @@ function updateLogStatusStrip() {
 
   const legLabel = legCount > 1 ? `Leg ${legIdx + 1} of ${legCount}` : "Current Passage";
   const routeText = [route.origin, route.destination].filter(Boolean).join(" → ") || getRouteNames(p).join(" → ") || "Route not set";
+  const passageDate = p.plan?.date || p.createdAt?.slice(0, 10) || "Date not set";
+  const crewText = [
+    p.plan?.skipper ? `Skipper: ${p.plan.skipper}` : "",
+    p.plan?.crew ? `Crew: ${p.plan.crew}` : ""
+  ].filter(Boolean).join(" | ") || "Crew not set";
+  const statusClass = getPassageStatusClass(status);
 
   logStatusStrip.hidden = false;
   logStatusStrip.innerHTML = `
-    <div class="log-status-primary">
-      <span class="st-status-chip status-${escapeHtml(getPassageStatusClass(status))}">${escapeHtml(status)}</span>
-      <strong>${escapeHtml(legLabel)}</strong>
-      <span>${escapeHtml(routeText)}</span>
+    <div class="log-status-route">
+      <span class="log-status-label">Current Passage</span>
+      <strong>${escapeHtml(routeText)}</strong>
+      <span>${escapeHtml(legLabel)}</span>
     </div>
-    <span class="st-metric-chip"><span>Engine Hours</span><strong>${escapeHtml(legSummary.ehText || "–")}</strong></span>
-    <span class="st-metric-chip"><span>Fuel Used</span><strong>${escapeHtml(legSummary.fuelUsed || "–")}</strong></span>
-    <span class="st-metric-chip"><span>NM(G)</span><strong>${escapeHtml(legSummary.nmG || "–")}</strong></span>
+    <div class="log-status-state">
+      <span class="log-status-label">Status</span>
+      <strong class="log-status-badge status-${escapeHtml(statusClass)}">${escapeHtml(status)}</strong>
+    </div>
+    <span class="st-metric-chip"><span>Date</span><strong>${escapeHtml(passageDate)}</strong></span>
+    <span class="st-metric-chip log-status-crew"><span>Crew</span><strong>${escapeHtml(crewText)}</strong></span>
     <span class="st-metric-chip"><span>Under Way</span><strong>${escapeHtml(legSummary.durationText || "–")}</strong></span>
     <span class="st-metric-chip"><span>Entries</span><strong>${entries.length}</strong></span>
   `;
