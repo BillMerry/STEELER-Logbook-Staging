@@ -1110,11 +1110,11 @@ body[data-theme="night"] .ports-delete { border-color: rgba(255,255,255,0.18); c
 }
 
 .log-entry-row .log-display-cell {
-  transition: transform 0.24s cubic-bezier(.2,1.4,.35,1) !important;
+  transition: transform 0.34s cubic-bezier(.18,1.55,.35,1) !important;
 }
 
 tr.show-delete .log-display-cell {
-  transform: translateX(-2.45rem) !important;
+  transform: translateX(-4.75rem) !important;
 }
 
 tr.swipe-dragging .log-display-cell {
@@ -1150,7 +1150,7 @@ tr.show-delete .entry-del-btn {
   position: relative !important;
   z-index: 1 !important;
   background: var(--panel) !important;
-  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+  transition: transform 0.34s cubic-bezier(.18,1.55,.35,1) !important;
 }
 
 .passage-card-actions {
@@ -1165,7 +1165,7 @@ tr.show-delete .entry-del-btn {
 }
 
 .passage-card.show-delete .passage-card-main {
-  transform: translateX(-2.45rem) !important;
+  transform: translateX(-4.75rem) !important;
 }
 
 .passage-card.swipe-dragging .passage-card-main {
@@ -2404,6 +2404,21 @@ body[data-theme="night"] .settings-card-icon{
 #detailedPassagePlanSection .dpp-summary-strip{
   grid-template-columns:repeat(4,minmax(7rem,1fr));
   margin:0 0 var(--st-space-3);
+}
+
+#detailedPassagePlanSection .dpp-summary-strip .st-metric-chip{
+  align-items:center;
+  flex-direction:row;
+  justify-content:space-between;
+}
+
+#detailedPassagePlanSection .dpp-summary-strip .st-metric-chip span{
+  white-space:nowrap;
+}
+
+#detailedPassagePlanSection .dpp-summary-strip .st-metric-chip strong{
+  margin-left:var(--st-space-2);
+  text-align:right;
 }
 
 .dpp-table-wrap{

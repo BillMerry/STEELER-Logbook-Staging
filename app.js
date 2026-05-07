@@ -5,7 +5,7 @@ const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 
-const APP_VERSION = "1.1.0-rc4a";
+const APP_VERSION = "1.1.0-rc5";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -2412,8 +2412,9 @@ function attachSwipeToCard(card, passageId) {
   let isHorizontalSwipe = false;
   let wheelX = 0;
   let wheelTimer = null;
-  const revealPx = 44;
-  const lockThresholdPx = 68;
+  const revealPx = 76;
+  const lockThresholdPx = 76;
+  const commitThresholdPx = 220;
 
   const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
   const setSwipeOffset = (px) => {
@@ -2447,7 +2448,7 @@ function attachSwipeToCard(card, passageId) {
 
     e.preventDefault();
     const base = cardWasOpen ? -revealPx : 0;
-    const offset = clamp(base + dx, -revealPx, 0);
+    const offset = clamp(base + dx, -commitThresholdPx, 0);
     setSwipeOffset(offset);
   }, { passive: false });
 
@@ -2457,6 +2458,16 @@ function attachSwipeToCard(card, passageId) {
     const dy = t.screenY - startY;
 
     if (isHorizontalSwipe || (Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy) * 1.25)) {
+      if (dx < -commitThresholdPx) {
+        hideAllSwipeDeleteButtons(card);
+        card.classList.remove("show-delete");
+        clearSwipeOffset();
+        card.dataset.justSwiped = "1";
+        setTimeout(() => { delete card.dataset.justSwiped; }, 350);
+        deletePassageById(passageId);
+        return;
+      }
+
       if (cardWasOpen) {
         if (dx > 18) {
           card.classList.remove("show-delete");
@@ -2485,10 +2496,14 @@ function attachSwipeToCard(card, passageId) {
     clearTimeout(wheelTimer);
 
     wheelTimer = setTimeout(() => {
-      if (wheelX > 45) {
+      if (wheelX > commitThresholdPx) {
+        hideAllSwipeDeleteButtons(card);
+        card.classList.remove("show-delete");
+        deletePassageById(passageId);
+      } else if (wheelX > lockThresholdPx) {
         hideAllSwipeDeleteButtons(card);
         card.classList.add("show-delete");
-      } else if (wheelX < -35) {
+      } else if (wheelX < -lockThresholdPx) {
         card.classList.remove("show-delete");
       }
 
@@ -5747,8 +5762,9 @@ function attachSwipeToRow(tr, entryId) {
   let isHorizontalSwipe = false;
   let wheelX = 0;
   let wheelTimer = null;
-  const revealPx = 44;
-  const lockThresholdPx = 68;
+  const revealPx = 76;
+  const lockThresholdPx = 76;
+  const commitThresholdPx = 220;
 
   const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
   const setSwipeOffset = (px) => {
@@ -5782,7 +5798,7 @@ function attachSwipeToRow(tr, entryId) {
 
     e.preventDefault();
     const base = rowWasOpen ? -revealPx : 0;
-    const offset = clamp(base + dx, -revealPx, 0);
+    const offset = clamp(base + dx, -commitThresholdPx, 0);
     setSwipeOffset(offset);
   }, { passive: false });
 
@@ -5792,6 +5808,16 @@ function attachSwipeToRow(tr, entryId) {
     const dy = t.screenY - startY;
 
     if (isHorizontalSwipe || (Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy) * 1.25)) {
+      if (dx < -commitThresholdPx) {
+        hideAllSwipeDeleteButtons(tr);
+        tr.classList.remove("show-delete");
+        clearSwipeOffset();
+        tr.dataset.justSwiped = "1";
+        setTimeout(() => { delete tr.dataset.justSwiped; }, 350);
+        deleteLogEntryById(entryId);
+        return;
+      }
+
       if (rowWasOpen) {
         if (dx > 18) {
           tr.classList.remove("show-delete");
@@ -5820,10 +5846,14 @@ function attachSwipeToRow(tr, entryId) {
     clearTimeout(wheelTimer);
 
     wheelTimer = setTimeout(() => {
-      if (wheelX > 45) {
+      if (wheelX > commitThresholdPx) {
+        hideAllSwipeDeleteButtons(tr);
+        tr.classList.remove("show-delete");
+        deleteLogEntryById(entryId);
+      } else if (wheelX > lockThresholdPx) {
         hideAllSwipeDeleteButtons(tr);
         tr.classList.add("show-delete");
-      } else if (wheelX < -35) {
+      } else if (wheelX < -lockThresholdPx) {
         tr.classList.remove("show-delete");
       }
 
