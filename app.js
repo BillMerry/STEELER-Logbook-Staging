@@ -5,7 +5,7 @@ const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 
-const APP_VERSION = "1.1.0-rc5b";
+const APP_VERSION = "1.1.0-rc6";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -920,6 +920,7 @@ function setupSettingsCardToggles(){
     const setOpen = (open) => {
       panel.hidden = !open;
       btn.textContent = open ? "Close" : "Open";
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
       card.classList.toggle("open", open);
     };
 
@@ -936,6 +937,7 @@ function closeSettingsPanels(){
     if (!btn || !panel) return;
     panel.hidden = true;
     btn.textContent = "Open";
+    btn.setAttribute("aria-expanded", "false");
     card.classList.remove("open");
   });
   if (dppTemplatesManager) dppTemplatesManager.style.display = "none";
@@ -6502,17 +6504,21 @@ function reorderSettingsBlocksAndInjectWx() {
     wxBlock.innerHTML = `
       <div class="settings-block-inner">
         <div class="settings-card-header">
-          <h3>Weather Shorthand</h3>
+          <div class="settings-card-main">
+            <span class="settings-card-icon" aria-hidden="true">WX</span>
+            <div>
+              <h3>Weather Shorthand</h3>
+              <p>Define forecast abbreviation and expansion rules.</p>
+            </div>
+          </div>
           <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>Open</button>
         </div>
         <div class="settings-card-panel" data-settings-panel hidden>
-          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+          <section class="settings-panel-card">
             <button type="button" id="manageWxAbbrBtn" class="btn btn-secondary">Manage Weather Abbreviations</button>
-          </div>
-          <div style="margin-top:10px; opacity:0.85;">
-            Define abbreviation / expansion rules for Met Office and Météo-France forecasts.
-          </div>
-          <div id="wxAbbrEditorWrap" style="display:none; margin-top:14px; border-top:1px solid rgba(0,0,0,0.12); padding-top:12px;"></div>
+            <p class="hint">Define abbreviation / expansion rules for Met Office and Météo-France forecasts.</p>
+            <div id="wxAbbrEditorWrap" style="display:none; margin-top:14px; border-top:1px solid rgba(0,0,0,0.12); padding-top:12px;"></div>
+          </section>
         </div>
       </div>
     `;
@@ -6867,10 +6873,16 @@ function injectSafetyEmergencySettingsBlock(){
 
     block.innerHTML = `
       <div class="settings-block-inner">
-								<div class="settings-card-header">
-										<h3 style="margin:0;">Safety / Emergency Info</h3>
-										<button type="button" id="toggleSafetyEmergencyBtn" class="btn btn-secondary btn-small" data-settings-toggle>Open</button>
-								</div>
+        <div class="settings-card-header">
+          <div class="settings-card-main">
+            <span class="settings-card-icon" aria-hidden="true">EC</span>
+            <div>
+              <h3>Crew &amp; Emergency</h3>
+              <p>Emergency contacts, vessel details and routine notifications.</p>
+            </div>
+          </div>
+          <button type="button" id="toggleSafetyEmergencyBtn" class="btn btn-secondary btn-small" data-settings-toggle>Open</button>
+        </div>
 								<div id="safetyEmergencyFullPanel" class="settings-card-panel safety-emergency-panel" data-settings-panel hidden>
           <div>
             <div style="font-weight:600; margin-bottom:6px;">Vessel</div>

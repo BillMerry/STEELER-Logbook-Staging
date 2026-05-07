@@ -1803,12 +1803,40 @@ body[data-theme="night"] .app-header h1{
 }
 
 .settings-section{
-  max-width:980px;
+  max-width:1180px;
   width:100%;
+  margin:0 auto;
+}
+
+.settings-page-heading{
+  align-items:flex-start;
+  display:flex;
+  justify-content:space-between;
+  margin-bottom:var(--st-space-3);
 }
 
 .settings-intro{
-  margin-bottom:var(--st-space-3);
+  margin:0.25rem 0 0;
+}
+
+.settings-grid{
+  display:grid;
+  gap:var(--st-space-3);
+  grid-template-columns:repeat(2,minmax(0,1fr));
+}
+
+#settingsVesselCard{order:10}
+#safetyEmergencySettingsBlock{order:20}
+#settingsAppearanceCard{order:30}
+#settingsWeatherTidesCard{order:40}
+#wxAbbrSettingsBlock{order:50}
+#settingsDppTemplatesCard{order:60}
+#settingsDataBackupCard{order:70}
+#settingsNotificationsCard{order:80}
+#settingsAboutCard{order:90}
+
+.settings-card.open{
+  border-color:var(--st-accent-border);
 }
 
 .settings-card{
@@ -1818,9 +1846,14 @@ body[data-theme="night"] .app-header h1{
   padding:0;
   background:var(--st-surface);
   box-shadow:var(--st-shadow-card);
+  overflow:hidden;
 }
 
 .settings-card-header{
+  align-items:center;
+  display:flex;
+  justify-content:space-between;
+  gap:var(--st-space-3);
   min-height:4.6rem;
   padding:var(--st-space-3);
 }
@@ -1864,6 +1897,22 @@ body[data-theme="night"] .settings-card-icon{
 .settings-card-panel{
   margin:0;
   padding:0 var(--st-space-3) var(--st-space-3) calc(var(--st-space-3) + 3rem + var(--st-space-3));
+}
+
+.settings-panel-card{
+  border:1px solid var(--st-border);
+  border-radius:var(--st-radius-md);
+  background:var(--st-surface-muted);
+  padding:var(--st-space-3);
+}
+
+.settings-panel-card h4{
+  margin:0 0 var(--st-space-2);
+}
+
+.settings-row,
+.backup-row{
+  gap:var(--st-space-2);
 }
 
 .scroll-pane{
@@ -2721,6 +2770,10 @@ body[data-theme="night"] .log-entry-row:nth-child(even) .log-display-cell{
     grid-template-columns:repeat(2,minmax(0,1fr));
   }
 
+  .settings-grid{
+    grid-template-columns:1fr;
+  }
+
   .dpp-notes-grid{
     grid-template-columns:1fr;
   }
@@ -2758,6 +2811,15 @@ body[data-theme="night"] .log-entry-row:nth-child(even) .log-display-cell{
   .dpp-header{
     align-items:stretch;
     flex-direction:column;
+  }
+
+  .settings-card-header{
+    align-items:stretch;
+    flex-direction:column;
+  }
+
+  .settings-card-panel{
+    padding:0 var(--st-space-3) var(--st-space-3);
   }
 
   .st-plan-card-actions{

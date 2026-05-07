@@ -336,10 +336,53 @@
     <!-- SETTINGS TAB -->
     <section id="settingsTab" class="tab">
       <section class="settings-section">
-        <h2>Settings</h2>
-        <p class="settings-intro hint">Manage the app in clear operational groups. Detailed panels open only when needed.</p>
+        <div class="settings-page-heading">
+          <div>
+            <h2>Settings</h2>
+            <p class="settings-intro hint">Manage the app in clear operational groups. Detailed panels open only when needed.</p>
+          </div>
+        </div>
 
-        <div class="settings-card" data-settings-card>
+        <div class="settings-grid">
+        <div id="settingsVesselCard" class="settings-card" data-settings-card>
+          <div class="settings-card-header">
+            <div class="settings-card-main">
+              <span class="settings-card-icon" aria-hidden="true">VS</span>
+              <div>
+                <h3>Vessel</h3>
+                <p>Vessel defaults used when creating and reviewing passage plans.</p>
+              </div>
+            </div>
+            <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>Open</button>
+          </div>
+          <div class="settings-card-panel" data-settings-panel hidden>
+            <section class="settings-panel-card">
+              <h4>Current Vessel</h4>
+              <p class="hint">The vessel name is edited on each Passage Plan and defaults to STEELER for new passages.</p>
+            </section>
+          </div>
+        </div>
+
+        <div id="settingsAppearanceCard" class="settings-card" data-settings-card>
+          <div class="settings-card-header">
+            <div class="settings-card-main">
+              <span class="settings-card-icon" aria-hidden="true">AP</span>
+              <div>
+                <h3>Appearance</h3>
+                <p>Display preferences for day and night use.</p>
+              </div>
+            </div>
+            <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>Open</button>
+          </div>
+          <div class="settings-card-panel" data-settings-panel hidden>
+            <section class="settings-panel-card">
+              <h4>Theme</h4>
+              <p class="hint">Use the Night button in the app header to switch between day and night display.</p>
+            </section>
+          </div>
+        </div>
+
+        <div id="settingsDataBackupCard" class="settings-card" data-settings-card>
           <div class="settings-card-header">
             <div class="settings-card-main">
               <span class="settings-card-icon" aria-hidden="true">DB</span>
@@ -360,7 +403,7 @@
           </div>
         </div>
 
-        <div class="settings-card" data-settings-card>
+        <div id="settingsWeatherTidesCard" class="settings-card" data-settings-card>
           <div class="settings-card-header">
             <div class="settings-card-main">
               <span class="settings-card-icon" aria-hidden="true">PT</span>
@@ -384,7 +427,7 @@
           </div>
         </div>
 
-        <div class="settings-card" data-settings-card>
+        <div id="settingsDppTemplatesCard" class="settings-card" data-settings-card>
           <div class="settings-card-header">
             <div class="settings-card-main">
               <span class="settings-card-icon" aria-hidden="true">DP</span>
@@ -407,6 +450,45 @@
             <div id="dppTemplatesManager" style="display:none; margin-top:0.8rem;"></div>
             <p class="hint">DPP templates are reusable across passages and are also included in full logbook backups.</p>
           </div>
+        </div>
+
+        <div id="settingsNotificationsCard" class="settings-card" data-settings-card>
+          <div class="settings-card-header">
+            <div class="settings-card-main">
+              <span class="settings-card-icon" aria-hidden="true">NT</span>
+              <div>
+                <h3>Notifications</h3>
+                <p>Notification and reminder settings for future operational alerts.</p>
+              </div>
+            </div>
+            <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>Open</button>
+          </div>
+          <div class="settings-card-panel" data-settings-panel hidden>
+            <section class="settings-panel-card">
+              <h4>Notifications</h4>
+              <p class="hint">No local notification rules are active yet. Emergency contact messaging is managed under Crew &amp; Emergency.</p>
+            </section>
+          </div>
+        </div>
+
+        <div id="settingsAboutCard" class="settings-card" data-settings-card>
+          <div class="settings-card-header">
+            <div class="settings-card-main">
+              <span class="settings-card-icon" aria-hidden="true">i</span>
+              <div>
+                <h3>About</h3>
+                <p>Version, storage and app information.</p>
+              </div>
+            </div>
+            <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>Open</button>
+          </div>
+          <div class="settings-card-panel" data-settings-panel hidden>
+            <section class="settings-panel-card">
+              <h4>STEELER Logbook</h4>
+              <p class="hint">Version is shown in the footer. Data is stored locally on this device unless you export a backup.</p>
+            </section>
+          </div>
+        </div>
         </div>
 
       </section>
