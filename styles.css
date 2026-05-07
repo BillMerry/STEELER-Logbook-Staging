@@ -2351,11 +2351,33 @@ body[data-theme="night"] .settings-card-icon{
 #detailedPassagePlanSection h3{
   color:var(--st-text);
   font-size:1rem;
-  margin:0 0 var(--st-space-3);
+  margin:0.1rem 0 0;
+}
+
+.dpp-header{
+  align-items:flex-start;
+  border-bottom:1px solid var(--st-border);
+  display:flex;
+  justify-content:space-between;
+  margin:calc(var(--st-space-3) * -1) calc(var(--st-space-3) * -1) var(--st-space-3);
+  padding:var(--st-space-3);
 }
 
 #detailedPassagePlanSection .dpp-leg-tabs{
-  margin-bottom:var(--st-space-3);
+  background:var(--st-surface-muted);
+  border:1px solid var(--st-border);
+  border-radius:var(--st-radius-md);
+  display:flex;
+  gap:var(--st-space-1);
+  margin:0 0 var(--st-space-3);
+  padding:0.25rem;
+}
+
+#detailedPassagePlanSection .dpp-leg-tab{
+  border-color:transparent;
+  box-shadow:none;
+  flex:1 1 10rem;
+  justify-content:center;
 }
 
 #detailedPassagePlanSection .dpp-leg-tab.active{
@@ -2364,12 +2386,108 @@ body[data-theme="night"] .settings-card-icon{
   color:var(--st-accent-strong);
 }
 
-#detailedPassagePlanSection .log-table{
+#detailedPassagePlanSection .dpp-summary-strip{
+  grid-template-columns:repeat(4,minmax(7rem,1fr));
+  margin:0 0 var(--st-space-3);
+}
+
+.dpp-table-wrap{
   border:1px solid var(--st-border);
+  border-radius:var(--st-radius-md);
+  overflow-x:auto;
+}
+
+#detailedPassagePlanSection .log-table{
+  border:0;
+  min-width:1120px;
+}
+
+#detailedPassagePlanSection .log-table th{
+  text-align:left;
+  vertical-align:bottom;
+}
+
+#detailedPassagePlanSection .dpp-subhead-row th{
+  color:var(--st-text-muted);
+  font-size:0.68rem;
+}
+
+#detailedPassagePlanSection .dpp-table-compact td{
+  vertical-align:middle;
+}
+
+#detailedPassagePlanSection .dpp-time{
+  width:72px;
+}
+
+#detailedPassagePlanSection .dpp-speed{
+  width:62px;
+}
+
+#detailedPassagePlanSection .dpp-coords{
+  min-width:230px;
 }
 
 #detailedPassagePlanSection .dpp-totals-row td{
   background:var(--st-surface-muted);
+  font-weight:850;
+}
+
+.dpp-row-actions{
+  display:flex;
+  gap:0.25rem;
+  white-space:nowrap;
+}
+
+.dpp-row-actions .btn{
+  min-height:34px;
+  min-width:34px;
+  padding:0 0.45rem;
+}
+
+.dpp-action-row,
+.dpp-template-controls{
+  align-items:center;
+  display:flex;
+  flex-wrap:wrap;
+  gap:var(--st-space-2);
+  margin-top:var(--st-space-3);
+}
+
+.dpp-template-controls{
+  border-top:1px solid var(--st-border);
+  padding-top:var(--st-space-3);
+}
+
+.dpp-template-controls input,
+.dpp-template-controls select{
+  flex:1 1 220px;
+  min-width:220px;
+}
+
+.dpp-notes-grid{
+  display:grid;
+  gap:var(--st-space-3);
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  margin-top:var(--st-space-3);
+}
+
+.dpp-note-card{
+  background:var(--st-surface-muted);
+  border:1px solid var(--st-border);
+  border-radius:var(--st-radius-md);
+  color:var(--st-text-muted);
+  display:flex;
+  flex-direction:column;
+  font-size:0.78rem;
+  font-weight:800;
+  gap:0.35rem;
+  padding:var(--st-space-3);
+}
+
+.dpp-note-card textarea{
+  min-height:6.5rem;
+  resize:vertical;
 }
 
 .log-layout{
@@ -2563,6 +2681,10 @@ body[data-theme="night"] .log-entry-row:nth-child(even) .log-display-cell{
   .plan-page-summary-strip{
     grid-template-columns:repeat(2,minmax(0,1fr));
   }
+
+  .dpp-notes-grid{
+    grid-template-columns:1fr;
+  }
 }
 
 @media (max-width: 760px){
@@ -2599,8 +2721,13 @@ body[data-theme="night"] .log-entry-row:nth-child(even) .log-display-cell{
   }
 
   .plan-field-grid.two-col,
-  .plan-page-summary-strip{
+  .plan-page-summary-strip,
+  #detailedPassagePlanSection .dpp-summary-strip{
     grid-template-columns:1fr;
+  }
+
+  #detailedPassagePlanSection .dpp-leg-tabs{
+    flex-direction:column;
   }
 
   .log-layout{

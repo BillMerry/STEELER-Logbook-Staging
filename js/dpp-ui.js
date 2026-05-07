@@ -46,10 +46,10 @@ function renderDetailedPassagePlan(p){
     ? dppTemplates.map((tpl) => `<option value="${escapeHtml(tpl.id)}">${escapeHtml(tpl.name)}</option>`).join("")
     : '<option value="">No saved DPPs</option>';
   const dppTemplateControlsHtml = `
-    <div style="margin-top:0.75rem; display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
-      <input type="text" id="dppTemplateName" value="${escapeHtml(routeLabel)}" placeholder="DPP template name" style="min-width:220px; flex:1 1 220px;">
+    <div class="dpp-template-controls">
+      <input type="text" id="dppTemplateName" value="${escapeHtml(routeLabel)}" placeholder="DPP template name">
       <button type="button" class="btn btn-secondary btn-small" id="dppSaveTemplateBtn">Save DPP Template</button>
-      <select id="dppTemplateSelect" style="min-width:220px; flex:1 1 220px;" ${dppTemplates.length ? "" : "disabled"}>
+      <select id="dppTemplateSelect" ${dppTemplates.length ? "" : "disabled"}>
         ${dppTemplateOptions}
       </select>
       <button type="button" class="btn btn-secondary btn-small" id="dppUseTemplateBtn" ${dppTemplates.length ? "" : "disabled"}>Use Template</button>
@@ -65,90 +65,104 @@ function renderDetailedPassagePlan(p){
     : "";
 
   mount.innerHTML = `
-    <h3>Detailed Passage Plan${legCount > 1 ? ` - Leg ${legIdx + 1}: ${escapeHtml(routeLabel)}` : ""}</h3>
+    <div class="dpp-header">
+      <div>
+        <p class="st-card-kicker">Detailed Passage Plan</p>
+        <h3>${legCount > 1 ? `Leg ${legIdx + 1}: ${escapeHtml(routeLabel)}` : escapeHtml(routeLabel)}</h3>
+      </div>
+    </div>
     ${legTabsHtml}
-    <div style="overflow-x:auto;">
-      <table class="log-table dpp-table-compact" style="min-width:1120px;">
+    <div class="st-metric-strip dpp-summary-strip">
+      <span class="st-metric-chip"><span>Distance (NM)</span><strong>${escapeHtml(String(dppTotals.totalNm || 0))}</strong></span>
+      <span class="st-metric-chip"><span>Est. Time</span><strong>${escapeHtml(dppTotals.totalDuration || "00:00")}</strong></span>
+      <span class="st-metric-chip"><span>Est. Fuel (L)</span><strong>${escapeHtml(String(dppTotals.totalFuel || 0))}</strong></span>
+      <span class="st-metric-chip"><span>Total Time</span><strong>${escapeHtml(dppTotals.totalDuration || "00:00")}</strong></span>
+    </div>
+    <div class="dpp-table-wrap">
+      <table class="log-table dpp-table-compact">
         <thead>
           <tr>
             <th>Time</th>
             <th>Waypoint</th>
-            <th>WP Lat/Lon</th>
+            <th>Lat / Lon</th>
             <th>Dist<br>NM</th>
-												<th>COG<br>°T</th>
-												<th>Plan<br>kt</th>
-												<th>Time<br>Next</th>
-												<th>Fuel<br>L</th>
-												<th>Total<br>NM</th>
-												<th>Total<br>Time</th>
-												<th>Total<br>L</th>
+            <th>COG<br>°T</th>
+            <th>Plan<br>kt</th>
+            <th>Time<br>Next</th>
+            <th>Fuel<br>L</th>
+            <th colspan="3">Totals to Destination</th>
+            <th>Actions</th>
+          </tr>
+          <tr class="dpp-subhead-row">
+            <th colspan="8"></th>
+            <th>NM</th>
+            <th>Time</th>
+            <th>Fuel</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
           ${wps.map((wp, idx) => `
             <tr data-dpp-row="${idx}">
-              <td><input type="text" class="dpp-time" value="${escapeHtml(wp.time || "")}" placeholder="HH:MM" style="width:72px"></td>
+              <td><input type="text" class="dpp-time" value="${escapeHtml(wp.time || "")}" placeholder="HH:MM"></td>
               <td><input type="text" class="dpp-name" value="${escapeHtml(wp.name || "")}" placeholder="Waypoint"></td>
-              <td><input type="text" class="dpp-coords" value="${escapeHtml(wp.coordsText || formatDetailedWaypointCoords(wp.lat, wp.lon))}" placeholder="50º45.123'N, 001º18.456'W or 50.752, -1.308" style="min-width:220px"></td>
+              <td><input type="text" class="dpp-coords" value="${escapeHtml(wp.coordsText || formatDetailedWaypointCoords(wp.lat, wp.lon))}" placeholder="50º45.123'N, 001º18.456'W or 50.752, -1.308"></td>
               <td>${wp.distToNext !== "" ? escapeHtml(String(wp.distToNext)) : "–"}</td>
               <td>${wp.cogToNext ? escapeHtml(wp.cogToNext) : "–"}</td>
-              <td><input type="number" step="0.1" inputmode="decimal" class="dpp-speed" value="${escapeHtml(wp.plannedSpeed || "")}" placeholder="kt" style="width:56px"></td>
+              <td><input type="number" step="0.1" inputmode="decimal" class="dpp-speed" value="${escapeHtml(wp.plannedSpeed || "")}" placeholder="kt"></td>
               <td>${wp.timeToNext ? escapeHtml(wp.timeToNext) : "–"}</td>
               <td>${wp.fuelToNext !== "" && wp.fuelToNext != null ? escapeHtml(String(wp.fuelToNext)) : "–"}</td>
               <td>${escapeHtml(String(dppRunningTotals[idx]?.totalNm ?? 0))}</td>
               <td>${escapeHtml(dppRunningTotals[idx]?.totalTime || "00:00")}</td>
               <td>${escapeHtml(String(dppRunningTotals[idx]?.totalFuel ?? 0))}</td>
-              <td style="white-space:nowrap;">
-                <button type="button" class="btn btn-secondary btn-small dpp-up">↑</button>
-                <button type="button" class="btn btn-secondary btn-small dpp-down">↓</button>
-                <button type="button" class="btn btn-secondary btn-small dpp-del">✕</button>
+              <td>
+                <div class="dpp-row-actions">
+                  <button type="button" class="btn btn-secondary btn-small dpp-up" title="Move waypoint up">↑</button>
+                  <button type="button" class="btn btn-secondary btn-small dpp-down" title="Move waypoint down">↓</button>
+                  <button type="button" class="btn btn-secondary btn-small dpp-del" title="Delete waypoint">✕</button>
+                </div>
               </td>
             </tr>
           `).join("")}
           <tr class="dpp-totals-row">
-            <td colspan="3" style="text-align:right; font-weight:700;">TOTAL</td>
-            <td style="font-weight:700;">${escapeHtml(String(dppTotals.totalNm || 0))}</td>
+            <td colspan="3">Totals</td>
+            <td>${escapeHtml(String(dppTotals.totalNm || 0))}</td>
             <td></td>
             <td></td>
-            <td style="font-weight:700;">${escapeHtml(dppTotals.totalDuration || "00:00")}</td>
-            <td style="font-weight:700;">${escapeHtml(String(dppTotals.totalFuel || 0))}</td>
-            <td style="font-weight:700;">${escapeHtml(String(dppTotals.totalNm || 0))}</td>
-            <td style="font-weight:700;">${escapeHtml(dppTotals.totalDuration || "00:00")}</td>
-            <td style="font-weight:700;">${escapeHtml(String(dppTotals.totalFuel || 0))}</td>
+            <td>${escapeHtml(dppTotals.totalDuration || "00:00")}</td>
+            <td>${escapeHtml(String(dppTotals.totalFuel || 0))}</td>
+            <td>${escapeHtml(String(dppTotals.totalNm || 0))}</td>
+            <td>${escapeHtml(dppTotals.totalDuration || "00:00")}</td>
+            <td>${escapeHtml(String(dppTotals.totalFuel || 0))}</td>
             <td></td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <div style="margin-top:0.6rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
+    <div class="dpp-action-row">
       <button type="button" class="btn btn-secondary btn-small" id="dppAddWaypointBtn">+ Add Waypoint</button>
-	      <button type="button" class="btn btn-secondary btn-small" id="dppRecalcBtn">Recalculate Passage Plan</button>
-	      <button type="button" class="btn btn-secondary btn-small" id="dppImportGpxBtn">Import GPX</button>
-	      <button type="button" class="btn btn-secondary btn-small" id="dppReverseBtn">Reverse Route</button>
-	      ${legIdx > 0 ? '<button type="button" class="btn btn-secondary btn-small" id="dppReversePreviousBtn">Reverse Previous Passage Plan</button>' : ''}
-	    </div>
+      <button type="button" class="btn btn-secondary btn-small" id="dppRecalcBtn">Recalculate</button>
+      <button type="button" class="btn btn-secondary btn-small" id="dppImportGpxBtn">Import GPX</button>
+      <button type="button" class="btn btn-secondary btn-small" id="dppReverseBtn">Reverse Route</button>
+      ${legIdx > 0 ? '<button type="button" class="btn btn-secondary btn-small" id="dppReversePreviousBtn">Reverse Previous Leg</button>' : ''}
+    </div>
     ${dppTemplateControlsHtml}
 
-    <div style="margin-top:0.85rem;">
-      <label>
-        Hazards (this leg)
-        <textarea id="dppHazards" rows="2">${escapeHtml(detailed.hazards || "")}</textarea>
+    <div class="dpp-notes-grid">
+      <label class="dpp-note-card">
+        <span>Hazards</span>
+        <textarea id="dppHazards" rows="3" placeholder="e.g. shipping lanes, traffic separation schemes, shallow areas, weather risks.">${escapeHtml(detailed.hazards || "")}</textarea>
       </label>
-    </div>
 
-    <div style="margin-top:0.6rem;">
-      <label>
-        Ports of Refuge (this leg)
-        <textarea id="dppPortsOfRefuge" rows="2">${escapeHtml(detailed.portsOfRefuge || "")}</textarea>
+      <label class="dpp-note-card">
+        <span>Ports of Refuge</span>
+        <textarea id="dppPortsOfRefuge" rows="3" placeholder="e.g. Lymington, Cowes, Yarmouth.">${escapeHtml(detailed.portsOfRefuge || "")}</textarea>
       </label>
-    </div>
 
-    <div style="margin-top:0.6rem;">
-      <label>
-        Crew Welfare (this leg)
-        <textarea id="dppCrewWelfare" rows="2">${escapeHtml(detailed.crewWelfare || "")}</textarea>
+      <label class="dpp-note-card">
+        <span>Crew Welfare</span>
+        <textarea id="dppCrewWelfare" rows="3" placeholder="e.g. rest plan, watches, meal schedule, medical notes.">${escapeHtml(detailed.crewWelfare || "")}</textarea>
       </label>
     </div>
   `;
