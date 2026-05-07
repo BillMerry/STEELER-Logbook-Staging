@@ -2402,8 +2402,9 @@ body[data-theme="night"] .settings-card-icon{
 }
 
 #detailedPassagePlanSection .dpp-summary-strip{
-  grid-template-columns:repeat(4,minmax(7rem,1fr));
+  grid-template-columns:repeat(4,minmax(11rem,1fr));
   margin:0 0 var(--st-space-3);
+  overflow-x:auto;
 }
 
 #detailedPassagePlanSection .dpp-summary-strip .st-metric-chip{
@@ -2762,9 +2763,12 @@ body[data-theme="night"] .log-entry-row:nth-child(even) .log-display-cell{
   }
 
   .plan-field-grid.two-col,
-  .plan-page-summary-strip,
-  #detailedPassagePlanSection .dpp-summary-strip{
+  .plan-page-summary-strip{
     grid-template-columns:1fr;
+  }
+
+  #detailedPassagePlanSection .dpp-summary-strip{
+    grid-template-columns:repeat(4,minmax(11rem,1fr));
   }
 
   #detailedPassagePlanSection .dpp-leg-tabs{
