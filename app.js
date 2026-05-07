@@ -5,7 +5,7 @@ const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 
-const APP_VERSION = "1.1.0-rc4";
+const APP_VERSION = "1.1.0-rc4a";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -1381,6 +1381,10 @@ function switchToTab(tabId) {
   // Keep Home passage highlight in sync with the currently selected passage
   if (tabId === "homeTab") {
     try { refreshHomePassageList(); } catch {}
+  }
+
+  if (tabId === "planTab" && planForm?.dataset?.openingDpp !== "1") {
+    try { showPassagePlanPage(); } catch {}
   }
 }
 
@@ -2827,6 +2831,7 @@ function scrollToSelectedHomePassage() {
 }
 
 function scrollToPlanFields(ids) {
+  showPassagePlanPage();
   switchToTab("planTab");
   window.setTimeout(() => {
     const fields = ids.map((id) => document.getElementById(id)).filter(Boolean);
@@ -2839,17 +2844,28 @@ function scrollToPlanFields(ids) {
   }, 80);
 }
 
+function showPassagePlanPage() {
+  if (planForm?.classList) planForm.classList.remove("dpp-page-mode");
+}
+
+function openDetailedPassagePlanPage() {
+  if (planForm?.dataset) planForm.dataset.openingDpp = "1";
+  switchToTab("planTab");
+  if (planForm?.dataset) delete planForm.dataset.openingDpp;
+  const p = getCurrentPassage();
+  if (p && typeof renderDetailedPassagePlan === "function") renderDetailedPassagePlan(p);
+  if (planForm?.classList) planForm.classList.add("dpp-page-mode");
+  window.setTimeout(() => {
+    const target = document.getElementById("detailedPassagePlanSection");
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    flashNavigationTarget(target);
+  }, 80);
+}
+
 function handleStatusStripNavigation(action) {
   if (action === "dpp") {
-    switchToTab("planTab");
-    const p = getCurrentPassage();
-    if (p && typeof renderDetailedPassagePlan === "function") renderDetailedPassagePlan(p);
-    window.setTimeout(() => {
-      const target = document.getElementById("detailedPassagePlanSection");
-      if (!target) return;
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
-      flashNavigationTarget(target);
-    }, 80);
+    openDetailedPassagePlanPage();
     return;
   }
 
@@ -3840,13 +3856,7 @@ addDailySummaryBtn.addEventListener("click", () => {
 });
 
 planOpenDppBtn?.addEventListener("click", () => {
-  const p = getCurrentPassage();
-  if (p && typeof renderDetailedPassagePlan === "function") renderDetailedPassagePlan(p);
-  const target = document.getElementById("detailedPassagePlanSection");
-  if (target) {
-    target.scrollIntoView({ behavior: "smooth", block: "start" });
-    flashNavigationTarget(target);
-  }
+  openDetailedPassagePlanPage();
 });
 
 window.addEventListener("DOMContentLoaded", () => { try { const p = getCurrentPassage(); if (p) renderDetailedPassagePlan(p); } catch(e){} });
@@ -4886,6 +4896,12 @@ planSummaryPanel.addEventListener("click", (e) => {
   const fieldId = target.dataset.goto;
   if (!fieldId) return;
 
+  if (fieldId === "detailedPassagePlanSection") {
+    openDetailedPassagePlanPage();
+    return;
+  }
+
+  showPassagePlanPage();
   switchToTab("planTab");
   const el = document.getElementById(fieldId);
   if (el) setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
