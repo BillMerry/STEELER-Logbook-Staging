@@ -2402,6 +2402,8 @@ body[data-theme="night"] .settings-card-icon{
 }
 
 #detailedPassagePlanSection .dpp-summary-strip{
+  display:grid;
+  gap:var(--st-space-2);
   grid-template-columns:repeat(4,minmax(11rem,1fr));
   margin:0 0 var(--st-space-3);
   overflow-x:auto;

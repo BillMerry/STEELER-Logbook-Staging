@@ -5,7 +5,7 @@ const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 
-const APP_VERSION = "1.1.0-rc5a";
+const APP_VERSION = "1.1.0-rc5b";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
