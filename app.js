@@ -5,7 +5,7 @@ const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 
-const APP_VERSION = "1.1.0-rc6";
+const APP_VERSION = "1.1.0-rc6a";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -912,36 +912,59 @@ function setupPortsManagerModal() {
 }
 
 function setupSettingsCardToggles(){
+  const settingsGrid = document.querySelector(".settings-grid");
   document.querySelectorAll("[data-settings-card]").forEach(card => {
     const btn = card.querySelector("[data-settings-toggle]");
     const panel = card.querySelector("[data-settings-panel]");
     if (!btn || !panel || btn.dataset.bound === "1") return;
 
     const setOpen = (open) => {
+      document.querySelectorAll("[data-settings-card]").forEach(other => {
+        if (other !== card) {
+          const otherBtn = other.querySelector("[data-settings-toggle]");
+          const otherPanel = other.querySelector("[data-settings-panel]");
+          if (otherPanel) otherPanel.hidden = true;
+          if (otherBtn) {
+            otherBtn.textContent = "›";
+            otherBtn.setAttribute("aria-expanded", "false");
+          }
+          other.classList.remove("open");
+        }
+      });
       panel.hidden = !open;
-      btn.textContent = open ? "Close" : "Open";
+      btn.textContent = open ? "Back to Settings" : "›";
       btn.setAttribute("aria-expanded", open ? "true" : "false");
       card.classList.toggle("open", open);
+      settingsGrid?.classList.toggle("settings-detail-mode", open);
+      if (open) card.scrollIntoView({ behavior: "smooth", block: "start" });
     };
 
     setOpen(card.classList.contains("open"));
     btn.dataset.bound = "1";
-    btn.addEventListener("click", () => setOpen(panel.hidden));
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      setOpen(panel.hidden);
+    });
+    card.querySelector(".settings-card-header")?.addEventListener("click", () => {
+      if (panel.hidden) setOpen(true);
+    });
   });
 }
 
 function closeSettingsPanels(){
+  document.querySelector(".settings-grid")?.classList.remove("settings-detail-mode");
   document.querySelectorAll("[data-settings-card]").forEach(card => {
     const btn = card.querySelector("[data-settings-toggle]");
     const panel = card.querySelector("[data-settings-panel]");
     if (!btn || !panel) return;
     panel.hidden = true;
-    btn.textContent = "Open";
+    btn.textContent = "›";
     btn.setAttribute("aria-expanded", "false");
     card.classList.remove("open");
   });
   if (dppTemplatesManager) dppTemplatesManager.style.display = "none";
-  if (manageDppTemplatesBtn) manageDppTemplatesBtn.textContent = "Manage Detailed Passage Plan Templates";
+  if (manageDppTemplatesBtn) manageDppTemplatesBtn.textContent = "Manage Detailed Passage Plans";
 }
 
 function setupTidePasteModal(){
@@ -2249,17 +2272,17 @@ function importDppTemplatesBackupFile(file) {
       const templatesPayload = obj?.data?.dppTemplates || obj?.dppTemplates;
       const valid = obj && obj.format === "steeler-dpp-templates-backup" && templatesPayload;
       if (!valid) {
-        alert("That file doesn’t look like a STEELER Detailed Passage Plan Templates backup.");
+        alert("That file doesn’t look like a STEELER Detailed Passage Plans backup.");
         return;
       }
 
       const imported = normaliseDppTemplateStore(templatesPayload).templates;
       if (!imported.length) {
-        alert("That Detailed Passage Plan Templates backup does not contain any templates.");
+        alert("That Detailed Passage Plans backup does not contain any templates.");
         return;
       }
 
-      const ok = confirm("Import Detailed Passage Plan Templates? Matching template names will be updated; new templates will be added.");
+      const ok = confirm("Import Detailed Passage Plans? Matching template names will be updated; new templates will be added.");
       if (!ok) return;
 
       const store = loadDppTemplateStore();
@@ -2384,7 +2407,7 @@ manageDppTemplatesBtn?.addEventListener("click", () => {
   if (!dppTemplatesManager) return;
   const open = dppTemplatesManager.style.display === "none" || !dppTemplatesManager.style.display;
   dppTemplatesManager.style.display = open ? "block" : "none";
-  manageDppTemplatesBtn.textContent = open ? "Hide Detailed Passage Plan Templates" : "Manage Detailed Passage Plan Templates";
+  manageDppTemplatesBtn.textContent = open ? "Hide Detailed Passage Plans" : "Manage Detailed Passage Plans";
   if (open) renderDppTemplatesManager();
 });
 
@@ -6511,7 +6534,7 @@ function reorderSettingsBlocksAndInjectWx() {
               <p>Define forecast abbreviation and expansion rules.</p>
             </div>
           </div>
-          <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>Open</button>
+          <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>›</button>
         </div>
         <div class="settings-card-panel" data-settings-panel hidden>
           <section class="settings-panel-card">
@@ -6877,11 +6900,11 @@ function injectSafetyEmergencySettingsBlock(){
           <div class="settings-card-main">
             <span class="settings-card-icon" aria-hidden="true">EC</span>
             <div>
-              <h3>Crew &amp; Emergency</h3>
-              <p>Emergency contacts, vessel details and routine notifications.</p>
+              <h3>Passage Safety Information</h3>
+              <p>Passage Safety Information.</p>
             </div>
           </div>
-          <button type="button" id="toggleSafetyEmergencyBtn" class="btn btn-secondary btn-small" data-settings-toggle>Open</button>
+          <button type="button" id="toggleSafetyEmergencyBtn" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>›</button>
         </div>
 								<div id="safetyEmergencyFullPanel" class="settings-card-panel safety-emergency-panel" data-settings-panel hidden>
           <div>

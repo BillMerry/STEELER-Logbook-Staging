@@ -1825,15 +1825,27 @@ body[data-theme="night"] .app-header h1{
   grid-template-columns:repeat(2,minmax(0,1fr));
 }
 
-#settingsVesselCard{order:10}
 #safetyEmergencySettingsBlock{order:20}
-#settingsAppearanceCard{order:30}
 #settingsWeatherTidesCard{order:40}
 #wxAbbrSettingsBlock{order:50}
 #settingsDppTemplatesCard{order:60}
 #settingsDataBackupCard{order:70}
-#settingsNotificationsCard{order:80}
-#settingsAboutCard{order:90}
+
+.settings-placeholder-card{
+  display:none !important;
+}
+
+.settings-grid.settings-detail-mode{
+  display:block;
+}
+
+.settings-grid.settings-detail-mode .settings-card{
+  display:none;
+}
+
+.settings-grid.settings-detail-mode .settings-card.open{
+  display:block;
+}
 
 .settings-card.open{
   border-color:var(--st-accent-border);
@@ -1850,12 +1862,24 @@ body[data-theme="night"] .app-header h1{
 }
 
 .settings-card-header{
+  cursor:pointer;
+}
+
+.settings-card-header{
   align-items:center;
   display:flex;
   justify-content:space-between;
   gap:var(--st-space-3);
   min-height:4.6rem;
   padding:var(--st-space-3);
+}
+
+.settings-toggle{
+  min-width:2.6rem;
+}
+
+.settings-card.open .settings-toggle{
+  min-width:9rem;
 }
 
 .settings-card-main{
@@ -1913,6 +1937,26 @@ body[data-theme="night"] .settings-card-icon{
 .settings-row,
 .backup-row{
   gap:var(--st-space-2);
+}
+
+.settings-card-panel .ports-row,
+.settings-card-panel .dpp-template-manager-row,
+.settings-card-panel #wxAbbrTbody tr{
+  background:var(--st-surface);
+  border:1px solid var(--st-border);
+  border-radius:var(--st-radius-md);
+  box-shadow:var(--st-shadow-card);
+  margin-bottom:var(--st-space-2);
+  padding:var(--st-space-3);
+}
+
+.settings-card-panel #wxAbbrTable{
+  border-collapse:separate !important;
+  border-spacing:0 var(--st-space-2) !important;
+}
+
+.settings-card-panel #wxAbbrTable td{
+  border-bottom:0 !important;
 }
 
 .scroll-pane{
