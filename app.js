@@ -5,7 +5,7 @@ const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 
-const APP_VERSION = "1.1.0-rc6b";
+const APP_VERSION = "1.1.0-rc6c";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -708,8 +708,13 @@ function renamePort(oldName, newName){
 
 
 function renderPortsManagerList() {
-  const list = document.getElementById("portsManagerList");
-  if (!list) return;
+  const lists = Array.from(new Set([
+    ...document.querySelectorAll("[data-ports-manager-list]"),
+    document.getElementById("portsManagerList")
+  ].filter(Boolean)));
+  if (!lists.length) return;
+
+  lists.forEach((list) => {
   list.innerHTML = "";
 
   const items = knownPorts.slice().sort((a, b) => portName(a).localeCompare(portName(b)));
@@ -725,10 +730,41 @@ function renderPortsManagerList() {
     const name = portName(item);
 
     const row = document.createElement("div");
-    row.className = "ports-row st-list-card";
+    row.className = "ports-row st-list-card st-edit-list-row";
+    row.tabIndex = 0;
 
     const left = document.createElement("div");
     left.className = "ports-left st-list-card-main";
+
+    const summary = document.createElement("div");
+    summary.className = "st-list-summary";
+
+    const title = document.createElement("div");
+    title.className = "st-list-title";
+    title.textContent = name || "(unnamed port)";
+
+    const meta = document.createElement("div");
+    meta.className = "st-list-meta";
+
+    const latV = (item && typeof item === "object" && item.lat != null) ? item.lat : NaN;
+    const lonV = (item && typeof item === "object" && item.lon != null) ? item.lon : NaN;
+    const hasCoords = !isNaN(latV) && !isNaN(lonV);
+    if (hasCoords) {
+      const mapsLink = document.createElement("a");
+      mapsLink.href = `https://maps.apple.com/?ll=${latV},${lonV}&q=${encodeURIComponent(name)}`;
+      mapsLink.target = "_blank";
+      mapsLink.rel = "noopener noreferrer";
+      mapsLink.textContent = formatDMM(latV, lonV);
+      meta.appendChild(mapsLink);
+    } else {
+      meta.textContent = "No coordinates saved";
+    }
+
+    summary.appendChild(title);
+    summary.appendChild(meta);
+
+    const editPanel = document.createElement("div");
+    editPanel.className = "st-row-edit-panel";
 
     const nameWrap = document.createElement("div");
     nameWrap.className = "ports-name-wrap";
@@ -753,35 +789,35 @@ function renderPortsManagerList() {
       renderPortsManagerList();
     });
 
-    nameWrap.appendChild(nameInput);
+    const nameField = document.createElement("label");
+    nameField.className = "st-labelled-field";
+    const nameLabel = document.createElement("span");
+    nameLabel.textContent = "Port name";
+    nameField.appendChild(nameLabel);
+    nameField.appendChild(nameInput);
+
+    nameWrap.appendChild(nameField);
     nameWrap.appendChild(renameBtn);
 
     const coords = document.createElement("div");
     coords.className = "ports-coords";
 
-    const latInput = document.createElement("input");
-    latInput.type = "text";
-    latInput.inputMode = "decimal";
-    latInput.placeholder = "Lat";
-    latInput.className = "ports-coord-input";
-    latInput.value = (item && typeof item === "object" && item.lat != null) ? item.lat : "";
-
-    const lonInput = document.createElement("input");
-    lonInput.type = "text";
-    lonInput.inputMode = "decimal";
-    lonInput.placeholder = "Lon";
-    lonInput.className = "ports-coord-input";
-    lonInput.value = (item && typeof item === "object" && item.lon != null) ? item.lon : "";
+    const coordInput = document.createElement("input");
+    coordInput.type = "text";
+    coordInput.inputMode = "text";
+    coordInput.placeholder = "50°45.085'N, 1°31.628'W";
+    coordInput.className = "ports-coord-input ports-coord-combined-input";
+    coordInput.value = hasCoords ? formatDMM(latV, lonV) : "";
 
     const saveBtn = document.createElement("button");
     saveBtn.type = "button";
     saveBtn.className = "ports-mini";
-    saveBtn.textContent = "Save coords";
+    saveBtn.textContent = "Save position";
 
     saveBtn.addEventListener("click", () => {
-      const pair = parseSingleLatLonField(latInput.value) || parseLatLon(latInput.value, lonInput.value);
+      const pair = parseSingleLatLonField(coordInput.value);
       if (!pair){
-        alert("Please enter both latitude and longitude.");
+        alert("Please enter latitude and longitude in one field.");
         return;
       }
       const la = pair.lat;
@@ -806,46 +842,30 @@ const lookupBtn = document.createElement("button");
 										alert(`Couldn’t find a reliable place match for "${name}". You can enter coordinates manually.`);
 										return;
 								}
-								latInput.value = hit.lat.toFixed(6);
-								lonInput.value = hit.lon.toFixed(6);
+								coordInput.value = formatDMM(hit.lat, hit.lon);
 						} catch (e) {
 								console.error(e);
 								alert("Could not look up that port (offline or blocked). You can enter coordinates manually.");
 						}
 				});
 
-    coords.appendChild(latInput);
-    coords.appendChild(lonInput);
-
-    const dmm = document.createElement("div");
-    dmm.className = "ports-dmm";
-    const latV = (item && typeof item === "object" && item.lat != null) ? item.lat : NaN;
-    const lonV = (item && typeof item === "object" && item.lon != null) ? item.lon : NaN;
-    if (isNaN(latV) || isNaN(lonV)) {
-      dmm.textContent = "";
-    } else {
-      const mapsLink = document.createElement("a");
-      mapsLink.href = `https://maps.apple.com/?ll=${latV},${lonV}&q=${encodeURIComponent(name)}`;
-      mapsLink.target = "_blank";
-      mapsLink.rel = "noopener noreferrer";
-      mapsLink.textContent = formatDMM(latV, lonV);
-      dmm.appendChild(mapsLink);
-    }
-    coords.appendChild(dmm);
+    const coordField = document.createElement("label");
+    coordField.className = "st-labelled-field";
+    const coordLabel = document.createElement("span");
+    coordLabel.textContent = "Lat / Lon";
+    coordField.appendChild(coordLabel);
+    coordField.appendChild(coordInput);
+    coords.appendChild(coordField);
 
     coords.appendChild(saveBtn);
     coords.appendChild(lookupBtn);
 
-    left.appendChild(nameWrap);
-    left.appendChild(coords);
+    editPanel.appendChild(nameWrap);
+    editPanel.appendChild(coords);
 
     // Group D (CL-076-11): per-port comments
     const commentsWrap = document.createElement("div");
     commentsWrap.className = "ports-comments";
-
-    const commentsLabel = document.createElement("div");
-    commentsLabel.className = "ports-comments-label";
-    commentsLabel.textContent = "Comms / Pilotage";
 
     const commentsInput = document.createElement("textarea");
     commentsInput.className = "ports-comment-input";
@@ -865,10 +885,18 @@ const lookupBtn = document.createElement("button");
       renderPortsManagerList();
     });
 
-    commentsWrap.appendChild(commentsLabel);
-    commentsWrap.appendChild(commentsInput);
+    const commentsField = document.createElement("label");
+    commentsField.className = "st-labelled-field";
+    const commentsLabel = document.createElement("span");
+    commentsLabel.textContent = "Comms / Pilotage";
+    commentsField.appendChild(commentsLabel);
+    commentsField.appendChild(commentsInput);
+    commentsWrap.appendChild(commentsField);
     commentsWrap.appendChild(commentsSaveBtn);
-    left.appendChild(commentsWrap);
+    editPanel.appendChild(commentsWrap);
+
+    left.appendChild(summary);
+    left.appendChild(editPanel);
 
     const right = document.createElement("div");
     right.className = "ports-right st-list-card-actions";
@@ -883,7 +911,18 @@ const lookupBtn = document.createElement("button");
 
     row.appendChild(left);
     row.appendChild(right);
+    row.addEventListener("click", (ev) => {
+      if (ev.target.closest("button, input, textarea, select, a")) return;
+      row.classList.toggle("is-editing");
+    });
+    row.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Enter" && ev.key !== " ") return;
+      if (ev.target.closest("button, input, textarea, select, a")) return;
+      ev.preventDefault();
+      row.classList.toggle("is-editing");
+    });
     list.appendChild(row);
+  });
   });
 }
 
@@ -913,6 +952,16 @@ function setupPortsManagerModal() {
 
 function setupSettingsCardToggles(){
   const settingsGrid = document.querySelector(".settings-grid");
+  const renderSettingsDetail = (card) => {
+    if (!card) return;
+    if (card.id === "settingsWeatherTidesCard") {
+      renderPortsManagerList();
+    }
+    if (card.id === "settingsDppTemplatesCard") {
+      if (dppTemplatesManager) dppTemplatesManager.style.display = "grid";
+      renderDppTemplatesManager();
+    }
+  };
   document.querySelectorAll("[data-settings-card]").forEach(card => {
     const btn = card.querySelector("[data-settings-toggle]");
     const panel = card.querySelector("[data-settings-panel]");
@@ -936,7 +985,10 @@ function setupSettingsCardToggles(){
       btn.setAttribute("aria-expanded", open ? "true" : "false");
       card.classList.toggle("open", open);
       settingsGrid?.classList.toggle("settings-detail-mode", open);
-      if (open) card.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (open) {
+        renderSettingsDetail(card);
+        card.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
     };
 
     setOpen(card.classList.contains("open"));
@@ -963,7 +1015,7 @@ function closeSettingsPanels(){
     btn.setAttribute("aria-expanded", "false");
     card.classList.remove("open");
   });
-  if (dppTemplatesManager) dppTemplatesManager.style.display = "none";
+  if (dppTemplatesManager) dppTemplatesManager.style.display = "";
   if (manageDppTemplatesBtn) manageDppTemplatesBtn.textContent = "Manage Detailed Passage Plans";
 }
 
@@ -3834,22 +3886,19 @@ function renderDppTemplatesManager(){
     ].filter(Boolean).join(", ");
 
     return `
-      <div class="dpp-template-manager-row st-list-card" data-dpp-template-id="${escapeHtml(tpl.id)}">
+      <div class="dpp-template-manager-row st-list-card st-edit-list-row" tabindex="0" data-dpp-template-id="${escapeHtml(tpl.id)}">
         <div class="dpp-template-manager-main st-list-card-main">
-          <input type="text" class="dpp-template-name-input" value="${escapeHtml(tpl.name)}" aria-label="DPP template name">
-          <div class="hint">
-            ${wps.length} waypoint${wps.length === 1 ? "" : "s"} · ${escapeHtml(String(totals.totalNm || 0))} NM · ${escapeHtml(totals.totalDuration || "00:00")}
-            ${notes ? ` · ${escapeHtml(notes)}` : ""}
+          <div class="st-list-summary">
+            <div class="st-list-title">${escapeHtml(tpl.name || "Untitled Detailed Passage Plan")}</div>
+            <div class="st-list-meta">
+              ${wps.length} waypoint${wps.length === 1 ? "" : "s"} · ${escapeHtml(String(totals.totalNm || 0))} NM · ${escapeHtml(totals.totalDuration || "00:00")}
+              ${notes ? ` · ${escapeHtml(notes)}` : ""}
+            </div>
           </div>
-          <details class="dpp-template-preview">
-            <summary>Preview</summary>
-            <ol>
-              ${wps.map((wp) => `<li>${escapeHtml(wp.name || "Waypoint")} ${wp.plannedSpeed ? `· ${escapeHtml(String(wp.plannedSpeed))} kt` : ""}</li>`).join("")}
-            </ol>
-            ${detailed.hazards ? `<p><strong>Hazards:</strong> ${escapeHtml(detailed.hazards).replace(/\n/g, "<br>")}</p>` : ""}
-            ${detailed.portsOfRefuge ? `<p><strong>Ports of Refuge:</strong> ${escapeHtml(detailed.portsOfRefuge).replace(/\n/g, "<br>")}</p>` : ""}
-            ${detailed.crewWelfare ? `<p><strong>Crew Welfare:</strong> ${escapeHtml(detailed.crewWelfare).replace(/\n/g, "<br>")}</p>` : ""}
-          </details>
+          <label class="st-labelled-field st-row-edit-panel">
+            <span>DPP name</span>
+            <input type="text" class="dpp-template-name-input" value="${escapeHtml(tpl.name)}" aria-label="DPP template name">
+          </label>
         </div>
         <div class="dpp-template-manager-actions st-list-card-actions">
           <button type="button" class="btn btn-secondary btn-small dpp-template-edit-btn">Edit</button>
@@ -3865,6 +3914,18 @@ function renderDppTemplatesManager(){
     const input = row.querySelector(".dpp-template-name-input");
 
     row.querySelector(".dpp-template-edit-btn")?.addEventListener("click", () => {
+      openDppTemplateEditor(id);
+    });
+
+    row.addEventListener("click", (ev) => {
+      if (ev.target.closest("button, input, textarea, select, a")) return;
+      openDppTemplateEditor(id);
+    });
+
+    row.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Enter" && ev.key !== " ") return;
+      if (ev.target.closest("button, input, textarea, select, a")) return;
+      ev.preventDefault();
       openDppTemplateEditor(id);
     });
 
@@ -6463,8 +6524,8 @@ function __wxAbbrFindSettingsContainer() {
   const settingsTab = document.getElementById("settingsTab");
   if (!settingsTab) return null;
 
-  const elPorts  = document.getElementById("managePortsBtn");
-  const elDpp = document.getElementById("manageDppTemplatesBtn");
+  const elPorts  = document.getElementById("settingsWeatherTidesCard");
+  const elDpp = document.getElementById("settingsDppTemplatesCard");
   const elBackup = document.getElementById("exportBackupBtn");
 
   const els = [elPorts, elDpp, elBackup].filter(Boolean);
@@ -6505,8 +6566,8 @@ function reorderSettingsBlocksAndInjectWx() {
   const container = __wxAbbrFindSettingsContainer();
   if (!container) return;
 
-  const portsBtn  = document.getElementById("managePortsBtn");
-  const dppBtn = document.getElementById("manageDppTemplatesBtn");
+  const portsBtn  = document.getElementById("settingsWeatherTidesCard");
+  const dppBtn = document.getElementById("settingsDppTemplatesCard");
   const backupBtn = document.getElementById("exportBackupBtn");
 
   const portsBlock  = __wxAbbrBlockForEl(portsBtn, container);
@@ -6538,9 +6599,16 @@ function reorderSettingsBlocksAndInjectWx() {
         </div>
         <div class="settings-card-panel" data-settings-panel hidden>
           <section class="settings-panel-card st-panel st-stack">
-            <button type="button" id="manageWxAbbrBtn" class="btn btn-secondary">Manage Weather Abbreviations</button>
+            <div class="settings-detail-actions st-action-row">
+              <button type="button" id="wxAbbrAddBtn" class="btn btn-secondary">Add rule</button>
+              <button type="button" id="wxAbbrSortBtn" class="btn btn-secondary">Sort A→Z</button>
+              <button type="button" id="wxAbbrExportBtn" class="btn btn-secondary">Export JSON</button>
+              <button type="button" id="wxAbbrImportBtn" class="btn btn-secondary">Import .json</button>
+              <button type="button" id="wxAbbrResetBtn" class="btn btn-secondary">Reset defaults</button>
+              <button type="button" id="wxAbbrClearBtn" class="btn btn-secondary">Clear all</button>
+            </div>
             <p class="hint">Define abbreviation / expansion rules for Met Office and Météo-France forecasts.</p>
-            <div id="wxAbbrEditorWrap" class="st-stack" style="display:none;"></div>
+            <div id="wxAbbrEditorWrap" class="st-stack"></div>
           </section>
         </div>
       </div>
@@ -6562,17 +6630,8 @@ function reorderSettingsBlocksAndInjectWx() {
 }
 
 function setupWeatherShorthandEditorUI(){
-  const btn  = document.getElementById("manageWxAbbrBtn");
   const wrap = document.getElementById("wxAbbrEditorWrap");
-  if (!btn || !wrap) return;
-
-  // Toggle editor visibility
-  const toggle = () => {
-    wrap.style.display = (wrap.style.display === "none" || !wrap.style.display) ? "block" : "none";
-  };
-
-  // Wire toggle every time (safe)
-  btn.onclick = toggle;
+  if (!wrap) return;
 
   // Build UI once
   if (wrap.dataset.built === "1") return;
@@ -6618,16 +6677,14 @@ function setupWeatherShorthandEditorUI(){
   wrap.appendChild(importFile);
 
   const searchInp = mk("input", { id:"wxAbbrSearch", type:"search", placeholder:"Filter rules…", style:"min-width:220px;" });
-  const addBtn    = mk("button", { type:"button", id:"wxAbbrAddBtn", class:"btn btn-secondary", text:"Add rule" });
-  const sortBtn   = mk("button", { type:"button", id:"wxAbbrSortBtn", class:"btn btn-secondary", text:"Sort A→Z" });
-  const exportBtn = mk("button", { type:"button", id:"wxAbbrExportBtn", class:"btn btn-secondary", text:"Export JSON" });
-  const importBtn = mk("button", { type:"button", id:"wxAbbrImportBtn", class:"btn btn-secondary", text:"Import .json" });
-  const resetBtn  = mk("button", { type:"button", id:"wxAbbrResetBtn", class:"btn btn-secondary", text:"Reset to shipped defaults" });
-  const clearBtn  = mk("button", { type:"button", id:"wxAbbrClearBtn", class:"btn btn-secondary", text:"Clear all rules" });
+  const addBtn    = document.getElementById("wxAbbrAddBtn");
+  const sortBtn   = document.getElementById("wxAbbrSortBtn");
+  const exportBtn = document.getElementById("wxAbbrExportBtn");
+  const importBtn = document.getElementById("wxAbbrImportBtn");
+  const resetBtn  = document.getElementById("wxAbbrResetBtn");
+  const clearBtn  = document.getElementById("wxAbbrClearBtn");
 
-  const topRow = mk("div", { class:"st-action-row" }, [
-    searchInp, addBtn, sortBtn, exportBtn, importBtn, resetBtn, clearBtn
-  ]);
+  const topRow = mk("div", { class:"st-action-row" }, [searchInp]);
 
   const table = mk("table", { id:"wxAbbrTable", class:"st-table" });
   const thead = mk("thead", {}, [
@@ -6879,11 +6936,29 @@ function setupWeatherShorthandEditorUI(){
 
 // --- Safety / Emergency Info Settings UI ---------------------------
 
+function applySettingsFieldLabels(scope){
+  if (!scope) return;
+  scope.querySelectorAll("input[placeholder], textarea[placeholder]").forEach((field) => {
+    if (field.type === "hidden" || field.type === "checkbox") return;
+    if (field.closest(".st-labelled-field")) return;
+    const labelText = field.getAttribute("placeholder") || field.getAttribute("aria-label") || "";
+    if (!labelText) return;
+
+    const label = document.createElement("label");
+    label.className = "st-labelled-field";
+    const span = document.createElement("span");
+    span.textContent = labelText;
+    field.parentNode.insertBefore(label, field);
+    label.appendChild(span);
+    label.appendChild(field);
+  });
+}
+
 function injectSafetyEmergencySettingsBlock(){
   const container = __wxAbbrFindSettingsContainer();
   if (!container) return;
 
-  const portsBtn = document.getElementById("managePortsBtn");
+  const portsBtn = document.getElementById("settingsWeatherTidesCard");
   const portsBlock = __wxAbbrBlockForEl(portsBtn, container);
   if (!portsBlock) return;
 
@@ -6982,6 +7057,8 @@ function injectSafetyEmergencySettingsBlock(){
   if (!block.parentElement){
     container.insertBefore(block, portsBlock.nextSibling);
   }
+
+  applySettingsFieldLabels(block);
 
   const s = getSafetyInfo();
   const ec = getDefaultEmergencyContact() || {};

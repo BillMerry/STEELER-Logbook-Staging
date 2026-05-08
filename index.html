@@ -415,14 +415,12 @@
             <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>›</button>
           </div>
           <div class="settings-card-panel" data-settings-panel hidden>
-            <div class="settings-row st-action-row">
-              <button id="managePortsBtn" class="btn btn-secondary">Manage Ports</button>
-            </div>
-            <div class="backup-row st-action-row" style="margin-top:0.6rem;">
+            <div class="settings-detail-actions st-action-row">
               <button id="exportPortsBtn" class="btn btn-secondary">Export Ports</button>
               <button id="importPortsBtn" class="btn btn-secondary">Import Ports</button>
               <input id="importPortsFileInput" type="file" accept="application/json,.json" hidden>
             </div>
+            <div id="settingsPortsManagerList" class="ports-list st-list" data-ports-manager-list></div>
             <p class="hint">Ports, coordinates and Comms / Pilotage are stored separately from passage backups. Import merges by port name.</p>
           </div>
         </div>
@@ -439,15 +437,12 @@
             <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>›</button>
           </div>
           <div class="settings-card-panel" data-settings-panel hidden>
-            <div class="settings-row st-action-row">
-              <button id="manageDppTemplatesBtn" class="btn btn-secondary">Manage Detailed Passage Plans</button>
-            </div>
-            <div class="backup-row st-action-row" style="margin-top:0.6rem;">
+            <div class="settings-detail-actions st-action-row">
               <button id="exportDppTemplatesBtn" class="btn btn-secondary">Export Detailed Passage Plans</button>
               <button id="importDppTemplatesBtn" class="btn btn-secondary">Import Detailed Passage Plans</button>
               <input id="importDppTemplatesFileInput" type="file" accept="application/json,.json" hidden>
             </div>
-            <div id="dppTemplatesManager" style="display:none; margin-top:0.8rem;"></div>
+            <div id="dppTemplatesManager" class="st-list"></div>
             <p class="hint">DPP templates are reusable across passages and are also included in full logbook backups.</p>
           </div>
         </div>
@@ -548,7 +543,7 @@
       </div>
       <div class="modal-body">
         <div class="modal-help">Remove typos/tests from the saved port list.</div>
-        <div id="portsManagerList" class="ports-list"></div>
+        <div id="portsManagerList" class="ports-list st-list" data-ports-manager-list></div>
       </div>
     </div>
   </div>

@@ -834,6 +834,7 @@ body[data-theme="night"] .ports-delete { border-color: rgba(255,255,255,0.18); c
 .ports-right{flex:0 0 auto}
 .ports-coords{display:flex;gap:0.35rem;flex-wrap:wrap;align-items:center}
 .ports-coord-input{max-width:15ch;padding:0.25rem 0.35rem;border:1px solid var(--border);border-radius:0.35rem;background:var(--panel);color:var(--fg)}
+.ports-coord-combined-input{max-width:32rem;width:100%}
 .ports-mini{border-radius:999px;padding:0.25rem 0.55rem;border:1px solid #d0d0d0;background:var(--soft);color:var(--fg);font-size:0.78rem;cursor:pointer}
 
 .ports-name-wrap{display:flex;gap:0.45rem;align-items:center;margin-bottom:0.25rem}
@@ -1819,6 +1820,15 @@ body[data-theme="night"] .app-header h1{
   margin:0.25rem 0 0;
 }
 
+.settings-section,
+.settings-card,
+.settings-card input,
+.settings-card textarea,
+.settings-card select,
+.settings-card button{
+  font-size:0.92rem;
+}
+
 .st-card{
   background:var(--st-surface);
   border:1px solid var(--st-border);
@@ -1879,6 +1889,20 @@ body[data-theme="night"] .app-header h1{
   min-width:0;
 }
 
+.st-list-title{
+  color:var(--st-text);
+  font-size:0.98rem;
+  font-weight:800;
+  line-height:1.25;
+}
+
+.st-list-meta{
+  color:var(--st-text-muted);
+  font-size:0.84rem;
+  line-height:1.3;
+  margin-top:0.12rem;
+}
+
 .st-list-card-actions{
   display:flex;
   flex-wrap:wrap;
@@ -1902,6 +1926,41 @@ body[data-theme="night"] .app-header h1{
   align-items:center;
   gap:var(--st-space-2);
   min-height:var(--st-touch-min);
+}
+
+.st-labelled-field{
+  display:grid;
+  gap:var(--st-space-1);
+}
+
+.st-labelled-field > span{
+  color:var(--st-text-muted);
+  font-size:0.76rem;
+  font-weight:800;
+  letter-spacing:0.04em;
+  text-transform:uppercase;
+}
+
+.st-row-edit-panel{
+  display:none;
+}
+
+.st-edit-list-row{
+  cursor:pointer;
+}
+
+.st-edit-list-row.is-editing .st-row-edit-panel{
+  display:grid;
+  gap:var(--st-space-2);
+  margin-top:var(--st-space-2);
+}
+
+.st-edit-list-row .ports-right{
+  display:none;
+}
+
+.st-edit-list-row.is-editing .ports-right{
+  display:flex;
 }
 
 .st-table{
@@ -2065,7 +2124,11 @@ body[data-theme="night"] .settings-card-icon{
 
 .settings-card-panel{
   margin:0;
-  padding:0 var(--st-space-3) var(--st-space-3) calc(var(--st-space-3) + 3rem + var(--st-space-3));
+  padding:0 var(--st-space-3) var(--st-space-3);
+}
+
+.settings-detail-actions{
+  margin-bottom:var(--st-space-3);
 }
 
 .settings-panel-card:not(.st-panel){
