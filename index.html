@@ -344,7 +344,7 @@
         </div>
 
         <div class="settings-grid">
-        <div id="settingsVesselCard" class="settings-card settings-placeholder-card" data-settings-card>
+        <div id="settingsVesselCard" class="settings-card st-card settings-placeholder-card" data-settings-card>
           <div class="settings-card-header">
             <div class="settings-card-main">
               <span class="settings-card-icon" aria-hidden="true">VS</span>
@@ -356,14 +356,14 @@
             <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>›</button>
           </div>
           <div class="settings-card-panel" data-settings-panel hidden>
-            <section class="settings-panel-card">
-              <h4>Current Vessel</h4>
+            <section class="settings-panel-card st-panel">
+              <h4 class="st-panel-title">Current Vessel</h4>
               <p class="hint">The vessel name is edited on each Passage Plan and defaults to STEELER for new passages.</p>
             </section>
           </div>
         </div>
 
-        <div id="settingsAppearanceCard" class="settings-card settings-placeholder-card" data-settings-card>
+        <div id="settingsAppearanceCard" class="settings-card st-card settings-placeholder-card" data-settings-card>
           <div class="settings-card-header">
             <div class="settings-card-main">
               <span class="settings-card-icon" aria-hidden="true">AP</span>
@@ -375,14 +375,14 @@
             <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>›</button>
           </div>
           <div class="settings-card-panel" data-settings-panel hidden>
-            <section class="settings-panel-card">
-              <h4>Theme</h4>
+            <section class="settings-panel-card st-panel">
+              <h4 class="st-panel-title">Theme</h4>
               <p class="hint">Use the Night button in the app header to switch between day and night display.</p>
             </section>
           </div>
         </div>
 
-        <div id="settingsDataBackupCard" class="settings-card" data-settings-card>
+        <div id="settingsDataBackupCard" class="settings-card st-card" data-settings-card>
           <div class="settings-card-header">
             <div class="settings-card-main">
               <span class="settings-card-icon" aria-hidden="true">DB</span>
@@ -394,7 +394,7 @@
             <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>›</button>
           </div>
           <div class="settings-card-panel" data-settings-panel hidden>
-            <div class="backup-row">
+            <div class="backup-row st-action-row">
               <button id="exportBackupBtn" class="btn btn-secondary">Backup</button>
               <button id="importBackupBtn" class="btn btn-secondary">Restore</button>
               <input id="importFileInput" type="file" accept="application/json,.json" hidden>
@@ -403,7 +403,7 @@
           </div>
         </div>
 
-        <div id="settingsWeatherTidesCard" class="settings-card" data-settings-card>
+        <div id="settingsWeatherTidesCard" class="settings-card st-card" data-settings-card>
           <div class="settings-card-header">
             <div class="settings-card-main">
               <span class="settings-card-icon" aria-hidden="true">PT</span>
@@ -415,10 +415,10 @@
             <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>›</button>
           </div>
           <div class="settings-card-panel" data-settings-panel hidden>
-            <div class="settings-row">
+            <div class="settings-row st-action-row">
               <button id="managePortsBtn" class="btn btn-secondary">Manage Ports</button>
             </div>
-            <div class="backup-row" style="margin-top:0.6rem;">
+            <div class="backup-row st-action-row" style="margin-top:0.6rem;">
               <button id="exportPortsBtn" class="btn btn-secondary">Export Ports</button>
               <button id="importPortsBtn" class="btn btn-secondary">Import Ports</button>
               <input id="importPortsFileInput" type="file" accept="application/json,.json" hidden>
@@ -427,7 +427,7 @@
           </div>
         </div>
 
-        <div id="settingsDppTemplatesCard" class="settings-card" data-settings-card>
+        <div id="settingsDppTemplatesCard" class="settings-card st-card" data-settings-card>
           <div class="settings-card-header">
             <div class="settings-card-main">
               <span class="settings-card-icon" aria-hidden="true">DP</span>
@@ -439,10 +439,10 @@
             <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>›</button>
           </div>
           <div class="settings-card-panel" data-settings-panel hidden>
-            <div class="settings-row">
+            <div class="settings-row st-action-row">
               <button id="manageDppTemplatesBtn" class="btn btn-secondary">Manage Detailed Passage Plans</button>
             </div>
-            <div class="backup-row" style="margin-top:0.6rem;">
+            <div class="backup-row st-action-row" style="margin-top:0.6rem;">
               <button id="exportDppTemplatesBtn" class="btn btn-secondary">Export Detailed Passage Plans</button>
               <button id="importDppTemplatesBtn" class="btn btn-secondary">Import Detailed Passage Plans</button>
               <input id="importDppTemplatesFileInput" type="file" accept="application/json,.json" hidden>
@@ -452,7 +452,7 @@
           </div>
         </div>
 
-        <div id="settingsNotificationsCard" class="settings-card settings-placeholder-card" data-settings-card>
+        <div id="settingsNotificationsCard" class="settings-card st-card settings-placeholder-card" data-settings-card>
           <div class="settings-card-header">
             <div class="settings-card-main">
               <span class="settings-card-icon" aria-hidden="true">NT</span>
@@ -464,14 +464,14 @@
             <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>›</button>
           </div>
           <div class="settings-card-panel" data-settings-panel hidden>
-            <section class="settings-panel-card">
-              <h4>Notifications</h4>
+            <section class="settings-panel-card st-panel">
+              <h4 class="st-panel-title">Notifications</h4>
               <p class="hint">No local notification rules are active yet. Emergency contact messaging is managed under Passage Safety Information.</p>
             </section>
           </div>
         </div>
 
-        <div id="settingsAboutCard" class="settings-card settings-placeholder-card" data-settings-card>
+        <div id="settingsAboutCard" class="settings-card st-card settings-placeholder-card" data-settings-card>
           <div class="settings-card-header">
             <div class="settings-card-main">
               <span class="settings-card-icon" aria-hidden="true">i</span>
@@ -483,8 +483,8 @@
             <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>›</button>
           </div>
           <div class="settings-card-panel" data-settings-panel hidden>
-            <section class="settings-panel-card">
-              <h4>STEELER Logbook</h4>
+            <section class="settings-panel-card st-panel">
+              <h4 class="st-panel-title">STEELER Logbook</h4>
               <p class="hint">Version is shown in the footer. Data is stored locally on this device unless you export a backup.</p>
             </section>
           </div>
@@ -498,10 +498,10 @@
 
   <!-- Modal (numeric-friendly) -->
   <div id="modalOverlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
-    <div class="modal">
-      <div class="modal-title" id="modalTitle">Modal</div>
-      <div class="modal-body" id="modalBody"></div>
-      <div class="modal-actions">
+    <div class="modal st-modal">
+      <div class="modal-title st-modal-header" id="modalTitle">Modal</div>
+      <div class="modal-body st-modal-body" id="modalBody"></div>
+      <div class="modal-actions st-modal-actions">
         <button id="modalCancelBtn" class="btn btn-secondary">Cancel</button>
         <button id="modalOkBtn" class="btn btn-primary">OK</button>
       </div>

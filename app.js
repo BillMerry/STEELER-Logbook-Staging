@@ -5,7 +5,7 @@ const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 
-const APP_VERSION = "1.1.0-rc6a";
+const APP_VERSION = "1.1.0-rc6b";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -218,10 +218,10 @@ function renderEmergencyContactsManager(){
 
   contacts.forEach(c => {
     const row = document.createElement("div");
-    row.style.cssText = "display:flex; gap:8px; justify-content:space-between; align-items:flex-start; padding:8px 10px; border:1px solid var(--line); border-radius:12px; margin-top:8px;";
+    row.className = "st-list-card";
 
     const left = document.createElement("div");
-    left.style.flex = "1";
+    left.className = "st-list-card-main";
     left.innerHTML = `
       <div style="font-weight:600;">${escapeHtml(c.name || "(unnamed contact)")} ${c.isDefault ? '<span style="opacity:0.7;">[default]</span>' : ''}</div>
       <div style="opacity:0.85;">${escapeHtml(c.tel || "")}</div>
@@ -230,7 +230,7 @@ function renderEmergencyContactsManager(){
     `;
 
     const right = document.createElement("div");
-    right.style.cssText = "display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;";
+    right.className = "st-list-card-actions";
 
     const editBtn = document.createElement("button");
     editBtn.type = "button";
@@ -725,10 +725,10 @@ function renderPortsManagerList() {
     const name = portName(item);
 
     const row = document.createElement("div");
-    row.className = "ports-row";
+    row.className = "ports-row st-list-card";
 
     const left = document.createElement("div");
-    left.className = "ports-left";
+    left.className = "ports-left st-list-card-main";
 
     const nameWrap = document.createElement("div");
     nameWrap.className = "ports-name-wrap";
@@ -871,7 +871,7 @@ const lookupBtn = document.createElement("button");
     left.appendChild(commentsWrap);
 
     const right = document.createElement("div");
-    right.className = "ports-right";
+    right.className = "ports-right st-list-card-actions";
 
     const del = document.createElement("button");
     del.type = "button";
@@ -3834,8 +3834,8 @@ function renderDppTemplatesManager(){
     ].filter(Boolean).join(", ");
 
     return `
-      <div class="dpp-template-manager-row" data-dpp-template-id="${escapeHtml(tpl.id)}">
-        <div class="dpp-template-manager-main">
+      <div class="dpp-template-manager-row st-list-card" data-dpp-template-id="${escapeHtml(tpl.id)}">
+        <div class="dpp-template-manager-main st-list-card-main">
           <input type="text" class="dpp-template-name-input" value="${escapeHtml(tpl.name)}" aria-label="DPP template name">
           <div class="hint">
             ${wps.length} waypoint${wps.length === 1 ? "" : "s"} · ${escapeHtml(String(totals.totalNm || 0))} NM · ${escapeHtml(totals.totalDuration || "00:00")}
@@ -3851,7 +3851,7 @@ function renderDppTemplatesManager(){
             ${detailed.crewWelfare ? `<p><strong>Crew Welfare:</strong> ${escapeHtml(detailed.crewWelfare).replace(/\n/g, "<br>")}</p>` : ""}
           </details>
         </div>
-        <div class="dpp-template-manager-actions">
+        <div class="dpp-template-manager-actions st-list-card-actions">
           <button type="button" class="btn btn-secondary btn-small dpp-template-edit-btn">Edit</button>
           <button type="button" class="btn btn-secondary btn-small dpp-template-rename-btn">Rename</button>
           <button type="button" class="btn btn-secondary btn-small dpp-template-delete-btn">Delete</button>
@@ -6537,10 +6537,10 @@ function reorderSettingsBlocksAndInjectWx() {
           <button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>›</button>
         </div>
         <div class="settings-card-panel" data-settings-panel hidden>
-          <section class="settings-panel-card">
+          <section class="settings-panel-card st-panel st-stack">
             <button type="button" id="manageWxAbbrBtn" class="btn btn-secondary">Manage Weather Abbreviations</button>
             <p class="hint">Define abbreviation / expansion rules for Met Office and Météo-France forecasts.</p>
-            <div id="wxAbbrEditorWrap" style="display:none; margin-top:14px; border-top:1px solid rgba(0,0,0,0.12); padding-top:12px;"></div>
+            <div id="wxAbbrEditorWrap" class="st-stack" style="display:none;"></div>
           </section>
         </div>
       </div>
@@ -6618,25 +6618,25 @@ function setupWeatherShorthandEditorUI(){
   wrap.appendChild(importFile);
 
   const searchInp = mk("input", { id:"wxAbbrSearch", type:"search", placeholder:"Filter rules…", style:"min-width:220px;" });
-  const addBtn    = mk("button", { type:"button", id:"wxAbbrAddBtn", text:"Add rule" });
-  const sortBtn   = mk("button", { type:"button", id:"wxAbbrSortBtn", text:"Sort A→Z" });
-  const exportBtn = mk("button", { type:"button", id:"wxAbbrExportBtn", text:"Export JSON" });
-  const importBtn = mk("button", { type:"button", id:"wxAbbrImportBtn", text:"Import .json" });
-  const resetBtn  = mk("button", { type:"button", id:"wxAbbrResetBtn",  text:"Reset to shipped defaults" });
-  const clearBtn  = mk("button", { type:"button", id:"wxAbbrClearBtn",  text:"Clear all rules" });
+  const addBtn    = mk("button", { type:"button", id:"wxAbbrAddBtn", class:"btn btn-secondary", text:"Add rule" });
+  const sortBtn   = mk("button", { type:"button", id:"wxAbbrSortBtn", class:"btn btn-secondary", text:"Sort A→Z" });
+  const exportBtn = mk("button", { type:"button", id:"wxAbbrExportBtn", class:"btn btn-secondary", text:"Export JSON" });
+  const importBtn = mk("button", { type:"button", id:"wxAbbrImportBtn", class:"btn btn-secondary", text:"Import .json" });
+  const resetBtn  = mk("button", { type:"button", id:"wxAbbrResetBtn", class:"btn btn-secondary", text:"Reset to shipped defaults" });
+  const clearBtn  = mk("button", { type:"button", id:"wxAbbrClearBtn", class:"btn btn-secondary", text:"Clear all rules" });
 
-  const topRow = mk("div", { style:"display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px;" }, [
+  const topRow = mk("div", { class:"st-action-row" }, [
     searchInp, addBtn, sortBtn, exportBtn, importBtn, resetBtn, clearBtn
   ]);
 
-  const table = mk("table", { id:"wxAbbrTable", style:"width:100%; border-collapse:collapse;" });
+  const table = mk("table", { id:"wxAbbrTable", class:"st-table" });
   const thead = mk("thead", {}, [
     mk("tr", {}, [
-      mk("th", { text:"On",   style:"text-align:left; padding:6px 4px; border-bottom:1px solid rgba(0,0,0,0.12);" }),
-      mk("th", { text:"FROM", style:"text-align:left; padding:6px 4px; border-bottom:1px solid rgba(0,0,0,0.12);" }),
-      mk("th", { text:"TO",   style:"text-align:left; padding:6px 4px; border-bottom:1px solid rgba(0,0,0,0.12);" }),
-      mk("th", { text:"Mode", style:"text-align:left; padding:6px 4px; border-bottom:1px solid rgba(0,0,0,0.12);" }),
-      mk("th", { text:"",     style:"padding:6px 4px; border-bottom:1px solid rgba(0,0,0,0.12);" }),
+      mk("th", { text:"On" }),
+      mk("th", { text:"From" }),
+      mk("th", { text:"To" }),
+      mk("th", { text:"Mode" }),
+      mk("th", { text:"" }),
     ])
   ]);
   const tbody = mk("tbody", { id:"wxAbbrTbody" });
@@ -6651,12 +6651,12 @@ function setupWeatherShorthandEditorUI(){
   const prevIn  = mk("textarea", { id:"wxAbbrPrevIn", rows:"4", style:"width:100%;", placeholder:"Paste forecast snippet here…" });
   const prevOut = mk("textarea", { id:"wxAbbrPrevOut", rows:"4", style:"width:100%;", readonly:"readonly" });
 
-  const prevRow = mk("div", { style:"display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:14px;" }, [
-    mk("div",{style:"display:flex; gap:8px; align-items:center;"},[mk("div",{text:"Preview as:", style:"opacity:0.8;"}), prevProvider, prevCat])
+  const prevRow = mk("div", { class:"st-action-row" }, [
+    mk("div",{class:"st-action-row"},[mk("div",{text:"Preview as:", class:"hint"}), prevProvider, prevCat])
   ]);
-  const prevGrid = mk("div", { style:"display:grid; grid-template-columns:1fr; gap:10px; margin-top:10px;" }, [
-    mk("div",{},[mk("div",{text:"Original", style:"opacity:0.8; margin-bottom:4px;"}), prevIn]),
-    mk("div",{},[mk("div",{text:"Result",   style:"opacity:0.8; margin-bottom:4px;"}), prevOut]),
+  const prevGrid = mk("div", { class:"st-stack" }, [
+    mk("div",{},[mk("div",{text:"Original", class:"st-panel-title"}), prevIn]),
+    mk("div",{},[mk("div",{text:"Result", class:"st-panel-title"}), prevOut]),
   ]);
 
   wrap.appendChild(topRow);
@@ -6703,7 +6703,7 @@ function setupWeatherShorthandEditorUI(){
 
       const tr = mk("tr", {}, []);
 
-      const onTd = mk("td", { style:"padding:6px 4px; border-bottom:1px solid rgba(0,0,0,0.06);" });
+      const onTd = mk("td", {});
       const onCb = mk("input", { type:"checkbox" });
       onCb.checked = enabled;
       onCb.onchange = () => {
@@ -6715,7 +6715,7 @@ function setupWeatherShorthandEditorUI(){
       };
       onTd.appendChild(onCb);
 
-      const fromTd = mk("td", { style:"padding:6px 4px; border-bottom:1px solid rgba(0,0,0,0.06);" });
+      const fromTd = mk("td", {});
       const fromIn = mk("input", { type:"text", value:fromDisp, style:"width:100%;" });
       fromIn.onchange = () => {
         const db2 = getDb();
@@ -6735,7 +6735,7 @@ function setupWeatherShorthandEditorUI(){
       };
       fromTd.appendChild(fromIn);
 
-      const toTd = mk("td", { style:"padding:6px 4px; border-bottom:1px solid rgba(0,0,0,0.06);" });
+      const toTd = mk("td", {});
       const toIn = mk("input", { type:"text", value:toRaw, style:"width:100%;" });
       toIn.onchange = () => {
         const db2 = getDb();
@@ -6746,7 +6746,7 @@ function setupWeatherShorthandEditorUI(){
       };
       toTd.appendChild(toIn);
 
-      const modeTd = mk("td", { style:"padding:6px 4px; border-bottom:1px solid rgba(0,0,0,0.06);" });
+      const modeTd = mk("td", {});
       const modeSel = mk("select", {});
       modeOptions.forEach(([v,t]) => modeSel.appendChild(mk("option",{value:v,text:t})));
       modeSel.value = mode;
@@ -6760,8 +6760,8 @@ function setupWeatherShorthandEditorUI(){
       };
       modeTd.appendChild(modeSel);
 
-      const actTd = mk("td", { style:"padding:6px 4px; border-bottom:1px solid rgba(0,0,0,0.06);" });
-      const delBtn = mk("button", { type:"button", text:"Delete" });
+      const actTd = mk("td", {});
+      const delBtn = mk("button", { type:"button", class:"btn btn-secondary btn-small", text:"Delete" });
       delBtn.onclick = () => {
         const db2 = getDb();
         if (!Array.isArray(db2.rules)) db2.rules = [];
@@ -6906,10 +6906,10 @@ function injectSafetyEmergencySettingsBlock(){
           </div>
           <button type="button" id="toggleSafetyEmergencyBtn" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>›</button>
         </div>
-								<div id="safetyEmergencyFullPanel" class="settings-card-panel safety-emergency-panel" data-settings-panel hidden>
-          <div>
-            <div style="font-weight:600; margin-bottom:6px;">Vessel</div>
-            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px;">
+        <div id="safetyEmergencyFullPanel" class="settings-card-panel safety-emergency-panel st-stack" data-settings-panel hidden>
+          <div class="st-panel st-stack">
+            <div class="st-panel-title">Vessel</div>
+            <div class="st-form-grid st-form-grid-compact">
               <input id="seiBoatName" placeholder="Boat Name">
               <input id="seiBoatType" placeholder="Boat Type">
 														<input id="seiBoatModel" placeholder="Boat Model">
@@ -6924,9 +6924,9 @@ function injectSafetyEmergencySettingsBlock(){
             </div>
           </div>
 
-          <div>
-            <div style="font-weight:600; margin-bottom:6px;">Appearance & Safety</div>
-            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px;">
+          <div class="st-panel st-stack">
+            <div class="st-panel-title">Appearance & Safety</div>
+            <div class="st-form-grid">
               <input id="seiTopsides" placeholder="Hull Colour (topsides)">
               <input id="seiHull" placeholder="Hull Colour (lower)">
               <input id="seiSuperstructure" placeholder="Superstructure Colour">
@@ -6939,9 +6939,9 @@ function injectSafetyEmergencySettingsBlock(){
             </div>
           </div>
 
-          <div>
-            <div style="font-weight:600; margin-bottom:6px;">Owner Details</div>
-            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px;">
+          <div class="st-panel st-stack">
+            <div class="st-panel-title">Owner Details</div>
+            <div class="st-form-grid">
               <input id="seiOwnerNames" placeholder="Owner Names">
               <input id="seiOwnerTel" placeholder="Owner Tel">
               <input id="seiOwnerEmail" placeholder="Owner Email">
@@ -6949,9 +6949,9 @@ function injectSafetyEmergencySettingsBlock(){
             </div>
           </div>
 
-          <div>
-            <div style="font-weight:600; margin-bottom:6px;">Default Emergency Contact</div>
-            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px;">
+          <div class="st-panel st-stack">
+            <div class="st-panel-title">Default Emergency Contact</div>
+            <div class="st-form-grid">
               <input id="seiEcName" placeholder="Contact Name">
               <input id="seiEcTel" placeholder="Contact Tel">
               <input id="seiEcEmail" placeholder="Contact Email">
@@ -6959,20 +6959,20 @@ function injectSafetyEmergencySettingsBlock(){
             </div>
           </div>
 
-          <div>
-            <div style="font-weight:600; margin-bottom:6px;">Notification Defaults</div>
-            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px;">
+          <div class="st-panel st-stack">
+            <div class="st-panel-title">Notification Defaults</div>
+            <div class="st-form-grid">
               <input id="seiOverdueHours" type="number" min="1" step="1" placeholder="Overdue hours">
               <input id="seiEngineToSlip" type="number" min="0" step="1" placeholder="Engine Start → WP1 mins">
               <input id="seiDetailsUrl" placeholder="Published details URL">
-              <label style="display:flex; align-items:center; gap:8px;"><input id="seiIncludeDetailsUrl" type="checkbox"> Include details URL in SMS</label>
-              <label style="display:flex; align-items:center; gap:8px;"><input id="seiIncludeMarineTraffic" type="checkbox"> Include MarineTraffic link in SMS</label>
+              <label class="st-form-field"><input id="seiIncludeDetailsUrl" type="checkbox"> Include details URL in SMS</label>
+              <label class="st-form-field"><input id="seiIncludeMarineTraffic" type="checkbox"> Include MarineTraffic link in SMS</label>
             </div>
           </div>
 
-          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-            <button type="button" id="saveSafetyEmergencyBtn">Save Safety / Emergency Info</button>
-												<button type="button" id="exportVesselDetailsBtn">Export Vessel Details HTML</button>
+          <div class="st-action-row">
+            <button type="button" id="saveSafetyEmergencyBtn" class="btn btn-primary">Save Safety / Emergency Info</button>
+            <button type="button" id="exportVesselDetailsBtn" class="btn btn-secondary">Export Vessel Details HTML</button>
           </div>
         </div>
       </div>
@@ -7035,15 +7035,15 @@ function injectSafetyEmergencySettingsBlock(){
 		if (!ecManager){
 				ecManager = document.createElement("div");
 				ecManager.id = "seiEcManager";
-				ecManager.style.marginTop = "10px";
+				ecManager.className = "st-stack";
 				ecManager.innerHTML = `
-						<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
-								<button type="button" id="seiEcNewBtn">New Contact</button>
-								<button type="button" id="seiEcSaveBtn">Save Contact</button>
-								<button type="button" id="seiEcDefaultBtn">Make Default</button>
-								<button type="button" id="seiEcDeleteBtn">Delete Contact</button>
+						<div class="st-action-row">
+								<button type="button" id="seiEcNewBtn" class="btn btn-secondary">New Contact</button>
+								<button type="button" id="seiEcSaveBtn" class="btn btn-secondary">Save Contact</button>
+								<button type="button" id="seiEcDefaultBtn" class="btn btn-secondary">Make Default</button>
+								<button type="button" id="seiEcDeleteBtn" class="btn btn-secondary">Delete Contact</button>
 						</div>
-						<div id="seiEcList" style="margin-top:10px;"></div>
+						<div id="seiEcList" class="st-list"></div>
 				`;
 		
 				const defaultContactSection = document.getElementById("seiEcNotes")?.closest("div")?.parentElement;
