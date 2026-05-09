@@ -61,7 +61,11 @@ function getPassageEtaInfo(p, detailedPlan = null){
   const etaRaw = String(last?.time || "").trim();
   if (!etaRaw) return { etaText: "", overdueText: "" };
 
-  const eta = roundHHMMToNearest5(etaRaw);
+  const rawEtaMinutes = hhmmToMinutes(etaRaw);
+  const bufferedEtaMinutes = Number.isFinite(rawEtaMinutes) ? rawEtaMinutes + 20 : NaN;
+  const eta = Number.isFinite(bufferedEtaMinutes)
+    ? roundHHMMToNearest5(minutesToHHMM(bufferedEtaMinutes))
+    : roundHHMMToNearest5(etaRaw);
 
   const planDate = String(p?.plan?.date || "").trim();
   let etaDateText = planDate;
@@ -76,6 +80,10 @@ function getPassageEtaInfo(p, detailedPlan = null){
       dayOffset = Math.floor(totalMinutes / 1440);
     } else if (Number.isFinite(startMins) && Number.isFinite(endMins) && endMins < startMins) {
       dayOffset = 1;
+    }
+
+    if (Number.isFinite(rawEtaMinutes) && rawEtaMinutes + 20 >= 1440) {
+      dayOffset += 1;
     }
 
     if (planDate && dayOffset > 0) {
@@ -147,7 +155,7 @@ function buildEcStartSms(p, legIdx = null){
   const intro = multiLegContext
     ? `LOOKOUT REQUEST
 
-Thanks for agreeing to look out for us during ${vessel.boatName || "our vessel"}'s passage from ${fullOrigin || "our origin"} to ${fullDestination || "our destination"} today, with a stop off at ${multiLegContext.transitText || "our transit port"}. ${multiLegContext.legText} We'll message you once we've completed this leg of the passage to confirm our arrival.`
+Thanks for agreeing to look out for us during ${vessel.boatName || "our vessel"}'s passage from ${fullOrigin || "our origin"} to ${fullDestination || "our destination"} today, with a stop off at ${multiLegContext.transitText || "our transit port"}. ${multiLegContext.legText} ${etaInfo.etaText ? `We expect to arrive around ${etaInfo.etaText}. ` : ""}We'll message you once we've completed this leg of the passage to confirm our arrival.`
     : `LOOKOUT REQUEST
 
 Thanks for agreeing to look out for us during ${vessel.boatName || "our vessel"}'s passage from ${origin || "our origin"} to ${destination || "our destination"} today. ${etaInfo.etaText ? `We expect to arrive around ${etaInfo.etaText}. ` : ""}We'll message you once we've completed the passage to confirm our arrival.`;

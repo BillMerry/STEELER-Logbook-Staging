@@ -5,7 +5,7 @@ const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 
-const APP_VERSION = "1.1.0-rc6c";
+const APP_VERSION = "1.1.0-rc6d";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -209,7 +209,39 @@ function loadEmergencyContactIntoSettingsForm(contact){
   if (notesEl) notesEl.value = c.notes || "";
 }
 
-function renderEmergencyContactsManager(){
+function saveEmergencyContactFromRow(row, contactId){
+  const s = getSafetyInfo();
+  if (!Array.isArray(s.emergencyContacts)) s.emergencyContacts = [];
+
+  const wanted = String(contactId || "");
+  let contact = s.emergencyContacts.find(c => String(c.id) === wanted);
+  if (!contact) {
+    contact = createBlankEmergencyContact();
+    s.emergencyContacts.push(contact);
+  }
+
+  contact.name = (row.querySelector(".sei-ec-row-name")?.value || "").trim();
+  contact.tel = (row.querySelector(".sei-ec-row-tel")?.value || "").trim();
+  contact.email = (row.querySelector(".sei-ec-row-email")?.value || "").trim();
+  contact.notes = (row.querySelector(".sei-ec-row-notes")?.value || "").trim();
+
+  if (!s.emergencyContacts.some(c => c.isDefault)) contact.isDefault = true;
+  saveSafetyInfo(s);
+  renderEmergencyContactsManager(contact.id);
+}
+
+function createEmergencyContactFromSettings(){
+  const s = getSafetyInfo();
+  if (!Array.isArray(s.emergencyContacts)) s.emergencyContacts = [];
+  const contact = createBlankEmergencyContact();
+  contact.name = "New Contact";
+  contact.isDefault = !s.emergencyContacts.some(c => c.isDefault);
+  s.emergencyContacts.push(contact);
+  saveSafetyInfo(s);
+  renderEmergencyContactsManager(contact.id);
+}
+
+function renderEmergencyContactsManager(openId = ""){
   const listEl = document.getElementById("seiEcList");
   if (!listEl) return;
 
@@ -218,54 +250,72 @@ function renderEmergencyContactsManager(){
 
   contacts.forEach(c => {
     const row = document.createElement("div");
-    row.className = "st-list-card";
+    row.className = "st-list-card st-edit-list-row";
+    row.tabIndex = 0;
+    if (String(c.id) === String(openId)) row.classList.add("is-editing");
 
     const left = document.createElement("div");
     left.className = "st-list-card-main";
     left.innerHTML = `
-      <div style="font-weight:600;">${escapeHtml(c.name || "(unnamed contact)")} ${c.isDefault ? '<span style="opacity:0.7;">[default]</span>' : ''}</div>
-      <div style="opacity:0.85;">${escapeHtml(c.tel || "")}</div>
-      ${c.email ? `<div style="opacity:0.75;">${escapeHtml(c.email)}</div>` : ""}
-      ${c.notes ? `<div style="opacity:0.75;">${escapeHtml(c.notes)}</div>` : ""}
+      <div class="st-list-summary">
+        <div class="st-list-title">${escapeHtml(c.name || "(unnamed contact)")}${c.isDefault ? ' <span class="st-list-badge">Default</span>' : ''}</div>
+        <div class="st-list-meta">${escapeHtml(c.tel || "No telephone saved")}${c.email ? ` · ${escapeHtml(c.email)}` : ""}</div>
+      </div>
+      <div class="st-row-edit-panel">
+        <div class="st-form-grid">
+          <label class="st-labelled-field"><span>Contact name</span><input class="sei-ec-row-name" value="${escapeHtml(c.name || "")}"></label>
+          <label class="st-labelled-field"><span>Telephone</span><input class="sei-ec-row-tel" value="${escapeHtml(c.tel || "")}"></label>
+          <label class="st-labelled-field"><span>Email</span><input class="sei-ec-row-email" value="${escapeHtml(c.email || "")}"></label>
+          <label class="st-labelled-field"><span>Relationship / Notes</span><input class="sei-ec-row-notes" value="${escapeHtml(c.notes || "")}"></label>
+        </div>
+      </div>
     `;
 
     const right = document.createElement("div");
     right.className = "st-list-card-actions";
 
-    const editBtn = document.createElement("button");
-    editBtn.type = "button";
-    editBtn.className = "btn btn-secondary btn-small";
-    editBtn.textContent = "Edit";
-    editBtn.addEventListener("click", () => loadEmergencyContactIntoSettingsForm(c));
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.className = "btn btn-primary btn-small st-row-edit-panel";
+    saveBtn.textContent = "Save";
+    saveBtn.addEventListener("click", () => saveEmergencyContactFromRow(row, c.id));
 
     const defBtn = document.createElement("button");
     defBtn.type = "button";
-    defBtn.className = "btn btn-secondary btn-small";
+    defBtn.className = "btn btn-secondary btn-small st-row-edit-panel";
     defBtn.textContent = "Make Default";
     defBtn.disabled = !!c.isDefault;
     defBtn.addEventListener("click", () => {
       setDefaultEmergencyContact(c.id);
-      renderEmergencyContactsManager();
-      loadEmergencyContactIntoSettingsForm(getDefaultEmergencyContact());
+      renderEmergencyContactsManager(c.id);
     });
 
     const delBtn = document.createElement("button");
     delBtn.type = "button";
-    delBtn.className = "btn btn-secondary btn-small";
+    delBtn.className = "btn btn-secondary btn-small st-row-edit-panel";
     delBtn.textContent = "Delete";
     delBtn.addEventListener("click", () => {
       if (!confirm(`Delete emergency contact "${c.name || c.tel || "this contact"}"?`)) return;
       deleteEmergencyContact(c.id);
       renderEmergencyContactsManager();
-      loadEmergencyContactIntoSettingsForm(getDefaultEmergencyContact());
     });
 
-    right.appendChild(editBtn);
+    right.appendChild(saveBtn);
     right.appendChild(defBtn);
     right.appendChild(delBtn);
 
     row.appendChild(left);
     row.appendChild(right);
+    row.addEventListener("click", (ev) => {
+      if (ev.target.closest("button, input, textarea, select, a")) return;
+      row.classList.toggle("is-editing");
+    });
+    row.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Enter" && ev.key !== " ") return;
+      if (ev.target.closest("button, input, textarea, select, a")) return;
+      ev.preventDefault();
+      row.classList.toggle("is-editing");
+    });
     listEl.appendChild(row);
   });
 }
@@ -341,13 +391,14 @@ function saveSafetyInfoFromSettingsFields(){
   s.defaults.includeDetailsUrlInSms = !!document.getElementById("seiIncludeDetailsUrl")?.checked;
   s.defaults.includeMarineTrafficInSms = !!document.getElementById("seiIncludeMarineTraffic")?.checked;
 
+		const selectedId = (document.getElementById("seiEcId")?.value || "").trim();
+		if (document.getElementById("seiEcName") || selectedId) {
 		if (!Array.isArray(s.emergencyContacts) || !s.emergencyContacts.length){
 				s.emergencyContacts = [createBlankEmergencyContact()];
 				s.emergencyContacts[0].name = "Emergency Contact";
 				s.emergencyContacts[0].isDefault = true;
 		}
 		
-		const selectedId = (document.getElementById("seiEcId")?.value || "").trim();
 		let ec = s.emergencyContacts.find(c => String(c.id) === String(selectedId));
 		
 		if (!ec){
@@ -362,6 +413,7 @@ function saveSafetyInfoFromSettingsFields(){
 		ec.notes = (document.getElementById("seiEcNotes")?.value || "").trim();
 		
 		if (!s.emergencyContacts.some(c => c.isDefault)) ec.isDefault = true;
+		}
 
   saveSafetyInfo(s);
   alert("Safety / Emergency Info saved.");
@@ -706,8 +758,24 @@ function renamePort(oldName, newName){
   return { ok:true };
 }
 
+function makeUniquePortName(base = "New Port"){
+  const existing = new Set((knownPorts || []).map(p => portName(p).trim()).filter(Boolean));
+  if (!existing.has(base)) return base;
+  let idx = 2;
+  while (existing.has(`${base} ${idx}`)) idx += 1;
+  return `${base} ${idx}`;
+}
 
-function renderPortsManagerList() {
+function createNewPortFromSettings(){
+  const name = makeUniquePortName();
+  knownPorts.push(ensurePortId({ name, lat: null, lon: null, commsPilotage: "" }));
+  savePorts();
+  refreshPortUI();
+  renderPortsManagerList(name);
+}
+
+
+function renderPortsManagerList(openName = "") {
   const lists = Array.from(new Set([
     ...document.querySelectorAll("[data-ports-manager-list]"),
     document.getElementById("portsManagerList")
@@ -732,6 +800,7 @@ function renderPortsManagerList() {
     const row = document.createElement("div");
     row.className = "ports-row st-list-card st-edit-list-row";
     row.tabIndex = 0;
+    if (String(name) === String(openName)) row.classList.add("is-editing");
 
     const left = document.createElement("div");
     left.className = "ports-left st-list-card-main";
@@ -1536,9 +1605,11 @@ const exportBackupBtn = document.getElementById("exportBackupBtn");
 const importBackupBtn = document.getElementById("importBackupBtn");
 const importFileInput = document.getElementById("importFileInput");
 const exportPortsBtn = document.getElementById("exportPortsBtn");
+const newPortBtn = document.getElementById("newPortBtn");
 const importPortsBtn = document.getElementById("importPortsBtn");
 const importPortsFileInput = document.getElementById("importPortsFileInput");
 const manageDppTemplatesBtn = document.getElementById("manageDppTemplatesBtn");
+const newDppTemplateBtn = document.getElementById("newDppTemplateBtn");
 const exportDppTemplatesBtn = document.getElementById("exportDppTemplatesBtn");
 const importDppTemplatesBtn = document.getElementById("importDppTemplatesBtn");
 const importDppTemplatesFileInput = document.getElementById("importDppTemplatesFileInput");
@@ -2438,6 +2509,7 @@ importFileInput?.addEventListener("change", (e) => {
 });
 
 exportPortsBtn?.addEventListener("click", exportPortsBackup);
+newPortBtn?.addEventListener("click", createNewPortFromSettings);
 importPortsBtn?.addEventListener("click", () => importPortsFileInput?.click());
 importPortsFileInput?.addEventListener("change", (e) => {
   const file = e.target.files?.[0];
@@ -2447,6 +2519,18 @@ importPortsFileInput?.addEventListener("change", (e) => {
 });
 
 exportDppTemplatesBtn?.addEventListener("click", exportDppTemplatesBackup);
+newDppTemplateBtn?.addEventListener("click", () => {
+  const existing = new Set(getDppTemplates().map(tpl => String(tpl.name || "").trim()).filter(Boolean));
+  let name = "New Plan";
+  let idx = 2;
+  while (existing.has(name)) {
+    name = `New Plan ${idx}`;
+    idx += 1;
+  }
+  const tpl = saveDppTemplate(name, createBlankDetailedPassagePlan());
+  renderDppTemplatesManager();
+  openDppTemplateEditor(tpl.id);
+});
 importDppTemplatesBtn?.addEventListener("click", () => importDppTemplatesFileInput?.click());
 importDppTemplatesFileInput?.addEventListener("change", (e) => {
   const file = e.target.files?.[0];
@@ -7025,13 +7109,11 @@ function injectSafetyEmergencySettingsBlock(){
           </div>
 
           <div class="st-panel st-stack">
-            <div class="st-panel-title">Default Emergency Contact</div>
-            <div class="st-form-grid">
-              <input id="seiEcName" placeholder="Contact Name">
-              <input id="seiEcTel" placeholder="Contact Tel">
-              <input id="seiEcEmail" placeholder="Contact Email">
-              <input id="seiEcNotes" placeholder="Relationship / Notes">
+            <div class="st-panel-title">Emergency Contacts</div>
+            <div class="st-action-row">
+              <button type="button" id="seiEcNewBtn" class="btn btn-primary">New Contact</button>
             </div>
+            <div id="seiEcList" class="st-list"></div>
           </div>
 
           <div class="st-panel st-stack">
@@ -7061,7 +7143,6 @@ function injectSafetyEmergencySettingsBlock(){
   applySettingsFieldLabels(block);
 
   const s = getSafetyInfo();
-  const ec = getDefaultEmergencyContact() || {};
 
   document.getElementById("seiBoatName").value = s.vessel?.boatName || "";
   document.getElementById("seiBoatType").value = s.vessel?.boatType || "";
@@ -7089,89 +7170,20 @@ function injectSafetyEmergencySettingsBlock(){
   document.getElementById("seiOwnerEmail").value = s.owner?.email || "";
   document.getElementById("seiOwnerAddr").value = s.owner?.address || "";
 
-  document.getElementById("seiEcName").value = ec.name || "";
-  document.getElementById("seiEcTel").value = ec.tel || "";
-  document.getElementById("seiEcEmail").value = ec.email || "";
-  document.getElementById("seiEcNotes").value = ec.notes || "";
-
   document.getElementById("seiOverdueHours").value = s.defaults?.overdueHours ?? 2;
   document.getElementById("seiEngineToSlip").value = s.defaults?.engineToSlipMins ?? 7;
   document.getElementById("seiDetailsUrl").value = s.defaults?.detailsPageUrl || "";
   document.getElementById("seiIncludeDetailsUrl").checked = !!s.defaults?.includeDetailsUrlInSms;
   document.getElementById("seiIncludeMarineTraffic").checked = !!s.defaults?.includeMarineTrafficInSms;
 
-		let ecIdEl = document.getElementById("seiEcId");
-		if (!ecIdEl){
-				ecIdEl = document.createElement("input");
-				ecIdEl.type = "hidden";
-				ecIdEl.id = "seiEcId";
-				block.appendChild(ecIdEl);
-		}
-		
-		let ecManager = document.getElementById("seiEcManager");
-		if (!ecManager){
-				ecManager = document.createElement("div");
-				ecManager.id = "seiEcManager";
-				ecManager.className = "st-stack";
-				ecManager.innerHTML = `
-						<div class="st-action-row">
-								<button type="button" id="seiEcNewBtn" class="btn btn-secondary">New Contact</button>
-								<button type="button" id="seiEcSaveBtn" class="btn btn-secondary">Save Contact</button>
-								<button type="button" id="seiEcDefaultBtn" class="btn btn-secondary">Make Default</button>
-								<button type="button" id="seiEcDeleteBtn" class="btn btn-secondary">Delete Contact</button>
-						</div>
-						<div id="seiEcList" class="st-list"></div>
-				`;
-		
-				const defaultContactSection = document.getElementById("seiEcNotes")?.closest("div")?.parentElement;
-				if (defaultContactSection) {
-						defaultContactSection.appendChild(ecManager);
-				} else {
-						block.appendChild(ecManager);
-				}
-		}
-		
-		loadEmergencyContactIntoSettingsForm(getDefaultEmergencyContact());
 		renderEmergencyContactsManager();
 		
 		const newBtn = document.getElementById("seiEcNewBtn");
 		if (newBtn && !newBtn.dataset.bound){
 				newBtn.dataset.bound = "1";
-				newBtn.addEventListener("click", () => loadEmergencyContactIntoSettingsForm(createBlankEmergencyContact()));
+				newBtn.addEventListener("click", createEmergencyContactFromSettings);
 		}
 		
-		const saveEcBtn = document.getElementById("seiEcSaveBtn");
-		if (saveEcBtn && !saveEcBtn.dataset.bound){
-				saveEcBtn.dataset.bound = "1";
-				saveEcBtn.addEventListener("click", () => {
-						saveSafetyInfoFromSettingsFields();
-						renderEmergencyContactsManager();
-				});
-		}
-		
-		const makeDefBtn = document.getElementById("seiEcDefaultBtn");
-		if (makeDefBtn && !makeDefBtn.dataset.bound){
-				makeDefBtn.dataset.bound = "1";
-				makeDefBtn.addEventListener("click", () => {
-						saveSafetyInfoFromSettingsFields();
-						const id = (document.getElementById("seiEcId")?.value || "").trim();
-						if (id) setDefaultEmergencyContact(id);
-						renderEmergencyContactsManager();
-				});
-		}
-		
-		const delEcBtn = document.getElementById("seiEcDeleteBtn");
-		if (delEcBtn && !delEcBtn.dataset.bound){
-				delEcBtn.dataset.bound = "1";
-				delEcBtn.addEventListener("click", () => {
-						const id = (document.getElementById("seiEcId")?.value || "").trim();
-						if (!id) return;
-						deleteEmergencyContact(id);
-						renderEmergencyContactsManager();
-						loadEmergencyContactIntoSettingsForm(getDefaultEmergencyContact());
-				});
-		}
-
 		const exportDetailsBtn = document.getElementById("exportVesselDetailsBtn");
 		if (exportDetailsBtn && !exportDetailsBtn.dataset.bound){
 				exportDetailsBtn.dataset.bound = "1";
