@@ -6,7 +6,7 @@ const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 const DPP_WAYPOINTS_KEY = "steeler_dpp_waypoints_v1";
 
-const APP_VERSION = "1.1.0-rc7a";
+const APP_VERSION = "1.1.0-rc7b";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -4284,8 +4284,54 @@ settingsDppWaypointsTab?.addEventListener("click", () => setSettingsDppLibraryTa
 
 function createNewDppWaypointFromSettings(){
   setSettingsDppLibraryTab("waypoints");
-  const wp = saveDppWaypoint({ name: uniqueDppWaypointName("New WP"), coordsText: "", notes: "" });
-  renderDppWaypointsManager(wp.id);
+  openDppWaypointDialog();
+}
+
+function openDppWaypointDialog(existingId = ""){
+  const existing = existingId ? getDppWaypointById(existingId) : null;
+  showModal({
+    title: existing ? "Edit Waypoint" : "New Waypoint",
+    okText: "Save WP",
+    bodyHtml: `
+      <div class="st-stack">
+        <label class="st-labelled-field">
+          <span>WP name</span>
+          <input type="text" id="dppWaypointDialogName" value="${escapeHtml(existing?.name || "")}" placeholder="Waypoint name">
+        </label>
+        <label class="st-labelled-field">
+          <span>Lat / Lon</span>
+          <input type="text" id="dppWaypointDialogCoords" value="${escapeHtml(existing?.coordsText || "")}" placeholder="50º45.123'N, 001º18.456'W or 50.752, -1.308">
+        </label>
+        <label class="st-labelled-field">
+          <span>Notes</span>
+          <textarea id="dppWaypointDialogNotes" rows="3" placeholder="Optional notes">${escapeHtml(existing?.notes || "")}</textarea>
+        </label>
+      </div>
+    `,
+    onOk: () => {
+      const name = (modalBody.querySelector("#dppWaypointDialogName")?.value || "").trim();
+      const coordsText = (modalBody.querySelector("#dppWaypointDialogCoords")?.value || "").trim();
+      const notes = (modalBody.querySelector("#dppWaypointDialogNotes")?.value || "").trim();
+      if (!name) {
+        alert("Please enter a waypoint name.");
+        return false;
+      }
+      const parsed = coordsText ? parseDetailedWaypointCoords(coordsText) : null;
+      if (coordsText && !parsed) {
+        alert("Please enter Lat / Lon in one of the supported formats.");
+        return false;
+      }
+      const wp = saveDppWaypoint({
+        id: existing?.id || "",
+        name,
+        coordsText,
+        notes
+      });
+      setSettingsDppLibraryTab("waypoints");
+      renderDppWaypointsManager(wp.id);
+    }
+  });
+  window.setTimeout(() => modalBody.querySelector("#dppWaypointDialogName")?.focus(), 50);
 }
 
 function uniqueDppWaypointName(baseName = "New WP"){
@@ -4350,13 +4396,13 @@ function renderDppWaypointsManager(openId = ""){
 
     row.addEventListener("click", (ev) => {
       if (ev.target.closest("input, textarea, select, button, a")) return;
-      openRow();
+      openDppWaypointDialog(id);
     });
     row.addEventListener("keydown", (ev) => {
       if (ev.key !== "Enter" && ev.key !== " ") return;
       if (ev.target.closest("input, textarea, select, button, a")) return;
       ev.preventDefault();
-      openRow();
+      openDppWaypointDialog(id);
     });
 
     const saveRow = () => {
