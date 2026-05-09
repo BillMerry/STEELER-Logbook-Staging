@@ -4,8 +4,9 @@ const STORAGE_KEY = "steeler_logbook_passages_v5";
 const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
+const DPP_WAYPOINTS_KEY = "steeler_dpp_waypoints_v1";
 
-const APP_VERSION = "1.1.0-rc6i";
+const APP_VERSION = "1.1.0-rc7";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -40,6 +41,11 @@ const STORAGE_SAFETY_CONFIG = {
     label: "DPP templates",
     mirrorKey: "steeler_lkg_dpp_templates_v1",
     mirrorMetaKey: "steeler_lkg_dpp_templates_v1_meta"
+  },
+  "steeler_dpp_waypoints_v1": {
+    label: "DPP waypoints",
+    mirrorKey: "steeler_lkg_dpp_waypoints_v1",
+    mirrorMetaKey: "steeler_lkg_dpp_waypoints_v1_meta"
   }
 };
 
@@ -1156,7 +1162,7 @@ function setupSettingsCardToggles(){
     }
     if (card.id === "settingsDppTemplatesCard") {
       if (dppTemplatesManager) dppTemplatesManager.style.display = "grid";
-      renderDppTemplatesManager();
+      setSettingsDppLibraryTab(settingsDppLibraryTab);
     }
   };
   document.querySelectorAll("[data-settings-card]").forEach(card => {
@@ -1746,13 +1752,18 @@ const importPortsBtn = document.getElementById("importPortsBtn");
 const importPortsFileInput = document.getElementById("importPortsFileInput");
 const manageDppTemplatesBtn = document.getElementById("manageDppTemplatesBtn");
 const newDppTemplateBtn = document.getElementById("newDppTemplateBtn");
+const newDppWaypointBtn = document.getElementById("newDppWaypointBtn");
 const exportDppTemplatesBtn = document.getElementById("exportDppTemplatesBtn");
 const importDppTemplatesBtn = document.getElementById("importDppTemplatesBtn");
 const importDppTemplatesFileInput = document.getElementById("importDppTemplatesFileInput");
 const dppTemplatesLibrary = document.getElementById("dppTemplatesLibrary");
 const dppTemplatesManager = document.getElementById("dppTemplatesManager");
+const dppWaypointsManager = document.getElementById("dppWaypointsManager");
+const settingsDppPlansTab = document.getElementById("settingsDppPlansTab");
+const settingsDppWaypointsTab = document.getElementById("settingsDppWaypointsTab");
 const settingsDppWorkspace = document.getElementById("settingsDppWorkspace");
 let settingsDppWorkspaceState = null;
+let settingsDppLibraryTab = "plans";
 
 const planForm = document.getElementById("planForm");
 const planDate = document.getElementById("planDate");
@@ -2387,7 +2398,8 @@ function exportBackup() {
 						passages,
 						theme: storage.getItem(THEME_KEY) || "day",
 						safetyInfo: getSafetyInfo(),
-      dppTemplates: loadDppTemplateStore()
+      dppTemplates: loadDppTemplateStore(),
+      dppWaypoints: loadDppWaypointStore()
 				}
   };
 
@@ -2446,10 +2458,11 @@ function exportPortsBackup() {
 function exportDppTemplatesBackup() {
   const payload = {
     format: "steeler-dpp-templates-backup",
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     data: {
-      dppTemplates: loadDppTemplateStore()
+      dppTemplates: loadDppTemplateStore(),
+      dppWaypoints: loadDppWaypointStore()
     }
   };
 
@@ -2488,9 +2501,11 @@ function importBackupFile(file) {
         return;
       }
       const hasDppTemplates = !!obj.data.dppTemplates;
+      const hasDppWaypoints = !!obj.data.dppWaypoints;
       const ok = confirm(
         "Restore backup? This will REPLACE the current passages and Safety / Emergency Info on this device if present in the backup." +
         (hasDppTemplates ? " DPP templates in the backup will also replace current DPP templates." : "") +
+        (hasDppWaypoints ? " DPP waypoints in the backup will also replace current DPP waypoints." : "") +
         " Ports will be left unchanged."
       );
       if (!ok) return;
@@ -2508,6 +2523,9 @@ function importBackupFile(file) {
       if (hasDppTemplates) {
         saveDppTemplateStore(obj.data.dppTemplates);
       }
+      if (hasDppWaypoints) {
+        saveDppWaypointStore(obj.data.dppWaypoints);
+      }
       // Legacy support: if an older full backup still contains ports, preserve current ports.
       // Ports are now managed separately via Export/Import Ports.
       applyTheme(obj.data.theme || "day");
@@ -2517,6 +2535,7 @@ function importBackupFile(file) {
       loadPassageIntoUI();
       try { injectSafetyEmergencySettingsBlock(); } catch(e) {}
       renderDppTemplatesManager();
+      renderDppWaypointsManager();
       alert("Backup restored successfully. Ports were left unchanged.");
     } catch (e) {
       console.error(e);
@@ -2532,19 +2551,21 @@ function importDppTemplatesBackupFile(file) {
     try {
       const obj = JSON.parse(reader.result);
       const templatesPayload = obj?.data?.dppTemplates || obj?.dppTemplates;
-      const valid = obj && obj.format === "steeler-dpp-templates-backup" && templatesPayload;
+      const waypointsPayload = obj?.data?.dppWaypoints || obj?.dppWaypoints;
+      const valid = obj && obj.format === "steeler-dpp-templates-backup" && (templatesPayload || waypointsPayload);
       if (!valid) {
         alert("That file doesn’t look like a STEELER Detailed Passage Plans backup.");
         return;
       }
 
       const imported = normaliseDppTemplateStore(templatesPayload).templates;
-      if (!imported.length) {
-        alert("That Detailed Passage Plans backup does not contain any templates.");
+      const importedWaypoints = normaliseDppWaypointStore(waypointsPayload).waypoints;
+      if (!imported.length && !importedWaypoints.length) {
+        alert("That Detailed Passage Plans backup does not contain any plans or waypoints.");
         return;
       }
 
-      const ok = confirm("Import Detailed Passage Plans? Matching template names will be updated; new templates will be added.");
+      const ok = confirm("Import Detailed Passage Plans and waypoints? Matching names will be updated; new items will be added.");
       if (!ok) return;
 
       const store = loadDppTemplateStore();
@@ -2573,8 +2594,34 @@ function importDppTemplatesBackupFile(file) {
         updatedAt: new Date().toISOString(),
         templates: Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name))
       });
+
+      const waypointStore = loadDppWaypointStore();
+      const wpByName = new Map();
+      waypointStore.waypoints.forEach(wp => {
+        const name = String(wp.name || "").trim().toLowerCase();
+        if (name) wpByName.set(name, wp);
+      });
+      importedWaypoints.forEach(wp => {
+        const name = String(wp.name || "").trim();
+        if (!name) return;
+        const key = name.toLowerCase();
+        const existing = wpByName.get(key);
+        wpByName.set(key, {
+          ...wp,
+          id: existing?.id || wp.id || ("dpp_wp_" + Date.now() + "_" + Math.random().toString(36).slice(2)),
+          name,
+          createdAt: existing?.createdAt || wp.createdAt || new Date().toISOString(),
+          updatedAt: wp.updatedAt || new Date().toISOString()
+        });
+      });
+      saveDppWaypointStore({
+        version: 1,
+        updatedAt: new Date().toISOString(),
+        waypoints: Array.from(wpByName.values()).sort((a, b) => a.name.localeCompare(b.name))
+      });
       renderDppTemplatesManager();
-      alert("Detailed Passage Plan templates imported successfully.");
+      renderDppWaypointsManager();
+      alert("Detailed Passage Plans and waypoints imported successfully.");
     } catch (e) {
       console.error(e);
       alert("Could not import that file (invalid JSON).");
@@ -2660,6 +2707,9 @@ importPortsFileInput?.addEventListener("change", (e) => {
 exportDppTemplatesBtn?.addEventListener("click", exportDppTemplatesBackup);
 newDppTemplateBtn?.addEventListener("click", () => {
   createNewDppTemplateFromSettings();
+});
+newDppWaypointBtn?.addEventListener("click", () => {
+  createNewDppWaypointFromSettings();
 });
 importDppTemplatesBtn?.addEventListener("click", () => importDppTemplatesFileInput?.click());
 importDppTemplatesFileInput?.addEventListener("change", (e) => {
@@ -3937,6 +3987,124 @@ function updateDppTemplate(id, patch){
   return true;
 }
 
+function normaliseDppWaypointStore(store){
+  const source = store && typeof store === "object" ? store : {};
+  const rawWaypoints = Array.isArray(source.waypoints) ? source.waypoints : [];
+
+  return {
+    version: 1,
+    updatedAt: String(source.updatedAt || ""),
+    waypoints: rawWaypoints
+      .map((wp) => {
+        const coordsRaw = wp?.coordsText || wp?.coords || "";
+        const parsed = parseDetailedWaypointCoords(coordsRaw);
+        const lat = wp?.lat == null ? NaN : Number(wp.lat);
+        const lon = wp?.lon == null ? NaN : Number(wp.lon);
+        const cleanLat = parsed ? parsed.lat : (Number.isFinite(lat) ? lat : null);
+        const cleanLon = parsed ? parsed.lon : (Number.isFinite(lon) ? lon : null);
+        return {
+          id: String(wp?.id || "").trim(),
+          name: String(wp?.name || "").trim(),
+          coordsText: parsed ? formatDetailedWaypointCoords(parsed.lat, parsed.lon) : String(coordsRaw || formatDetailedWaypointCoords(cleanLat, cleanLon) || "").trim(),
+          lat: cleanLat,
+          lon: cleanLon,
+          notes: String(wp?.notes || "").trim(),
+          createdAt: String(wp?.createdAt || ""),
+          updatedAt: String(wp?.updatedAt || "")
+        };
+      })
+      .filter((wp) => wp.id && wp.name)
+  };
+}
+
+function loadDppWaypointStore(){
+  const fallback = { version: 1, updatedAt: "", waypoints: [] };
+  const stored = loadLocalStorageJsonItem(
+    DPP_WAYPOINTS_KEY,
+    "DPP waypoints",
+    fallback,
+    (v) => v && typeof v === "object"
+  );
+  return normaliseDppWaypointStore(stored);
+}
+
+function saveDppWaypointStore(store){
+  const clean = normaliseDppWaypointStore(store);
+  clean.updatedAt = new Date().toISOString();
+  return saveLocalStorageItem(DPP_WAYPOINTS_KEY, JSON.stringify(clean), "DPP waypoints");
+}
+
+function getDppWaypoints(){
+  return loadDppWaypointStore().waypoints;
+}
+
+function getDppWaypointById(id){
+  const wanted = String(id || "");
+  return getDppWaypoints().find((wp) => String(wp.id) === wanted) || null;
+}
+
+function saveDppWaypoint(data){
+  const name = String(data?.name || "").trim();
+  if (!name) throw new Error("Please enter a waypoint name.");
+
+  const coordsRaw = String(data?.coordsText || "").trim();
+  const parsed = parseDetailedWaypointCoords(coordsRaw);
+  const now = new Date().toISOString();
+  const store = loadDppWaypointStore();
+  const existing = data?.id
+    ? store.waypoints.find((wp) => String(wp.id) === String(data.id))
+    : store.waypoints.find((wp) => String(wp.name || "").trim().toLowerCase() === name.toLowerCase());
+
+  const waypoint = {
+    id: existing?.id || data?.id || ("dpp_wp_" + Date.now() + "_" + Math.random().toString(36).slice(2)),
+    name,
+    coordsText: parsed ? formatDetailedWaypointCoords(parsed.lat, parsed.lon) : coordsRaw,
+    lat: parsed ? parsed.lat : null,
+    lon: parsed ? parsed.lon : null,
+    notes: String(data?.notes || "").trim(),
+    createdAt: existing?.createdAt || now,
+    updatedAt: now
+  };
+
+  if (existing) {
+    store.waypoints = store.waypoints.map((wp) => wp.id === existing.id ? waypoint : wp);
+  } else {
+    store.waypoints.push(waypoint);
+  }
+
+  store.waypoints.sort((a, b) => a.name.localeCompare(b.name));
+  saveDppWaypointStore(store);
+  return waypoint;
+}
+
+function deleteDppWaypoint(id){
+  const wanted = String(id || "");
+  const store = loadDppWaypointStore();
+  const before = store.waypoints.length;
+  store.waypoints = store.waypoints.filter((wp) => String(wp.id) !== wanted);
+  if (store.waypoints.length === before) return false;
+  saveDppWaypointStore(store);
+  return true;
+}
+
+function savedWaypointToDppWaypoint(saved){
+  const lat = saved?.lat == null ? NaN : Number(saved.lat);
+  const lon = saved?.lon == null ? NaN : Number(saved.lon);
+  return {
+    id: "wp_" + Date.now() + "_" + Math.random().toString(36).slice(2),
+    time: "",
+    name: saved?.name || "",
+    coordsText: saved?.coordsText || formatDetailedWaypointCoords(saved?.lat, saved?.lon),
+    lat: Number.isFinite(lat) ? lat : null,
+    lon: Number.isFinite(lon) ? lon : null,
+    distToNext: "",
+    cogToNext: "",
+    plannedSpeed: "",
+    timeToNext: "",
+    fuelToNext: ""
+  };
+}
+
 function readDppTemplateEditorForm(){
   const rows = modalBody.querySelectorAll("[data-template-wp-row]");
   const waypoints = [];
@@ -4097,6 +4265,125 @@ function createNewDppTemplateFromSettings(){
   openSettingsDppWorkspace(tpl.id);
 }
 
+function setSettingsDppLibraryTab(tab){
+  settingsDppLibraryTab = tab === "waypoints" ? "waypoints" : "plans";
+  settingsDppPlansTab?.classList.toggle("active", settingsDppLibraryTab === "plans");
+  settingsDppWaypointsTab?.classList.toggle("active", settingsDppLibraryTab === "waypoints");
+  if (dppTemplatesManager) dppTemplatesManager.hidden = settingsDppLibraryTab !== "plans";
+  if (dppWaypointsManager) dppWaypointsManager.hidden = settingsDppLibraryTab !== "waypoints";
+  if (newDppTemplateBtn) newDppTemplateBtn.hidden = settingsDppLibraryTab !== "plans";
+  if (newDppWaypointBtn) newDppWaypointBtn.hidden = settingsDppLibraryTab !== "waypoints";
+  if (settingsDppLibraryTab === "plans") renderDppTemplatesManager();
+  if (settingsDppLibraryTab === "waypoints") renderDppWaypointsManager();
+}
+
+settingsDppPlansTab?.addEventListener("click", () => setSettingsDppLibraryTab("plans"));
+settingsDppWaypointsTab?.addEventListener("click", () => setSettingsDppLibraryTab("waypoints"));
+
+function createNewDppWaypointFromSettings(){
+  setSettingsDppLibraryTab("waypoints");
+  const wp = saveDppWaypoint({ name: uniqueDppWaypointName("New WP"), coordsText: "", notes: "" });
+  renderDppWaypointsManager(wp.id);
+}
+
+function uniqueDppWaypointName(baseName = "New WP"){
+  const existing = new Set(getDppWaypoints().map(wp => String(wp.name || "").trim().toLowerCase()).filter(Boolean));
+  let name = baseName;
+  let idx = 2;
+  while (existing.has(name.toLowerCase())) {
+    name = `${baseName} ${idx}`;
+    idx += 1;
+  }
+  return name;
+}
+
+function renderDppWaypointsManager(openId = ""){
+  if (!dppWaypointsManager) return;
+
+  const waypoints = getDppWaypoints();
+  if (!waypoints.length) {
+    dppWaypointsManager.innerHTML = '<p class="hint">No saved waypoints yet.</p>';
+    return;
+  }
+
+  dppWaypointsManager.innerHTML = waypoints.map((wp) => {
+    const isOpen = String(wp.id) === String(openId);
+    return `
+      <div class="dpp-waypoint-manager-row st-list-card st-edit-list-row${isOpen ? " open" : ""}" tabindex="0" data-dpp-waypoint-id="${escapeHtml(wp.id)}">
+        <div class="st-list-card-main">
+          <div class="st-list-summary">
+            <div class="st-list-title">${escapeHtml(wp.name || "Untitled WP")}</div>
+            <div class="st-list-meta">${escapeHtml(wp.coordsText || "No position stored")}${wp.notes ? ` · ${escapeHtml(wp.notes)}` : ""}</div>
+          </div>
+          <div class="st-row-edit-panel" ${isOpen ? "" : "hidden"}>
+            <div class="st-form-grid st-form-grid-compact">
+              <label class="st-labelled-field">
+                <span>WP name</span>
+                <input type="text" class="dpp-waypoint-name-input" value="${escapeHtml(wp.name || "")}">
+              </label>
+              <label class="st-labelled-field">
+                <span>Lat / Lon</span>
+                <input type="text" class="dpp-waypoint-coords-input" value="${escapeHtml(wp.coordsText || "")}" placeholder="50º45.123'N, 001º18.456'W or 50.752, -1.308">
+              </label>
+              <label class="st-labelled-field">
+                <span>Notes</span>
+                <input type="text" class="dpp-waypoint-notes-input" value="${escapeHtml(wp.notes || "")}">
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  dppWaypointsManager.querySelectorAll("[data-dpp-waypoint-id]").forEach((row) => {
+    const id = row.getAttribute("data-dpp-waypoint-id") || "";
+    const panel = row.querySelector(".st-row-edit-panel");
+    const openRow = () => {
+      dppWaypointsManager.querySelectorAll(".st-row-edit-panel").forEach(el => { if (el !== panel) el.hidden = true; });
+      dppWaypointsManager.querySelectorAll(".st-edit-list-row").forEach(el => { if (el !== row) el.classList.remove("open"); });
+      if (panel) panel.hidden = false;
+      row.classList.add("open");
+    };
+
+    row.addEventListener("click", (ev) => {
+      if (ev.target.closest("input, textarea, select, button, a")) return;
+      openRow();
+    });
+    row.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Enter" && ev.key !== " ") return;
+      if (ev.target.closest("input, textarea, select, button, a")) return;
+      ev.preventDefault();
+      openRow();
+    });
+
+    const saveRow = () => {
+      try {
+        saveDppWaypoint({
+          id,
+          name: row.querySelector(".dpp-waypoint-name-input")?.value || "",
+          coordsText: row.querySelector(".dpp-waypoint-coords-input")?.value || "",
+          notes: row.querySelector(".dpp-waypoint-notes-input")?.value || ""
+        });
+        renderDppWaypointsManager(id);
+      } catch (err) {
+        alert(err?.message || "Could not save that waypoint.");
+      }
+    };
+    row.querySelectorAll("input").forEach(input => bindDppCommitEvents(input, saveRow));
+
+    attachSettingsSwipeDelete(row, () => {
+      const wp = getDppWaypointById(id);
+      if (!wp) return;
+      if (!confirm(`Delete saved waypoint "${wp.name}"?`)) return;
+      deleteDppWaypoint(id);
+      renderDppWaypointsManager();
+    });
+  });
+}
+
+setSettingsDppLibraryTab("plans");
+
 function closeSettingsDppWorkspace(){
   settingsDppWorkspaceState = null;
   if (settingsDppWorkspace) {
@@ -4198,6 +4485,10 @@ function renderSettingsDppWorkspace(){
   const dppTemplateOptions = dppTemplates.length
     ? dppTemplates.map((tpl) => `<option value="${escapeHtml(tpl.id)}">${escapeHtml(tpl.name)}</option>`).join("")
     : '<option value="">No other saved DPPs</option>';
+  const savedWaypoints = getDppWaypoints();
+  const savedWaypointOptions = savedWaypoints.length
+    ? savedWaypoints.map((wp) => `<option value="${escapeHtml(wp.id)}">${escapeHtml(wp.name)}${wp.coordsText ? ` · ${escapeHtml(wp.coordsText)}` : ""}</option>`).join("")
+    : '<option value="">No saved WPs</option>';
 
   settingsDppWorkspace.innerHTML = `
     <div class="dpp-header settings-dpp-header">
@@ -4280,6 +4571,7 @@ function renderSettingsDppWorkspace(){
     <div class="dpp-action-row">
       <button type="button" class="btn btn-secondary btn-small" id="settingsDppAddWaypointBtn">+ Add Waypoint</button>
       <button type="button" class="btn btn-secondary btn-small" id="settingsDppRecalcBtn">Recalculate</button>
+      <button type="button" class="btn btn-secondary btn-small" id="settingsDppAddSavedWpBtn">Add Saved WP</button>
       <button type="button" class="btn btn-secondary btn-small" id="settingsDppImportGpxBtn">Import GPX</button>
       <button type="button" class="btn btn-secondary btn-small" id="settingsDppReverseBtn">Reverse Route</button>
       <button type="button" class="btn btn-secondary btn-small" id="settingsDppLoadTemplateBtn">Load DPP Template</button>
@@ -4290,6 +4582,12 @@ function renderSettingsDppWorkspace(){
         ${dppTemplateOptions}
       </select>
       <button type="button" class="btn btn-secondary btn-small" id="settingsDppUseTemplateBtn" ${dppTemplates.length ? "" : "disabled"}>Load Selected</button>
+    </div>
+    <div class="dpp-template-load-panel" id="settingsDppWaypointLoadPanel" hidden>
+      <select id="settingsDppWaypointSelect" ${savedWaypoints.length ? "" : "disabled"}>
+        ${savedWaypointOptions}
+      </select>
+      <button type="button" class="btn btn-secondary btn-small" id="settingsDppUseWaypointBtn" ${savedWaypoints.length ? "" : "disabled"}>Add Selected</button>
     </div>
     <div class="dpp-notes-grid">
       <label class="dpp-note-card">
@@ -4356,6 +4654,21 @@ function renderSettingsDppWorkspace(){
     const panel = settingsDppWorkspace.querySelector("#settingsDppTemplateLoadPanel");
     if (!panel) return;
     panel.hidden = !panel.hidden;
+  });
+
+  settingsDppWorkspace.querySelector("#settingsDppAddSavedWpBtn")?.addEventListener("click", () => {
+    const panel = settingsDppWorkspace.querySelector("#settingsDppWaypointLoadPanel");
+    if (!panel) return;
+    panel.hidden = !panel.hidden;
+  });
+
+  settingsDppWorkspace.querySelector("#settingsDppUseWaypointBtn")?.addEventListener("click", () => {
+    const selectedId = settingsDppWorkspace.querySelector("#settingsDppWaypointSelect")?.value || "";
+    const saved = getDppWaypointById(selectedId);
+    if (!saved) return;
+    const active = readSettingsDppWorkspaceForm();
+    active.waypoints.push(savedWaypointToDppWaypoint(saved));
+    renderSettingsDppWorkspace();
   });
 
   settingsDppWorkspace.querySelector("#settingsDppUseTemplateBtn")?.addEventListener("click", () => {

@@ -439,13 +439,19 @@
           <div class="settings-card-panel" data-settings-panel hidden>
             <div class="settings-detail-actions st-action-row">
               <button id="newDppTemplateBtn" class="btn btn-primary">New Plan</button>
+              <button id="newDppWaypointBtn" class="btn btn-secondary">New WP</button>
               <button id="exportDppTemplatesBtn" class="btn btn-secondary">Export Detailed Passage Plans</button>
               <button id="importDppTemplatesBtn" class="btn btn-secondary">Import Detailed Passage Plans</button>
               <input id="importDppTemplatesFileInput" type="file" accept="application/json,.json" hidden>
             </div>
             <div id="dppTemplatesLibrary" class="st-stack">
+              <div class="st-segmented-control settings-dpp-tabs" role="tablist" aria-label="Detailed Passage Plans library">
+                <button type="button" class="active" id="settingsDppPlansTab" data-dpp-library-tab="plans">Plans</button>
+                <button type="button" id="settingsDppWaypointsTab" data-dpp-library-tab="waypoints">Waypoints</button>
+              </div>
               <div id="dppTemplatesManager" class="st-list"></div>
-              <p class="hint">DPP templates are reusable across passages and are also included in full logbook backups.</p>
+              <div id="dppWaypointsManager" class="st-list" hidden></div>
+              <p class="hint">DPP templates and saved waypoints are reusable across passages and are included in full logbook backups.</p>
             </div>
             <div id="settingsDppWorkspace" class="settings-dpp-workspace" hidden></div>
           </div>

@@ -54,6 +54,18 @@ function renderDetailedPassagePlan(p){
       <button type="button" class="btn btn-secondary btn-small" id="dppDeleteTemplateBtn" ${dppTemplates.length ? "" : "disabled"}>Delete Template</button>
     </div>
   `;
+  const savedWaypoints = typeof getDppWaypoints === "function" ? getDppWaypoints() : [];
+  const savedWaypointOptions = savedWaypoints.length
+    ? savedWaypoints.map((wp) => `<option value="${escapeHtml(wp.id)}">${escapeHtml(wp.name)}${wp.coordsText ? ` · ${escapeHtml(wp.coordsText)}` : ""}</option>`).join("")
+    : '<option value="">No saved WPs</option>';
+  const dppWaypointLoadHtml = `
+    <div class="dpp-template-load-panel" id="dppWaypointLoadPanel" hidden>
+      <select id="dppWaypointSelect" ${savedWaypoints.length ? "" : "disabled"}>
+        ${savedWaypointOptions}
+      </select>
+      <button type="button" class="btn btn-secondary btn-small" id="dppUseWaypointBtn" ${savedWaypoints.length ? "" : "disabled"}>Add Selected</button>
+    </div>
+  `;
   const legTabsHtml = legCount > 1
     ? `<div class="dpp-leg-tabs">${Array.from({ length: legCount }, (_, i) => {
         const leg = getRouteLegNames(p, i);
@@ -141,6 +153,7 @@ function renderDetailedPassagePlan(p){
 
     <div class="dpp-action-row">
       <button type="button" class="btn btn-secondary btn-small" id="dppAddWaypointBtn">+ Add Waypoint</button>
+      <button type="button" class="btn btn-secondary btn-small" id="dppAddSavedWaypointBtn">Add Saved WP</button>
       <button type="button" class="btn btn-secondary btn-small" id="dppRecalcBtn">Recalculate</button>
       <button type="button" class="btn btn-secondary btn-small" id="dppImportGpxBtn">Import GPX</button>
       <button type="button" class="btn btn-secondary btn-small" id="dppReverseBtn">Reverse Route</button>
@@ -149,6 +162,7 @@ function renderDetailedPassagePlan(p){
       <button type="button" class="btn btn-secondary btn-small" id="dppSaveTemplateBtn">Save DPP Template</button>
     </div>
     ${dppTemplateLoadHtml}
+    ${dppWaypointLoadHtml}
 
     <div class="dpp-notes-grid">
       <label class="dpp-note-card">
@@ -203,6 +217,30 @@ function renderDetailedPassagePlan(p){
     const panel = mount.querySelector("#dppTemplateLoadPanel");
     if (!panel) return;
     panel.hidden = !panel.hidden;
+  });
+
+  mount.querySelector("#dppAddSavedWaypointBtn")?.addEventListener("click", () => {
+    const panel = mount.querySelector("#dppWaypointLoadPanel");
+    if (!panel) return;
+    panel.hidden = !panel.hidden;
+  });
+
+  mount.querySelector("#dppUseWaypointBtn")?.addEventListener("click", () => {
+    try {
+      const selectedId = mount.querySelector("#dppWaypointSelect")?.value || "";
+      const saved = typeof getDppWaypointById === "function" ? getDppWaypointById(selectedId) : null;
+      if (!saved || typeof savedWaypointToDppWaypoint !== "function") return;
+      const activeDetailed = readDetailedPassagePlanFromForm();
+      activeDetailed.waypoints.push(savedWaypointToDppWaypoint(saved));
+      setDetailedPassagePlanForLeg(p, legIdx, activeDetailed);
+      recalcDetailedPassagePlan(p, legIdx);
+      savePassages();
+      renderDetailedPassagePlan(p);
+      updatePlanSummaryPanel();
+    } catch (err) {
+      console.error(err);
+      alert(err?.message || "Could not add that saved waypoint.");
+    }
   });
 
   mount.querySelector("#dppUseTemplateBtn")?.addEventListener("click", () => {

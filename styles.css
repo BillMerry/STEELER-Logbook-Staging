@@ -805,6 +805,38 @@ body[data-theme="night"] .ports-delete { border-color: rgba(255,255,255,0.18); c
   margin-top:0.35rem;
   min-width:min(520px, 70vw);
 }
+.settings-dpp-tabs{
+  align-self:flex-start;
+}
+.st-segmented-control{
+  display:inline-flex;
+  gap:0.2rem;
+  padding:0.2rem;
+  border:1px solid var(--st-border);
+  border-radius:var(--st-radius-md);
+  background:var(--st-surface-muted);
+}
+.st-segmented-control button{
+  min-height:2.2rem;
+  padding:0.3rem 0.8rem;
+  border:1px solid transparent;
+  border-radius:var(--st-radius-sm);
+  background:transparent;
+  color:var(--st-text-muted);
+  font:inherit;
+  font-weight:700;
+}
+.st-segmented-control button.active{
+  border-color:var(--st-border);
+  background:var(--st-surface);
+  color:var(--st-text);
+}
+.dpp-waypoint-manager-row{
+  cursor:pointer;
+}
+.dpp-waypoint-manager-row .st-row-edit-panel{
+  margin-top:var(--st-space-3);
+}
 .settings-dpp-workspace .dpp-summary-strip{
   display:grid;
   gap:var(--st-space-2);
