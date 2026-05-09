@@ -6,7 +6,7 @@ const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 const DPP_WAYPOINTS_KEY = "steeler_dpp_waypoints_v1";
 
-const APP_VERSION = "1.1.0-rc7";
+const APP_VERSION = "1.1.0-rc7a";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -4273,6 +4273,8 @@ function setSettingsDppLibraryTab(tab){
   if (dppWaypointsManager) dppWaypointsManager.hidden = settingsDppLibraryTab !== "waypoints";
   if (newDppTemplateBtn) newDppTemplateBtn.hidden = settingsDppLibraryTab !== "plans";
   if (newDppWaypointBtn) newDppWaypointBtn.hidden = settingsDppLibraryTab !== "waypoints";
+  if (exportDppTemplatesBtn) exportDppTemplatesBtn.hidden = settingsDppLibraryTab !== "plans";
+  if (importDppTemplatesBtn) importDppTemplatesBtn.hidden = settingsDppLibraryTab !== "plans";
   if (settingsDppLibraryTab === "plans") renderDppTemplatesManager();
   if (settingsDppLibraryTab === "waypoints") renderDppWaypointsManager();
 }

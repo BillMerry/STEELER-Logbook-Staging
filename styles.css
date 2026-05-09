@@ -796,7 +796,13 @@ body[data-theme="night"] .ports-delete { border-color: rgba(255,255,255,0.18); c
   display:block;
 }
 .settings-dpp-workspace[hidden]{
-  display:none;
+  display:none !important;
+}
+#dppTemplatesLibrary[hidden],
+#dppTemplatesManager[hidden],
+#dppWaypointsManager[hidden],
+#settingsDppTemplatesCard .settings-detail-actions [hidden]{
+  display:none !important;
 }
 .settings-dpp-header{
   align-items:flex-end;
