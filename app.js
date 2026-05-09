@@ -6,7 +6,7 @@ const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 const DPP_WAYPOINTS_KEY = "steeler_dpp_waypoints_v1";
 
-const APP_VERSION = "1.1.0-rc7b";
+const APP_VERSION = "1.1.0-rc7c";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -1162,6 +1162,7 @@ function setupSettingsCardToggles(){
     }
     if (card.id === "settingsDppTemplatesCard") {
       if (dppTemplatesManager) dppTemplatesManager.style.display = "grid";
+      importDppTemplateWaypointsToLibrary();
       setSettingsDppLibraryTab(settingsDppLibraryTab);
     }
   };
@@ -2534,6 +2535,7 @@ function importBackupFile(file) {
       currentPassageId = passages[0]?.id || null;
       loadPassageIntoUI();
       try { injectSafetyEmergencySettingsBlock(); } catch(e) {}
+      importDppTemplateWaypointsToLibrary();
       renderDppTemplatesManager();
       renderDppWaypointsManager();
       alert("Backup restored successfully. Ports were left unchanged.");
@@ -2594,6 +2596,7 @@ function importDppTemplatesBackupFile(file) {
         updatedAt: new Date().toISOString(),
         templates: Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name))
       });
+      importDppTemplateWaypointsToLibrary();
 
       const waypointStore = loadDppWaypointStore();
       const wpByName = new Map();
@@ -3918,6 +3921,7 @@ function saveDppTemplate(name, detailed){
 
   store.templates.sort((a, b) => a.name.localeCompare(b.name));
   saveDppTemplateStore(store);
+  syncDppWaypointsFromDetailed(template.detailed);
   return template;
 }
 
@@ -3960,6 +3964,7 @@ function renameDppTemplate(id, name){
 
   store.templates.sort((a, b) => a.name.localeCompare(b.name));
   saveDppTemplateStore(store);
+  if (patch && patch.detailed) syncDppWaypointsFromDetailed(patch.detailed);
   return true;
 }
 
@@ -4103,6 +4108,44 @@ function savedWaypointToDppWaypoint(saved){
     timeToNext: "",
     fuelToNext: ""
   };
+}
+
+function syncDppWaypointsFromDetailed(detailed){
+  const clean = normaliseDetailedPassagePlan(detailed);
+  let addedOrUpdated = 0;
+
+  (clean.waypoints || []).forEach((wp) => {
+    const name = String(wp?.name || "").trim();
+    if (!name) return;
+
+    const coordsText = String(wp?.coordsText || formatDetailedWaypointCoords(wp?.lat, wp?.lon) || "").trim();
+    const existing = getDppWaypoints().find((saved) =>
+      String(saved.name || "").trim().toLowerCase() === name.toLowerCase()
+    );
+
+    try {
+      saveDppWaypoint({
+        id: existing?.id || "",
+        name,
+        coordsText,
+        notes: existing?.notes || ""
+      });
+      addedOrUpdated += 1;
+    } catch (err) {
+      console.warn("Could not add DPP waypoint to saved waypoint library", err);
+    }
+  });
+
+  return addedOrUpdated;
+}
+
+function importDppTemplateWaypointsToLibrary(){
+  let count = 0;
+  getDppTemplates().forEach((tpl) => {
+    count += syncDppWaypointsFromDetailed(tpl.detailed);
+  });
+  if (count && settingsDppLibraryTab === "waypoints") renderDppWaypointsManager();
+  return count;
 }
 
 function readDppTemplateEditorForm(){
@@ -8067,6 +8110,7 @@ if (new URLSearchParams(location.search).has("reset")) {
   // CL-081: Settings block order + Weather Shorthand editor
   try { reorderSettingsBlocksAndInjectWx(); } catch (e) { console.warn('reorderSettingsBlocksAndInjectWx failed', e); }
 		try { migrateLegacyEcSettingsIntoSafetyInfo(); } catch (e) { console.warn('migrateLegacyEcSettingsIntoSafetyInfo failed', e); }
+		try { importDppTemplateWaypointsToLibrary(); } catch (e) { console.warn('importDppTemplateWaypointsToLibrary failed', e); }
 		try { injectSafetyEmergencySettingsBlock(); } catch (e) { console.warn('injectSafetyEmergencySettingsBlock failed', e); }
 		try { setupSettingsCardToggles(); } catch (e) { console.warn('setupSettingsCardToggles failed', e); }
 
