@@ -115,7 +115,10 @@ function renderDetailedPassagePlan(p){
         <tbody>
           ${wps.map((wp, idx) => `
             <tr data-dpp-row="${idx}">
-              <td><input type="text" class="dpp-time" value="${escapeHtml(wp.time || "")}" placeholder="HH:MM"></td>
+              <td>
+                <input type="text" class="dpp-time" value="${escapeHtml(wp.time || "")}" placeholder="HH:MM">
+                ${wp.actualTime ? `<div class="dpp-ata">ATA ${escapeHtml(wp.actualTime)}</div>` : ""}
+              </td>
               <td><input type="text" class="dpp-name" value="${escapeHtml(wp.name || "")}" placeholder="Waypoint"></td>
               <td><input type="text" class="dpp-coords" value="${escapeHtml(wp.coordsText || formatDetailedWaypointCoords(wp.lat, wp.lon))}" placeholder="50º45.123'N, 001º18.456'W or 50.752, -1.308"></td>
               <td>${wp.distToNext !== "" ? escapeHtml(String(wp.distToNext)) : "–"}</td>
@@ -472,7 +475,8 @@ function readDetailedPassagePlanFromForm(){
       cogToNext: "",
       plannedSpeed: (row.querySelector(".dpp-speed")?.value || "").trim(),
       timeToNext: "",
-      fuelToNext: ""
+      fuelToNext: "",
+      actualTime: fallback.waypoints[idx]?.actualTime || ""
     });
   });
 

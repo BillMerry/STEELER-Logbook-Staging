@@ -2905,6 +2905,14 @@ body[data-theme="night"] .settings-card-icon{
   width:72px;
 }
 
+#detailedPassagePlanSection .dpp-ata{
+  margin-top:0.2rem;
+  color:var(--st-accent-strong);
+  font-size:0.68rem;
+  font-weight:850;
+  white-space:nowrap;
+}
+
 #detailedPassagePlanSection .dpp-speed{
   width:62px;
 }

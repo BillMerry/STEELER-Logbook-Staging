@@ -6,7 +6,7 @@ const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 const DPP_WAYPOINTS_KEY = "steeler_dpp_waypoints_v1";
 
-const APP_VERSION = "1.1.0-rc7c";
+const APP_VERSION = "1.1.0-rc8";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -2388,6 +2388,15 @@ function showModal({ title, bodyHtml, onOk, onCancel, okText = "OK", cancelText 
   };
 }
 
+function closeModal(){
+  modalOverlay.classList.add("hidden");
+  modalBody.innerHTML = "";
+  modalOkBtn.onclick = null;
+  modalCancelBtn.onclick = null;
+  if (modalOkBtn) modalOkBtn.style.display = "";
+  if (modalCancelBtn) modalCancelBtn.style.display = "";
+}
+
 // --- Backup / Restore ----------------------------------------------
 
 function exportBackup() {
@@ -4511,7 +4520,8 @@ function readSettingsDppWorkspaceForm(){
       cogToNext: "",
       plannedSpeed: (row.querySelector(".dpp-speed")?.value || "").trim(),
       timeToNext: "",
-      fuelToNext: ""
+      fuelToNext: "",
+      actualTime: fallback.waypoints[idx]?.actualTime || ""
     });
   });
 
@@ -6724,6 +6734,139 @@ function addSpecialEntry(noteText, notesOverride = null) {
   refreshHomePassageList();
 }
 
+function getCurrentDppWaypointOptions(p, legIdx = null){
+  if (!p) return [];
+  ensureDetailedPassagePlans(p);
+  const idx = legIdx == null ? getCurrentLegIndex(p) : legIdx;
+  const detailed = getDetailedPassagePlanForLeg(p, idx);
+  return (detailed?.waypoints || [])
+    .map((wp, waypointIndex) => ({ wp, waypointIndex }))
+    .filter(({ wp }) => String(wp?.name || "").trim());
+}
+
+async function chooseNewLogEntryMode(p){
+  const waypointCount = getCurrentDppWaypointOptions(p).length;
+
+  return await new Promise((resolve) => {
+    showModal({
+      title: "New Log Entry",
+      hideButtons: true,
+      bodyHtml: `
+        <div class="entry-dialog-grid">
+          <button type="button" id="newLogManualBtn" class="btn btn-primary">Manual log entry</button>
+          <button type="button" id="newLogWpBtn" class="btn btn-secondary" ${waypointCount ? "" : "disabled"}>WP Reached</button>
+          ${waypointCount ? "" : `<div class="form-help">No named DPP waypoints are available for the current leg.</div>`}
+          <button type="button" id="newLogCancelBtn" class="btn btn-secondary">Cancel</button>
+        </div>
+      `
+    });
+
+    const finish = (mode) => {
+      closeModal();
+      resolve(mode);
+    };
+
+    document.getElementById("newLogManualBtn")?.addEventListener("click", () => finish("manual"));
+    document.getElementById("newLogWpBtn")?.addEventListener("click", () => finish("wp"));
+    document.getElementById("newLogCancelBtn")?.addEventListener("click", () => finish(""));
+  });
+}
+
+async function addWaypointReachedEntry(p){
+  if (!p) return false;
+
+  ensureEntries(p);
+  ensureDetailedPassagePlans(p);
+  const legIdx = getCurrentLegIndex(p);
+  const options = getCurrentDppWaypointOptions(p, legIdx);
+
+  if (!options.length) {
+    alert("No named DPP waypoints are available for the current leg.");
+    return false;
+  }
+
+  return await new Promise((resolve) => {
+    const nowIso = localDateTimeInputValue(new Date());
+    const optionHtml = options
+      .map(({ wp, waypointIndex }) => {
+        const labelBits = [wp.name || `Waypoint ${waypointIndex + 1}`];
+        if (wp.time) labelBits.push(`ETA ${wp.time}`);
+        if (wp.actualTime) labelBits.push(`ATA ${wp.actualTime}`);
+        return `<option value="${waypointIndex}">${escapeHtml(labelBits.join(" - "))}</option>`;
+      })
+      .join("");
+
+    showModal({
+      title: "WP Reached",
+      okText: "Add entry",
+      cancelText: "Cancel",
+      bodyHtml: `
+        <div class="entry-dialog-grid">
+          <label class="entry-dialog-field entry-dialog-field-full">
+            <span>Waypoint</span>
+            <select id="wpReachedSelect">${optionHtml}</select>
+          </label>
+          ${dialogField("ATA", "wpReachedTime", timeOnlyFromIso(nowIso), { inputMode: "numeric" })}
+          ${dialogField("Notes", "wpReachedNotes", "", { tag: "textarea", rows: 2 })}
+        </div>
+      `,
+      onOk: () => {
+        const selectedIndex = Number(document.getElementById("wpReachedSelect")?.value);
+        const selected = options.find(opt => opt.waypointIndex === selectedIndex) || options[0];
+        if (!selected) return false;
+
+        const vals = getDialogFieldValues(["wpReachedTime", "wpReachedNotes"]);
+        const entryTime = normalizeEntryTimeInput(vals.wpReachedTime, nowIso, (p.plan?.date || ""));
+        const ata = timeOnlyFromIso(entryTime);
+        const detailed = getDetailedPassagePlanForLeg(p, legIdx);
+        const targetWp = detailed.waypoints?.[selected.waypointIndex];
+        if (targetWp) {
+          targetWp.actualTime = ata;
+          recalcDetailedPassagePlan(detailed);
+          setDetailedPassagePlanForLeg(p, legIdx, detailed);
+        }
+
+        const waypointName = String(selected.wp?.name || targetWp?.name || "Waypoint").trim();
+        const extraNotes = String(vals.wpReachedNotes || "").trim();
+        const notes = extraNotes ? `WP reached: ${waypointName}\n${extraNotes}` : `WP reached: ${waypointName}`;
+
+        p.entries.unshift({
+          id: newId("e"),
+          time: entryTime,
+          leg: legIdx,
+          course: "",
+          speed: "",
+          rpm: "",
+          engTP: "",
+          waterLog: "",
+          groundLog: "",
+          fuelUsed: "",
+          notes,
+          lat: "",
+          lon: "",
+          entryType: "wp-reached",
+          wpReached: {
+            waypointId: selected.wp?.id || targetWp?.id || "",
+            waypointName,
+            waypointIndex: selected.waypointIndex,
+            ata
+          }
+        });
+
+        savePassages();
+        requestScrollToNewestLogEntry();
+        renderLogEntries();
+        refreshHomePassageList();
+        updateLogSummary();
+        updatePlanSummaryPanel();
+        if (typeof renderDetailedPassagePlan === "function") renderDetailedPassagePlan(p);
+        resolve(true);
+      },
+      onCancel: () => resolve(false)
+    });
+  });
+}
+
 async function addLogEntry(){
   const p = getCurrentPassage();
   if (!p) return;
@@ -6731,6 +6874,13 @@ async function addLogEntry(){
   ensureEntries(p);
   ensureFinish(p);
   ensureFlags(p);
+
+  const mode = await chooseNewLogEntryMode(p);
+  if (mode === "wp") {
+    await addWaypointReachedEntry(p);
+    return;
+  }
+  if (mode !== "manual") return;
 
   const entry = {
     id: newId('e'),

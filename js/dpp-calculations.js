@@ -32,7 +32,8 @@ function cloneDetailedPassagePlan(detailed, { resetTimes=false, regenerateIds=fa
         cogToNext: "",
         plannedSpeed: wp.plannedSpeed || "",
         timeToNext: "",
-        fuelToNext: ""
+        fuelToNext: "",
+        actualTime: resetTimes ? "" : (wp.actualTime || "")
       };
     }),
     hazards: d.hazards || "",
