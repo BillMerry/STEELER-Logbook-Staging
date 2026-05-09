@@ -5,7 +5,7 @@ const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 
-const APP_VERSION = "1.1.0-rc6d";
+const APP_VERSION = "1.1.0-rc6e";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -241,6 +241,125 @@ function createEmergencyContactFromSettings(){
   renderEmergencyContactsManager(contact.id);
 }
 
+function attachSettingsSwipeDelete(row, onDelete, { label = "Delete" } = {}){
+  if (!row || row.dataset.settingsSwipeBound === "1") return;
+  row.dataset.settingsSwipeBound = "1";
+  row.classList.add("st-swipe-row");
+
+  const content = document.createElement("div");
+  content.className = "st-swipe-content";
+  while (row.firstChild) content.appendChild(row.firstChild);
+
+  const actions = document.createElement("div");
+  actions.className = "st-swipe-actions";
+  const delBtn = document.createElement("button");
+  delBtn.type = "button";
+  delBtn.className = "st-swipe-delete-btn";
+  delBtn.textContent = label;
+  delBtn.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    onDelete?.();
+  });
+  actions.appendChild(delBtn);
+
+  row.appendChild(content);
+  row.appendChild(actions);
+
+  let startX = 0;
+  let startY = 0;
+  let isHorizontalSwipe = false;
+  let rowWasOpen = false;
+  let wheelX = 0;
+  let wheelTimer = null;
+  const revealPx = 76;
+  const lockThresholdPx = 76;
+  const commitThresholdPx = 220;
+
+  const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+  const setSwipeOffset = (px) => {
+    row.classList.add("swipe-dragging");
+    row.style.setProperty("--swipe-x", `${px}px`);
+  };
+  const clearSwipeOffset = () => {
+    row.classList.remove("swipe-dragging");
+    row.style.removeProperty("--swipe-x");
+  };
+  const closeOthers = () => {
+    document.querySelectorAll(".st-swipe-row.show-delete").forEach(el => {
+      if (el !== row) el.classList.remove("show-delete");
+    });
+  };
+  const commitDelete = () => {
+    row.classList.remove("show-delete");
+    clearSwipeOffset();
+    onDelete?.();
+  };
+
+  row.addEventListener("touchstart", (ev) => {
+    if (ev.touches.length !== 1) return;
+    if (ev.target.closest("button, input, textarea, select, a")) return;
+    startX = ev.touches[0].clientX;
+    startY = ev.touches[0].clientY;
+    isHorizontalSwipe = false;
+    rowWasOpen = row.classList.contains("show-delete");
+  }, { passive:true });
+
+  row.addEventListener("touchmove", (ev) => {
+    if (ev.touches.length !== 1) return;
+    if (ev.target.closest("button, input, textarea, select, a")) return;
+    const dx = ev.touches[0].clientX - startX;
+    const dy = ev.touches[0].clientY - startY;
+    if (!isHorizontalSwipe) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      isHorizontalSwipe = Math.abs(dx) > Math.abs(dy) * 1.2;
+    }
+    if (!isHorizontalSwipe) return;
+    ev.preventDefault();
+    closeOthers();
+    const base = rowWasOpen ? -revealPx : 0;
+    setSwipeOffset(clamp(base + dx, -commitThresholdPx - 16, 18));
+  }, { passive:false });
+
+  row.addEventListener("touchend", (ev) => {
+    if (!isHorizontalSwipe) return;
+    const dx = ev.changedTouches[0].clientX - startX;
+    const base = rowWasOpen ? -revealPx : 0;
+    const finalX = base + dx;
+    clearSwipeOffset();
+    if (finalX <= -commitThresholdPx) {
+      commitDelete();
+    } else if (finalX <= -lockThresholdPx) {
+      row.classList.add("show-delete");
+    } else {
+      row.classList.remove("show-delete");
+    }
+    setTimeout(() => { row.dataset.justSwiped = ""; }, 300);
+  }, { passive:true });
+
+  row.addEventListener("wheel", (ev) => {
+    if (Math.abs(ev.deltaX) <= Math.abs(ev.deltaY)) return;
+    if (ev.target.closest("button, input, textarea, select, a")) return;
+    ev.preventDefault();
+    closeOthers();
+    wheelX += ev.deltaX;
+    const offset = clamp(-wheelX, -commitThresholdPx - 16, 18);
+    setSwipeOffset(offset);
+    clearTimeout(wheelTimer);
+    wheelTimer = setTimeout(() => {
+      clearSwipeOffset();
+      if (wheelX >= commitThresholdPx) {
+        commitDelete();
+      } else if (wheelX >= lockThresholdPx) {
+        row.classList.add("show-delete");
+      } else {
+        row.classList.remove("show-delete");
+      }
+      wheelX = 0;
+    }, 120);
+  }, { passive:false });
+}
+
 function renderEmergencyContactsManager(openId = ""){
   const listEl = document.getElementById("seiEcList");
   if (!listEl) return;
@@ -315,6 +434,11 @@ function renderEmergencyContactsManager(openId = ""){
       if (ev.target.closest("button, input, textarea, select, a")) return;
       ev.preventDefault();
       row.classList.toggle("is-editing");
+    });
+    attachSettingsSwipeDelete(row, () => {
+      if (!confirm(`Delete emergency contact "${c.name || c.tel || "this contact"}"?`)) return;
+      deleteEmergencyContact(c.id);
+      renderEmergencyContactsManager();
     });
     listEl.appendChild(row);
   });
@@ -989,6 +1113,10 @@ const lookupBtn = document.createElement("button");
       if (ev.target.closest("button, input, textarea, select, a")) return;
       ev.preventDefault();
       row.classList.toggle("is-editing");
+    });
+    attachSettingsSwipeDelete(row, () => {
+      if (!confirm(`Delete port "${name}"?`)) return;
+      deletePort(name);
     });
     list.appendChild(row);
   });
@@ -3986,8 +4114,6 @@ function renderDppTemplatesManager(){
         </div>
         <div class="dpp-template-manager-actions st-list-card-actions">
           <button type="button" class="btn btn-secondary btn-small dpp-template-edit-btn">Edit</button>
-          <button type="button" class="btn btn-secondary btn-small dpp-template-rename-btn">Rename</button>
-          <button type="button" class="btn btn-secondary btn-small dpp-template-delete-btn">Delete</button>
         </div>
       </div>
     `;
@@ -3995,7 +4121,6 @@ function renderDppTemplatesManager(){
 
   dppTemplatesManager.querySelectorAll("[data-dpp-template-id]").forEach((row) => {
     const id = row.getAttribute("data-dpp-template-id") || "";
-    const input = row.querySelector(".dpp-template-name-input");
 
     row.querySelector(".dpp-template-edit-btn")?.addEventListener("click", () => {
       openDppTemplateEditor(id);
@@ -4013,12 +4138,7 @@ function renderDppTemplatesManager(){
       openDppTemplateEditor(id);
     });
 
-    row.querySelector(".dpp-template-rename-btn")?.addEventListener("click", () => {
-      const name = input?.value || "";
-      if (renameDppTemplate(id, name)) renderDppTemplatesManager();
-    });
-
-    row.querySelector(".dpp-template-delete-btn")?.addEventListener("click", () => {
+    attachSettingsSwipeDelete(row, () => {
       const tpl = getDppTemplateById(id);
       if (!tpl) return;
       if (!confirm(`Delete DPP template "${tpl.name}"?`)) return;
@@ -6770,18 +6890,7 @@ function setupWeatherShorthandEditorUI(){
 
   const topRow = mk("div", { class:"st-action-row" }, [searchInp]);
 
-  const table = mk("table", { id:"wxAbbrTable", class:"st-table" });
-  const thead = mk("thead", {}, [
-    mk("tr", {}, [
-      mk("th", { text:"On" }),
-      mk("th", { text:"From" }),
-      mk("th", { text:"To" }),
-      mk("th", { text:"Mode" }),
-      mk("th", { text:"" }),
-    ])
-  ]);
-  const tbody = mk("tbody", { id:"wxAbbrTbody" });
-  table.appendChild(thead); table.appendChild(tbody);
+  const ruleList = mk("div", { id:"wxAbbrList", class:"st-list" });
 
   // Preview
   const prevProvider = mk("select", { id:"wxAbbrPrevProvider" });
@@ -6801,7 +6910,7 @@ function setupWeatherShorthandEditorUI(){
   ]);
 
   wrap.appendChild(topRow);
-  wrap.appendChild(table);
+  wrap.appendChild(ruleList);
   wrap.appendChild(prevRow);
   wrap.appendChild(prevGrid);
 
@@ -6830,7 +6939,7 @@ function setupWeatherShorthandEditorUI(){
     const db = getDb();
     const q = (searchInp.value || "").trim().toLowerCase();
     const rules = Array.isArray(db.rules) ? db.rules : [];
-    tbody.innerHTML = "";
+    ruleList.innerHTML = "";
 
     rules.forEach((rule, idx) => {
       const fromRaw = String(rule.from || "");
@@ -6842,9 +6951,16 @@ function setupWeatherShorthandEditorUI(){
 
       if (q && !(fromDisp.toLowerCase().includes(q) || toRaw.toLowerCase().includes(q) || mode.toLowerCase().includes(q))) return;
 
-      const tr = mk("tr", {}, []);
+      const row = mk("div", { class:"st-list-card st-edit-list-row", tabindex:"0" });
+      const main = mk("div", { class:"st-list-card-main" });
+      const summary = mk("div", { class:"st-list-summary" }, [
+        mk("div", { class:"st-list-title", text:fromDisp || "(blank rule)" }),
+        mk("div", { class:"st-list-meta", text:`${enabled ? "On" : "Off"} · ${mode} · ${toRaw || "(blank output)"}` })
+      ]);
+      const edit = mk("div", { class:"st-row-edit-panel" });
+      const form = mk("div", { class:"st-form-grid" });
 
-      const onTd = mk("td", {});
+      const onField = mk("label", { class:"st-form-field" });
       const onCb = mk("input", { type:"checkbox" });
       onCb.checked = enabled;
       onCb.onchange = () => {
@@ -6854,9 +6970,10 @@ function setupWeatherShorthandEditorUI(){
         saveDb(db2);
         rebuildPreview();
       };
-      onTd.appendChild(onCb);
+      onField.appendChild(onCb);
+      onField.appendChild(document.createTextNode(" Rule enabled"));
 
-      const fromTd = mk("td", {});
+      const fromField = mk("label", { class:"st-labelled-field" }, [mk("span", { text:"From" })]);
       const fromIn = mk("input", { type:"text", value:fromDisp, style:"width:100%;" });
       fromIn.onchange = () => {
         const db2 = getDb();
@@ -6874,9 +6991,9 @@ function setupWeatherShorthandEditorUI(){
         saveDb(db2);
         rebuildPreview();
       };
-      fromTd.appendChild(fromIn);
+      fromField.appendChild(fromIn);
 
-      const toTd = mk("td", {});
+      const toField = mk("label", { class:"st-labelled-field" }, [mk("span", { text:"To" })]);
       const toIn = mk("input", { type:"text", value:toRaw, style:"width:100%;" });
       toIn.onchange = () => {
         const db2 = getDb();
@@ -6885,9 +7002,9 @@ function setupWeatherShorthandEditorUI(){
         saveDb(db2);
         rebuildPreview();
       };
-      toTd.appendChild(toIn);
+      toField.appendChild(toIn);
 
-      const modeTd = mk("td", {});
+      const modeField = mk("label", { class:"st-labelled-field" }, [mk("span", { text:"Mode" })]);
       const modeSel = mk("select", {});
       modeOptions.forEach(([v,t]) => modeSel.appendChild(mk("option",{value:v,text:t})));
       modeSel.value = mode;
@@ -6899,11 +7016,29 @@ function setupWeatherShorthandEditorUI(){
         render();
         rebuildPreview();
       };
-      modeTd.appendChild(modeSel);
+      modeField.appendChild(modeSel);
 
-      const actTd = mk("td", {});
-      const delBtn = mk("button", { type:"button", class:"btn btn-secondary btn-small", text:"Delete" });
-      delBtn.onclick = () => {
+      form.appendChild(fromField);
+      form.appendChild(toField);
+      form.appendChild(modeField);
+      form.appendChild(onField);
+      edit.appendChild(form);
+      main.appendChild(summary);
+      main.appendChild(edit);
+      row.appendChild(main);
+
+      row.addEventListener("click", (ev) => {
+        if (ev.target.closest("button, input, textarea, select, a")) return;
+        row.classList.toggle("is-editing");
+      });
+      row.addEventListener("keydown", (ev) => {
+        if (ev.key !== "Enter" && ev.key !== " ") return;
+        if (ev.target.closest("button, input, textarea, select, a")) return;
+        ev.preventDefault();
+        row.classList.toggle("is-editing");
+      });
+      attachSettingsSwipeDelete(row, () => {
+        if (!confirm(`Delete weather shorthand rule "${fromDisp || "(blank rule)"}"?`)) return;
         const db2 = getDb();
         if (!Array.isArray(db2.rules)) db2.rules = [];
         if (idx >= 0 && idx < db2.rules.length) {
@@ -6912,15 +7047,9 @@ function setupWeatherShorthandEditorUI(){
           render();
           rebuildPreview();
         }
-      };
-      actTd.appendChild(delBtn);
+      });
 
-      tr.appendChild(onTd);
-      tr.appendChild(fromTd);
-      tr.appendChild(toTd);
-      tr.appendChild(modeTd);
-      tr.appendChild(actTd);
-      tbody.appendChild(tr);
+      ruleList.appendChild(row);
     });
   };
 

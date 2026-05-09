@@ -1885,6 +1885,74 @@ body[data-theme="night"] .app-header h1{
   padding:var(--st-space-3);
 }
 
+.st-list-card.st-swipe-row{
+  display:block;
+  position:relative;
+  overflow:hidden;
+  padding:0;
+  border:0;
+  background:transparent;
+  box-shadow:none;
+}
+
+.st-swipe-content{
+  position:relative;
+  z-index:1;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:start;
+  gap:var(--st-space-2);
+  background:var(--st-surface);
+  border:1px solid var(--st-border);
+  border-radius:var(--st-radius-md);
+  box-shadow:var(--st-shadow-card);
+  padding:var(--st-space-3);
+  transition:transform 0.28s cubic-bezier(0.2, 0.9, 0.18, 1.18);
+}
+
+.st-swipe-row.swipe-dragging .st-swipe-content{
+  transform:translateX(var(--swipe-x, 0px));
+  transition:none;
+}
+
+.st-swipe-row.show-delete .st-swipe-content{
+  transform:translateX(-4.75rem);
+}
+
+.st-swipe-actions{
+  position:absolute;
+  top:50%;
+  right:var(--st-space-2);
+  z-index:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  opacity:0;
+  pointer-events:none;
+  transform:translateY(-50%) scale(0.88);
+  transition:opacity 0.2s ease, transform 0.24s cubic-bezier(0.2, 0.9, 0.18, 1.18);
+}
+
+.st-swipe-row.show-delete .st-swipe-actions,
+.st-swipe-row.swipe-dragging .st-swipe-actions{
+  opacity:1;
+  transform:translateY(-50%) scale(1);
+}
+
+.st-swipe-row.show-delete .st-swipe-actions{
+  pointer-events:auto;
+}
+
+.st-swipe-delete-btn{
+  min-width:3.2rem;
+  min-height:2.5rem;
+  border:1px solid rgba(180,35,24,0.28);
+  border-radius:var(--st-radius-md);
+  background:var(--st-danger);
+  color:#fff;
+  font-weight:850;
+}
+
 .st-list-card-main{
   min-width:0;
 }
@@ -2181,6 +2249,10 @@ body[data-theme="night"] .settings-card-icon{
 
 @media (max-width: 900px){
   .st-list-card{
+    grid-template-columns:1fr;
+  }
+
+  .st-swipe-content{
     grid-template-columns:1fr;
   }
 
