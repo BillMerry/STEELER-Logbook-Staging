@@ -805,6 +805,25 @@ body[data-theme="night"] .ports-delete { border-color: rgba(255,255,255,0.18); c
   margin-top:0.35rem;
   min-width:min(520px, 70vw);
 }
+.settings-dpp-workspace .dpp-summary-strip{
+  display:grid;
+  gap:var(--st-space-2);
+  grid-template-columns:repeat(4,minmax(11rem,1fr));
+  margin:0 0 var(--st-space-3);
+  overflow-x:auto;
+}
+.settings-dpp-workspace .dpp-summary-strip .st-metric-chip{
+  align-items:center;
+  flex-direction:row;
+  justify-content:space-between;
+}
+.settings-dpp-workspace .dpp-summary-strip .st-metric-chip span{
+  white-space:nowrap;
+}
+.settings-dpp-workspace .dpp-summary-strip .st-metric-chip strong{
+  margin-left:var(--st-space-2);
+  text-align:right;
+}
 .dpp-template-preview{
   margin-top:0.35rem;
 }

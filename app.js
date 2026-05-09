@@ -5,7 +5,7 @@ const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 
-const APP_VERSION = "1.1.0-rc6h";
+const APP_VERSION = "1.1.0-rc6i";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -1214,6 +1214,8 @@ function closeSettingsPanels(){
   });
   if (dppTemplatesManager) dppTemplatesManager.style.display = "";
   if (dppTemplatesLibrary) dppTemplatesLibrary.hidden = false;
+  const dppActions = document.querySelector("#settingsDppTemplatesCard .settings-detail-actions");
+  if (dppActions) dppActions.hidden = false;
   if (settingsDppWorkspace) {
     settingsDppWorkspace.hidden = true;
     settingsDppWorkspace.innerHTML = "";
@@ -4102,6 +4104,8 @@ function closeSettingsDppWorkspace(){
     settingsDppWorkspace.innerHTML = "";
   }
   if (dppTemplatesLibrary) dppTemplatesLibrary.hidden = false;
+  const actions = document.querySelector("#settingsDppTemplatesCard .settings-detail-actions");
+  if (actions) actions.hidden = false;
   renderDppTemplatesManager();
 }
 
@@ -4279,7 +4283,7 @@ function renderSettingsDppWorkspace(){
       <button type="button" class="btn btn-secondary btn-small" id="settingsDppImportGpxBtn">Import GPX</button>
       <button type="button" class="btn btn-secondary btn-small" id="settingsDppReverseBtn">Reverse Route</button>
       <button type="button" class="btn btn-secondary btn-small" id="settingsDppLoadTemplateBtn">Load DPP Template</button>
-      <button type="button" class="btn btn-primary btn-small" id="settingsDppSaveBtn">Save Detailed Passage Plan</button>
+      <button type="button" class="btn btn-primary btn-small" id="settingsDppSaveBtn">Save Plan</button>
     </div>
     <div class="dpp-template-load-panel" id="settingsDppTemplateLoadPanel" hidden>
       <select id="settingsDppTemplateSelect" ${dppTemplates.length ? "" : "disabled"}>
@@ -4315,7 +4319,7 @@ function renderSettingsDppWorkspace(){
 
   settingsDppWorkspace.querySelector("#settingsDppSaveBtn")?.addEventListener("click", () => {
     if (!saveSettingsDppWorkspace()) return;
-    renderSettingsDppWorkspace();
+    closeSettingsDppWorkspace();
   });
 
   settingsDppWorkspace.querySelector("#settingsDppAddWaypointBtn")?.addEventListener("click", () => {
@@ -4435,6 +4439,8 @@ function openSettingsDppWorkspace(id){
     detailed: cloneDetailedPassagePlan(tpl.detailed)
   };
   if (dppTemplatesLibrary) dppTemplatesLibrary.hidden = true;
+  const actions = document.querySelector("#settingsDppTemplatesCard .settings-detail-actions");
+  if (actions) actions.hidden = true;
   if (settingsDppWorkspace) settingsDppWorkspace.hidden = false;
   renderSettingsDppWorkspace();
   settingsDppWorkspace?.scrollIntoView({ behavior: "smooth", block: "start" });
