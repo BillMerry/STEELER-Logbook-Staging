@@ -1856,6 +1856,13 @@ body[data-theme="night"] .app-header h1{
   text-transform:uppercase;
 }
 
+.st-section-hint{
+  margin:calc(var(--st-space-2) * -0.5) 0 0;
+  color:var(--st-text-muted);
+  font-size:0.84rem;
+  line-height:1.35;
+}
+
 .st-action-row{
   display:flex;
   flex-wrap:wrap;

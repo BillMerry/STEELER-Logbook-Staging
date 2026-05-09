@@ -5,7 +5,7 @@ const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 
-const APP_VERSION = "1.1.0-rc6e";
+const APP_VERSION = "1.1.0-rc6f";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -239,6 +239,10 @@ function createEmergencyContactFromSettings(){
   s.emergencyContacts.push(contact);
   saveSafetyInfo(s);
   renderEmergencyContactsManager(contact.id);
+}
+
+function sectionHint(text){
+  return `<p class="st-section-hint">${escapeHtml(text)}</p>`;
 }
 
 function attachSettingsSwipeDelete(row, onDelete, { label = "Delete" } = {}){
@@ -3167,6 +3171,34 @@ function openDetailedPassagePlanPage() {
   }, 80);
 }
 
+function openDppTemplateInPassageWorkspace(templateId){
+  const template = getDppTemplateById(templateId);
+  if (!template) return;
+
+  const p = getCurrentPassage();
+  if (!p) {
+    alert("Please create or select a passage before opening a saved Detailed Passage Plan.");
+    return;
+  }
+
+  ensureDetailedPassagePlans(p);
+  const legIdx = getSelectedDetailedPlanLegIndex(p);
+  const routeLeg = getRouteLegNames(p, legIdx);
+  const routeLabel = routeLeg.origin && routeLeg.destination
+    ? `${routeLeg.origin} → ${routeLeg.destination}`
+    : `Leg ${legIdx + 1}`;
+
+  const ok = confirm(`Open "${template.name}" as the Detailed Passage Plan for ${routeLabel}?\n\nThis will replace the current DPP for that leg.`);
+  if (!ok) return;
+
+  const replacement = cloneDetailedPassagePlan(template.detailed, { regenerateIds: true });
+  setDetailedPassagePlanForLeg(p, legIdx, replacement);
+  recalcDetailedPassagePlan(p, legIdx);
+  savePassages();
+  openDetailedPassagePlanPage();
+  updatePlanSummaryPanel();
+}
+
 function handleStatusStripNavigation(action) {
   if (action === "dpp") {
     openDetailedPassagePlanPage();
@@ -4107,13 +4139,6 @@ function renderDppTemplatesManager(){
               ${notes ? ` · ${escapeHtml(notes)}` : ""}
             </div>
           </div>
-          <label class="st-labelled-field st-row-edit-panel">
-            <span>DPP name</span>
-            <input type="text" class="dpp-template-name-input" value="${escapeHtml(tpl.name)}" aria-label="DPP template name">
-          </label>
-        </div>
-        <div class="dpp-template-manager-actions st-list-card-actions">
-          <button type="button" class="btn btn-secondary btn-small dpp-template-edit-btn">Edit</button>
         </div>
       </div>
     `;
@@ -4122,20 +4147,16 @@ function renderDppTemplatesManager(){
   dppTemplatesManager.querySelectorAll("[data-dpp-template-id]").forEach((row) => {
     const id = row.getAttribute("data-dpp-template-id") || "";
 
-    row.querySelector(".dpp-template-edit-btn")?.addEventListener("click", () => {
-      openDppTemplateEditor(id);
-    });
-
     row.addEventListener("click", (ev) => {
       if (ev.target.closest("button, input, textarea, select, a")) return;
-      openDppTemplateEditor(id);
+      openDppTemplateInPassageWorkspace(id);
     });
 
     row.addEventListener("keydown", (ev) => {
       if (ev.key !== "Enter" && ev.key !== " ") return;
       if (ev.target.closest("button, input, textarea, select, a")) return;
       ev.preventDefault();
-      openDppTemplateEditor(id);
+      openDppTemplateInPassageWorkspace(id);
     });
 
     attachSettingsSwipeDelete(row, () => {
@@ -7197,6 +7218,7 @@ function injectSafetyEmergencySettingsBlock(){
         <div id="safetyEmergencyFullPanel" class="settings-card-panel safety-emergency-panel st-stack" data-settings-panel hidden>
           <div class="st-panel st-stack">
             <div class="st-panel-title">Vessel</div>
+            ${sectionHint("Core vessel identifiers used in emergency contact messages and exported vessel details.")}
             <div class="st-form-grid st-form-grid-compact">
               <input id="seiBoatName" placeholder="Boat Name">
               <input id="seiBoatType" placeholder="Boat Type">
@@ -7214,6 +7236,7 @@ function injectSafetyEmergencySettingsBlock(){
 
           <div class="st-panel st-stack">
             <div class="st-panel-title">Appearance & Safety</div>
+            ${sectionHint("Descriptive and safety information that helps identify the vessel if assistance is needed.")}
             <div class="st-form-grid">
               <input id="seiTopsides" placeholder="Hull Colour (topsides)">
               <input id="seiHull" placeholder="Hull Colour (lower)">
@@ -7229,6 +7252,7 @@ function injectSafetyEmergencySettingsBlock(){
 
           <div class="st-panel st-stack">
             <div class="st-panel-title">Owner Details</div>
+            ${sectionHint("Owner contact details included in the stored passage safety information.")}
             <div class="st-form-grid">
               <input id="seiOwnerNames" placeholder="Owner Names">
               <input id="seiOwnerTel" placeholder="Owner Tel">
@@ -7239,6 +7263,7 @@ function injectSafetyEmergencySettingsBlock(){
 
           <div class="st-panel st-stack">
             <div class="st-panel-title">Emergency Contacts</div>
+            ${sectionHint("Saved lookout contacts for departure and arrival SMS notifications. Tap a contact to edit it.")}
             <div class="st-action-row">
               <button type="button" id="seiEcNewBtn" class="btn btn-primary">New Contact</button>
             </div>
@@ -7247,6 +7272,7 @@ function injectSafetyEmergencySettingsBlock(){
 
           <div class="st-panel st-stack">
             <div class="st-panel-title">Notification Defaults</div>
+            ${sectionHint("Defaults used when preparing emergency contact messages.")}
             <div class="st-form-grid">
               <input id="seiOverdueHours" type="number" min="1" step="1" placeholder="Overdue hours">
               <input id="seiEngineToSlip" type="number" min="0" step="1" placeholder="Engine Start → WP1 mins">
@@ -7257,7 +7283,7 @@ function injectSafetyEmergencySettingsBlock(){
           </div>
 
           <div class="st-action-row">
-            <button type="button" id="saveSafetyEmergencyBtn" class="btn btn-primary">Save Safety / Emergency Info</button>
+            <button type="button" id="saveSafetyEmergencyBtn" class="btn btn-primary">Save Passage Safety Information</button>
             <button type="button" id="exportVesselDetailsBtn" class="btn btn-secondary">Export Vessel Details HTML</button>
           </div>
         </div>
