@@ -5,7 +5,7 @@ const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 
-const APP_VERSION = "1.1.0-rc6e";
+const APP_VERSION = "1.1.0-rc6g";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -2648,16 +2648,7 @@ importPortsFileInput?.addEventListener("change", (e) => {
 
 exportDppTemplatesBtn?.addEventListener("click", exportDppTemplatesBackup);
 newDppTemplateBtn?.addEventListener("click", () => {
-  const existing = new Set(getDppTemplates().map(tpl => String(tpl.name || "").trim()).filter(Boolean));
-  let name = "New Plan";
-  let idx = 2;
-  while (existing.has(name)) {
-    name = `New Plan ${idx}`;
-    idx += 1;
-  }
-  const tpl = saveDppTemplate(name, createBlankDetailedPassagePlan());
-  renderDppTemplatesManager();
-  openDppTemplateEditor(tpl.id);
+  openNewDetailedPassagePlanWorkspace();
 });
 importDppTemplatesBtn?.addEventListener("click", () => importDppTemplatesFileInput?.click());
 importDppTemplatesFileInput?.addEventListener("change", (e) => {
@@ -3165,6 +3156,34 @@ function openDetailedPassagePlanPage() {
     target.scrollIntoView({ behavior: "smooth", block: "start" });
     flashNavigationTarget(target);
   }, 80);
+}
+
+function detailedPassagePlanHasContent(detailed){
+  const clean = normaliseDetailedPassagePlan(detailed);
+  return (clean.waypoints || []).some(wp => {
+    return (wp.time || wp.name || wp.coordsText || wp.plannedSpeed || wp.distToNext || wp.timeToNext || wp.fuelToNext);
+  }) || !!(clean.hazards || clean.portsOfRefuge || clean.crewWelfare);
+}
+
+function openNewDetailedPassagePlanWorkspace(){
+  const p = getCurrentPassage();
+  if (!p) {
+    alert("Please create or select a passage before creating a new Detailed Passage Plan.");
+    return;
+  }
+
+  ensureDetailedPassagePlans(p);
+  const legIdx = getSelectedDetailedPlanLegIndex(p);
+  const existing = getDetailedPassagePlanForLeg(p, legIdx);
+  if (detailedPassagePlanHasContent(existing)) {
+    const ok = confirm("Create a new blank Detailed Passage Plan for the selected leg?\n\nThis will replace the current DPP for that leg.");
+    if (!ok) return;
+  }
+
+  setDetailedPassagePlanForLeg(p, legIdx, createBlankDetailedPassagePlan());
+  savePassages();
+  openDetailedPassagePlanPage();
+  updatePlanSummaryPanel();
 }
 
 function handleStatusStripNavigation(action) {
