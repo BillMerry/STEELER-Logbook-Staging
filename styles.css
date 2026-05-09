@@ -792,6 +792,19 @@ body[data-theme="night"] .ports-delete { border-color: rgba(255,255,255,0.18); c
   flex-wrap:wrap;
   justify-content:flex-end;
 }
+.settings-dpp-workspace{
+  display:block;
+}
+.settings-dpp-workspace[hidden]{
+  display:none;
+}
+.settings-dpp-header{
+  align-items:flex-end;
+}
+.settings-dpp-name{
+  margin-top:0.35rem;
+  min-width:min(520px, 70vw);
+}
 .dpp-template-preview{
   margin-top:0.35rem;
 }

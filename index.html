@@ -443,8 +443,11 @@
               <button id="importDppTemplatesBtn" class="btn btn-secondary">Import Detailed Passage Plans</button>
               <input id="importDppTemplatesFileInput" type="file" accept="application/json,.json" hidden>
             </div>
-            <div id="dppTemplatesManager" class="st-list"></div>
-            <p class="hint">DPP templates are reusable across passages and are also included in full logbook backups.</p>
+            <div id="dppTemplatesLibrary" class="st-stack">
+              <div id="dppTemplatesManager" class="st-list"></div>
+              <p class="hint">DPP templates are reusable across passages and are also included in full logbook backups.</p>
+            </div>
+            <div id="settingsDppWorkspace" class="settings-dpp-workspace" hidden></div>
           </div>
         </div>
 
