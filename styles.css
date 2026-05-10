@@ -1406,6 +1406,22 @@ tr.show-delete .entry-del-btn {
   grid-template-columns: 96px 96px 96px 82px 82px 82px 1fr !important;
 }
 
+.manual-log-options {
+  grid-template-columns: 150px minmax(220px, 1fr) 110px 96px 96px 110px !important;
+}
+
+.entry-dialog-check {
+  display:flex !important;
+  align-items:center !important;
+  gap:0.4rem !important;
+  min-height:40px !important;
+  font-weight:750 !important;
+}
+
+.entry-dialog-check input {
+  width:auto !important;
+}
+
 .engine-start-grid label,
 .manual-log-grid label {
   min-width: 0 !important;
@@ -1493,6 +1509,7 @@ tr.show-delete .entry-del-btn {
   .engine-start-env,
   .manual-log-main,
   .manual-log-secondary,
+  .manual-log-options,
   .engine-start-vhf-notes {
     grid-template-columns: 1fr 1fr !important;
   }
@@ -3023,6 +3040,12 @@ body[data-theme="night"] .settings-card-icon{
 .plan-summary .section-title{
   color:var(--st-accent-strong);
   letter-spacing:0.04em;
+}
+
+.plan-summary .dpp-progress-item{
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
 }
 
 .log-table-wrapper{

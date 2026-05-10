@@ -6,7 +6,7 @@ const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 const DPP_WAYPOINTS_KEY = "steeler_dpp_waypoints_v1";
 
-const APP_VERSION = "1.1.0-rc8";
+const APP_VERSION = "1.1.0-rc8a";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -5785,10 +5785,11 @@ function updatePlanSummaryPanel() {
 		const detailed = getDetailedPassagePlanForLeg(p, detailedLegIdx);
 		const detailedWpHtml = (detailed.waypoints || []).length
 				? detailed.waypoints.map(wp => {
-								const bits = [];
-								if (wp.time) bits.push(escapeHtml(wp.time));
-								if (wp.name) bits.push(escapeHtml(wp.name));
-								return `<div class="daily-summary-item">${bits.join(" – ") || "–"}</div>`;
+								const etaAta = wp.time && wp.actualTime
+										? `${wp.time}/${wp.actualTime}`
+										: (wp.actualTime || wp.time || "");
+								const label = `${etaAta ? `${etaAta} ` : ""}${wp.name || ""}`.trim();
+								return `<div class="daily-summary-item dpp-progress-item" title="${escapeHtml(label || "–")}">${escapeHtml(label || "–")}</div>`;
 						}).join("")
 				: "<p><em>–</em></p>";
 		const detailedHazardsHtml = detailed.hazards ? escapeHtml(detailed.hazards).replace(/\n/g, "<br>") : "<em>–</em>";
@@ -6182,6 +6183,22 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
 
     const eng = splitEngTP(entry.engTP || "");
     const existingStw = entry.stw || "";
+    const pForDialog = passage || getCurrentPassage();
+    const legIdxForDialog = pForDialog
+      ? ((typeof entry.leg === "number") ? entry.leg : getCurrentLegIndex(pForDialog))
+      : 0;
+    const waypointOptions = pForDialog ? getCurrentDppWaypointOptions(pForDialog, legIdxForDialog) : [];
+    const wpOptionHtml = waypointOptions
+      .map(({ wp, waypointIndex }) => {
+        const bits = [wp.name || `Waypoint ${waypointIndex + 1}`];
+        if (wp.time) bits.push(`ETA ${wp.time}`);
+        if (wp.actualTime) bits.push(`ATA ${wp.actualTime}`);
+        const selected = Number(entry.wpReached?.waypointIndex) === waypointIndex ? " selected" : "";
+        return `<option value="${waypointIndex}"${selected}>${escapeHtml(bits.join(" - "))}</option>`;
+      })
+      .join("");
+    const isWpEntry = entry.entryType === "wp-reached" || !!entry.wpReached;
+    const isRefuelEntry = entry.entryType === "refuel" || !!entry.refuel;
 
     showModal({
       title: isNew ? 'New Log Entry' : 'Edit Log Entry',
@@ -6255,6 +6272,38 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
             <div></div>
           </div>
 
+          <div class="manual-log-row manual-log-options">
+            <label class="entry-dialog-check">
+              <input id="dlgWpReached" type="checkbox" ${isWpEntry ? "checked" : ""} ${waypointOptions.length ? "" : "disabled"}>
+              <span>Waypoint reached</span>
+            </label>
+
+            <label class="entry-dialog-field manual-log-wp-fields" ${isWpEntry ? "" : "hidden"}>
+              <span>Waypoint</span>
+              <select id="dlgWpSelect">${wpOptionHtml}</select>
+            </label>
+
+            <label class="entry-dialog-check">
+              <input id="dlgRefuel" type="checkbox" ${isRefuelEntry ? "checked" : ""}>
+              <span>Refuel</span>
+            </label>
+
+            <label class="entry-dialog-field manual-log-refuel-fields" ${isRefuelEntry ? "" : "hidden"}>
+              <span>Litres</span>
+              <input id="dlgRefuelLitres" type="number" inputmode="decimal" step="0.1" value="${escapeHtml(entry.refuel?.litres || "")}">
+            </label>
+
+            <label class="entry-dialog-field manual-log-refuel-fields" ${isRefuelEntry ? "" : "hidden"}>
+              <span>Cost £</span>
+              <input id="dlgRefuelCost" type="number" inputmode="decimal" step="0.01" value="${escapeHtml(entry.refuel?.cost || "")}">
+            </label>
+
+            <label class="entry-dialog-check manual-log-refuel-fields" ${isRefuelEntry ? "" : "hidden"}>
+              <input id="dlgRefuelFull" type="checkbox" ${entry.refuel?.tankFull ? "checked" : ""}>
+              <span>Tank full</span>
+            </label>
+          </div>
+
           <label class="entry-dialog-field">
             <span>Notes</span>
             <textarea id="dlgNotes" rows="2" class="modal-notes" style="resize:vertical;">${escapeHtml(entry.notes || '')}</textarea>
@@ -6276,13 +6325,16 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
           'dlgCourse',
           'dlgSpeed',
           'dlgStw',
-          'dlgNotes'
+          'dlgNotes',
+          'dlgWpSelect',
+          'dlgRefuelLitres',
+          'dlgRefuelCost'
         ]);
 
         entry.time = normalizeEntryTimeInput(
           vals.dlgTime,
           entry.time,
-          (passage?.plan?.date || getCurrentPassage()?.plan?.date || '')
+          (pForDialog?.plan?.date || getCurrentPassage()?.plan?.date || '')
         );
 
         const posRaw = String(vals.dlgPosition || "").trim();
@@ -6311,19 +6363,82 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
         let notes = vals.dlgNotes || "";
         notes = notes
           .replace(/\n?STW:\s*[\d.]+\s*kts?/ig, "")
+          .replace(/\n?WP\s+.+$/im, "")
+          .replace(/\n?Refuelled\s+.+$/im, "")
           .trim();
+
+        const wpChecked = !!document.getElementById("dlgWpReached")?.checked;
+        if (wpChecked && pForDialog) {
+          const selectedIndex = Number(vals.dlgWpSelect);
+          const selected = waypointOptions.find(opt => opt.waypointIndex === selectedIndex) || waypointOptions[0];
+          if (selected) {
+            const oldIdx = Number(entry.wpReached?.waypointIndex);
+            if (Number.isFinite(oldIdx) && oldIdx !== selected.waypointIndex && pForDialog) {
+              const oldDetailed = getDetailedPassagePlanForLeg(pForDialog, legIdxForDialog);
+              if (oldDetailed?.waypoints?.[oldIdx]) oldDetailed.waypoints[oldIdx].actualTime = "";
+            }
+            const recorded = recordWaypointAtaForEntry(pForDialog, legIdxForDialog, selected.waypointIndex, entry.time);
+            const waypointName = String(selected.wp?.name || recorded?.wp?.name || "Waypoint").trim();
+            const wpNote = formatWaypointLogLabel({ name: waypointName });
+            notes = notes ? `${notes}\n${wpNote}` : wpNote;
+            entry.entryType = "wp-reached";
+            entry.wpReached = {
+              waypointId: selected.wp?.id || recorded?.wp?.id || "",
+              waypointName,
+              waypointIndex: selected.waypointIndex,
+              ata: recorded?.ata || timeOnlyFromIso(entry.time)
+            };
+          }
+        } else {
+          if (entry.wpReached && pForDialog) {
+            const oldIdx = Number(entry.wpReached.waypointIndex);
+            const detailed = getDetailedPassagePlanForLeg(pForDialog, legIdxForDialog);
+            if (Number.isFinite(oldIdx) && detailed?.waypoints?.[oldIdx]) {
+              detailed.waypoints[oldIdx].actualTime = "";
+              recalcDetailedPassagePlan(detailed);
+              setDetailedPassagePlanForLeg(pForDialog, legIdxForDialog, detailed);
+            }
+          }
+          delete entry.wpReached;
+        }
+
+        const refuelChecked = !!document.getElementById("dlgRefuel")?.checked;
+        if (refuelChecked) {
+          const litres = numberOrNull(vals.dlgRefuelLitres);
+          const cost = numberOrNull(vals.dlgRefuelCost);
+          const tankFull = !!document.getElementById("dlgRefuelFull")?.checked;
+          const priorRemaining = pForDialog ? estimateFuelTankRemainingBeforeEntry(pForDialog, entry.time, entry.id) : null;
+          const tankRemaining = tankFull
+            ? STEELER_FUEL_TANK_CAPACITY_L
+            : (priorRemaining != null && litres != null ? Math.min(STEELER_FUEL_TANK_CAPACITY_L, priorRemaining + litres) : null);
+          const refuelNote = buildRefuelNote(litres, cost, tankFull, tankRemaining);
+          if (refuelNote) notes = notes ? `${notes}\n${refuelNote}` : refuelNote;
+          entry.entryType = entry.entryType === "wp-reached" ? "wp-reached" : "refuel";
+          entry.refuel = {
+            litres: litres != null ? Number(litres.toFixed(1)) : "",
+            cost: cost != null ? Number(cost.toFixed(2)) : "",
+            costPerLitre: (cost != null && litres > 0) ? Number((cost / litres).toFixed(3)) : "",
+            tankFull,
+            tankRemaining: tankRemaining != null ? Number(tankRemaining.toFixed(1)) : "",
+            tankCapacity: STEELER_FUEL_TANK_CAPACITY_L
+          };
+        } else {
+          delete entry.refuel;
+        }
 
         if (entry.stw) {
           notes = notes ? `${notes}\nSTW: ${entry.stw} kts` : `STW: ${entry.stw} kts`;
         }
 
         entry.notes = notes;
-        entry.entryType = 'manual';
+        if (!entry.wpReached && !entry.refuel) entry.entryType = 'manual';
 
         if (!isNew) {
           savePassages();
           renderLogEntries();
           refreshHomePassageList();
+          updatePlanSummaryPanel();
+          if (typeof renderDetailedPassagePlan === "function" && pForDialog) renderDetailedPassagePlan(pForDialog);
         }
 
         resolve(true);
@@ -6338,6 +6453,40 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
         if (posEl) posEl.value = "";
       });
     }
+
+    const notesEl = document.getElementById("dlgNotes");
+    const wpCheck = document.getElementById("dlgWpReached");
+    const wpSelect = document.getElementById("dlgWpSelect");
+    const refuelCheck = document.getElementById("dlgRefuel");
+
+    const toggleFields = (selector, show) => {
+      modalBody.querySelectorAll(selector).forEach(el => { el.hidden = !show; });
+    };
+    const appendUniqueNoteLine = (line) => {
+      if (!notesEl || !line) return;
+      const current = String(notesEl.value || "").trim();
+      const lines = current ? current.split(/\n+/) : [];
+      const prefix = line.startsWith("WP ") ? "WP " : (line.startsWith("Refuelled ") ? "Refuelled " : line);
+      const filtered = lines.filter(existing => !String(existing).startsWith(prefix));
+      filtered.push(line);
+      notesEl.value = filtered.join("\n");
+    };
+    const selectedWaypointNote = () => {
+      const selectedIndex = Number(wpSelect?.value);
+      const selected = waypointOptions.find(opt => opt.waypointIndex === selectedIndex) || waypointOptions[0];
+      return selected ? formatWaypointLogLabel(selected.wp) : "";
+    };
+
+    wpCheck?.addEventListener("change", () => {
+      toggleFields(".manual-log-wp-fields", wpCheck.checked);
+      if (wpCheck.checked) appendUniqueNoteLine(selectedWaypointNote());
+    });
+    wpSelect?.addEventListener("change", () => {
+      if (wpCheck?.checked) appendUniqueNoteLine(selectedWaypointNote());
+    });
+    refuelCheck?.addEventListener("change", () => {
+      toggleFields(".manual-log-refuel-fields", refuelCheck.checked);
+    });
 
     // CL-083: Prefill Lat/Lon for NEW manual entries
     if (isNew) {
@@ -6732,6 +6881,8 @@ function addSpecialEntry(noteText, notesOverride = null) {
   requestScrollToNewestLogEntry();
   renderLogEntries();
   refreshHomePassageList();
+  updatePlanSummaryPanel();
+  if (typeof renderDetailedPassagePlan === "function") renderDetailedPassagePlan(p);
 }
 
 function getCurrentDppWaypointOptions(p, legIdx = null){
@@ -6742,6 +6893,84 @@ function getCurrentDppWaypointOptions(p, legIdx = null){
   return (detailed?.waypoints || [])
     .map((wp, waypointIndex) => ({ wp, waypointIndex }))
     .filter(({ wp }) => String(wp?.name || "").trim());
+}
+
+function formatWaypointLogLabel(wp){
+  const name = String(wp?.name || "Waypoint").trim();
+  return `WP ${name}`;
+}
+
+function recordWaypointAtaForEntry(p, legIdx, waypointIndex, entryTime){
+  if (!p || waypointIndex == null || waypointIndex < 0) return null;
+  ensureDetailedPassagePlans(p);
+  const detailed = getDetailedPassagePlanForLeg(p, legIdx);
+  const targetWp = detailed?.waypoints?.[waypointIndex];
+  if (!targetWp) return null;
+
+  const ata = timeOnlyFromIso(entryTime);
+  targetWp.actualTime = ata;
+  recalcDetailedPassagePlan(detailed);
+  setDetailedPassagePlanForLeg(p, legIdx, detailed);
+  return { wp: targetWp, ata };
+}
+
+const STEELER_FUEL_TANK_CAPACITY_L = 800;
+
+function numberOrNull(value){
+  const n = parseFloat(String(value ?? "").replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
+
+function formatLitres(value){
+  const n = numberOrNull(value);
+  if (n == null) return "";
+  return Number.isInteger(n) ? String(n) : n.toFixed(1).replace(/\.0$/, "");
+}
+
+function estimateFuelTankRemainingBeforeEntry(p, entryTime, excludeEntryId = ""){
+  const entries = Array.isArray(p?.entries) ? p.entries.slice() : [];
+  const targetTime = String(entryTime || localDateTimeInputValue(new Date()));
+  const sorted = entries
+    .filter(e => !excludeEntryId || String(e.id) !== String(excludeEntryId))
+    .filter(e => !targetTime || !e.time || String(e.time) <= targetTime)
+    .sort((a, b) => String(a.time || "").localeCompare(String(b.time || "")));
+
+  let remaining = null;
+  for (const e of sorted) {
+    const refuel = e?.refuel || null;
+    if (refuel) {
+      const litres = numberOrNull(refuel.litres) || 0;
+      if (refuel.tankFull) {
+        remaining = STEELER_FUEL_TANK_CAPACITY_L;
+      } else if (remaining != null) {
+        remaining = Math.min(STEELER_FUEL_TANK_CAPACITY_L, remaining + litres);
+      }
+      if (numberOrNull(refuel.tankRemaining) != null) remaining = numberOrNull(refuel.tankRemaining);
+    }
+
+    const used = numberOrNull(e?.fuelUsed);
+    if (remaining != null && used != null && used > 0) {
+      remaining = Math.max(0, remaining - used);
+    }
+  }
+
+  return remaining;
+}
+
+function buildRefuelNote(litresRaw, costRaw, tankFull, tankRemaining){
+  const litres = numberOrNull(litresRaw);
+  const cost = numberOrNull(costRaw);
+  if (litres == null || litres <= 0) return "";
+
+  const litresText = formatLitres(litres);
+  const costText = cost != null ? cost.toFixed(2) : "";
+  const ppl = (cost != null && litres > 0) ? (cost / litres).toFixed(2) : "";
+  const tankText = tankFull
+    ? "Tank Full"
+    : `Tank ${tankRemaining != null ? formatLitres(tankRemaining) : "unknown"}l remaining`;
+  const costPart = costText ? `, £${costText}${ppl ? ` (£${ppl}/l)` : ""}` : "";
+
+  return `Refuelled ${litresText}l${costPart}. ${tankText}`;
 }
 
 async function chooseNewLogEntryMode(p){
@@ -6875,13 +7104,6 @@ async function addLogEntry(){
   ensureFinish(p);
   ensureFlags(p);
 
-  const mode = await chooseNewLogEntryMode(p);
-  if (mode === "wp") {
-    await addWaypointReachedEntry(p);
-    return;
-  }
-  if (mode !== "manual") return;
-
   const entry = {
     id: newId('e'),
     time: localDateTimeInputValue(new Date()),
@@ -6907,6 +7129,8 @@ async function addLogEntry(){
   requestScrollToNewestLogEntry();
   renderLogEntries();
   refreshHomePassageList();
+  updatePlanSummaryPanel();
+  if (typeof renderDetailedPassagePlan === "function") renderDetailedPassagePlan(p);
 }
 
 
