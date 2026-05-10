@@ -7,7 +7,7 @@ const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 const DPP_WAYPOINTS_KEY = "steeler_dpp_waypoints_v1";
 const FUEL_MANAGEMENT_KEY = "steeler_fuel_management_v1";
 
-const APP_VERSION = "1.1.0-rc8b";
+const APP_VERSION = "1.1.0-rc9";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -271,9 +271,16 @@ function attachSettingsSwipeDelete(row, onDelete, { label = "Delete" } = {}){
   delBtn.addEventListener("click", (ev) => {
     ev.preventDefault();
     ev.stopPropagation();
+    ev.stopImmediatePropagation?.();
+    row.dataset.justSwiped = "1";
     onDelete?.();
   });
   actions.appendChild(delBtn);
+  actions.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    ev.stopImmediatePropagation?.();
+  });
 
   row.appendChild(content);
   row.appendChild(actions);
@@ -303,6 +310,7 @@ function attachSettingsSwipeDelete(row, onDelete, { label = "Delete" } = {}){
     });
   };
   const commitDelete = () => {
+    row.dataset.justSwiped = "1";
     row.classList.remove("show-delete");
     clearSwipeOffset();
     onDelete?.();
@@ -343,10 +351,11 @@ function attachSettingsSwipeDelete(row, onDelete, { label = "Delete" } = {}){
       commitDelete();
     } else if (finalX <= -lockThresholdPx) {
       row.classList.add("show-delete");
+      row.dataset.justSwiped = "1";
     } else {
       row.classList.remove("show-delete");
     }
-    setTimeout(() => { row.dataset.justSwiped = ""; }, 300);
+    setTimeout(() => { delete row.dataset.justSwiped; }, 300);
   }, { passive:true });
 
   row.addEventListener("wheel", (ev) => {
@@ -364,10 +373,12 @@ function attachSettingsSwipeDelete(row, onDelete, { label = "Delete" } = {}){
         commitDelete();
       } else if (wheelX >= lockThresholdPx) {
         row.classList.add("show-delete");
+        row.dataset.justSwiped = "1";
       } else {
         row.classList.remove("show-delete");
       }
       wheelX = 0;
+      setTimeout(() => { delete row.dataset.justSwiped; }, 300);
     }, 120);
   }, { passive:false });
 }
@@ -3154,6 +3165,7 @@ function updateLogStatusStrip() {
   const route = getRouteLegNames(p, legIdx);
   const legSummary = computeLegLogSummary(p, legIdx);
   const entries = Array.isArray(p.entries) ? p.entries : [];
+  const legEntries = entries.filter(e => (typeof e.leg === "number" ? e.leg : 0) === legIdx);
   const hasEngineStart = hasSpecialForLeg(p, "engine start", legIdx);
   const hasSlip = hasSpecialForLeg(p, "slipped lines", legIdx);
   const hasDock = hasSpecialForLeg(p, "alongside", legIdx) || hasSpecialForLeg(p, "docked", legIdx);
@@ -3174,7 +3186,7 @@ function updateLogStatusStrip() {
   logStatusStrip.hidden = false;
   logStatusStrip.innerHTML = `
     <button type="button" class="log-status-route log-status-link" data-status-nav="dpp">
-      <span class="log-status-label">Current Passage</span>
+      <span class="log-status-label">Current Passage / Leg</span>
       <strong>${escapeHtml(routeText)}</strong>
       <span>${escapeHtml(legLabel)}</span>
     </button>
@@ -3185,7 +3197,7 @@ function updateLogStatusStrip() {
     <button type="button" class="st-metric-chip log-status-link" data-status-nav="plan-date"><span>Date</span><strong>${escapeHtml(passageDate)}</strong></button>
     <button type="button" class="st-metric-chip log-status-link log-status-crew" data-status-nav="plan-crew"><span>Crew</span><strong>${escapeHtml(crewText)}</strong></button>
     <button type="button" class="st-metric-chip log-status-link" data-status-nav="latest-log"><span>Under Way</span><strong>${escapeHtml(legSummary.durationText || "–")}</strong></button>
-    <button type="button" class="st-metric-chip log-status-link" data-status-nav="latest-log"><span>Entries</span><strong>${entries.length}</strong></button>
+    <button type="button" class="st-metric-chip log-status-link" data-status-nav="latest-log"><span>Entries</span><strong>${legEntries.length}</strong></button>
   `;
   logStatusStrip.querySelectorAll("[data-status-nav]").forEach((btn) => {
     btn.addEventListener("click", () => handleStatusStripNavigation(btn.dataset.statusNav));
@@ -5862,11 +5874,17 @@ function updatePlanSummaryPanel() {
   planSummaryPanel.innerHTML = `
     <div class="plan-summary-grid">
       <div class="col plan-summary-col plan-summary-col-left">
-        <div class="block plan-link" data-goto="planSunriseSet">
-          <p class="section-title">SUN &amp; MOON</p>
-          <p><strong>Sunrise / Sunset:</strong> ${sunriseSet ? escapeHtml(sunriseSet) : "–"}</p>
-          <p><strong>Moon phase:</strong> ${moonPhase ? escapeHtml(moonPhase) : "–"}</p>
-          <p><strong>Moon rise / set:</strong> ${moonRiseSet ? escapeHtml(moonRiseSet) : "–"}</p>
+        <div class="block plan-link" data-goto="detailedPassagePlanSection">
+          <p class="section-title">ROUTE SUMMARY</p>
+          ${detailedWpHtml}
+          <p style="margin-top:0.5rem;"><strong>Hazards:</strong> ${detailedHazardsHtml}</p>
+          <p><strong>Ports of Refuge:</strong> ${detailedRefugeHtml}</p>
+          <p><strong>Crew Welfare:</strong> ${detailedWelfareHtml}</p>
+        </div>
+
+        <div class="block plan-link" data-goto="planComms">
+          <p class="section-title">COMMS / PILOTAGE</p>
+          <p>${comms ? escapeHtml(comms).replace(/\n/g, "<br>") : "<em>–</em>"}</p>
         </div>
 
         <div class="block plan-link" data-goto="planTidalCoeff">
@@ -5880,26 +5898,20 @@ function updatePlanSummaryPanel() {
           <p>${currents ? escapeHtml(currents).replace(/\n/g, "<br>") : "<em>–</em>"}</p>
         </div>
 
-        <div class="block plan-link" data-goto="planComms">
-          <p class="section-title">COMMS / PILOTAGE</p>
-          <p>${comms ? escapeHtml(comms).replace(/\n/g, "<br>") : "<em>–</em>"}</p>
-        </div>
-
         <div class="block">
           <p class="section-title">DAILY SUMMARY</p>
           ${dailySummaryHtml}
         </div>
-
-        <div class="block plan-link" data-goto="detailedPassagePlanSection">
-          <p class="section-title">${detailedLegLabel}</p>
-          ${detailedWpHtml}
-          <p style="margin-top:0.5rem;"><strong>Hazards:</strong> ${detailedHazardsHtml}</p>
-          <p><strong>Ports of Refuge:</strong> ${detailedRefugeHtml}</p>
-          <p><strong>Crew Welfare:</strong> ${detailedWelfareHtml}</p>
-        </div>
       </div>
 
       <div class="col plan-summary-col plan-summary-col-right">
+        <div class="block plan-link" data-goto="planSunriseSet">
+          <p class="section-title">SUN &amp; MOON</p>
+          <p><strong>Sunrise / Sunset:</strong> ${sunriseSet ? escapeHtml(sunriseSet) : "–"}</p>
+          <p><strong>Moon phase:</strong> ${moonPhase ? escapeHtml(moonPhase) : "–"}</p>
+          <p><strong>Moon rise / set:</strong> ${moonRiseSet ? escapeHtml(moonRiseSet) : "–"}</p>
+        </div>
+
         <div class="block plan-link" data-goto="planWeather">
           <p class="section-title">WEATHER</p>
           <p>${weather ? weatherTextToHtmlForPlanPanel(weather) : "<em>–</em>"}</p>

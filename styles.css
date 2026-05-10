@@ -259,10 +259,13 @@ body[data-theme="night"] .tide-station-row,
 body[data-theme="night"] .daily-summary-row{border-color:#333}
 
 .daily-summary-row .ds-row{
-  align-items:flex-end;
+  display:grid;
+  grid-template-columns:minmax(10rem,0.9fr) minmax(9rem,0.8fr) minmax(12rem,1.5fr);
+  gap:var(--st-space-2);
+  align-items:start;
   margin-bottom:0.35rem;
 }
-.daily-summary-row .ds-row label{margin-bottom:0}
+.daily-summary-row .ds-row label{margin-bottom:0;min-width:0}
 .daily-summary-row input[type="date"],
 .daily-summary-row input[type="text"]{height:2.05rem}
 
@@ -1431,6 +1434,16 @@ tr.show-delete .entry-del-btn {
   display: none !important;
 }
 
+.manual-log-options .entry-dialog-check{
+  justify-content:flex-start !important;
+  min-width:0 !important;
+  white-space:nowrap !important;
+}
+
+.manual-log-options .entry-dialog-field{
+  min-width:0 !important;
+}
+
 .engine-start-grid label span,
 .manual-log-grid label span {
   display: block !important;
@@ -2044,6 +2057,23 @@ body[data-theme="night"] .app-header h1{
   font-weight:850;
 }
 
+@media (hover:hover) and (pointer:fine){
+  .st-swipe-row .st-swipe-content{
+    padding-right:5.8rem;
+  }
+
+  .st-swipe-row .st-swipe-actions{
+    z-index:2;
+    opacity:1;
+    pointer-events:auto;
+    transform:translateY(-50%) scale(1);
+  }
+
+  .st-swipe-row.show-delete .st-swipe-content{
+    transform:none;
+  }
+}
+
 .st-list-card-main{
   min-width:0;
 }
@@ -2202,11 +2232,12 @@ body[data-theme="night"] .app-header h1{
   grid-template-columns:repeat(2,minmax(0,1fr));
 }
 
-#safetyEmergencySettingsBlock{order:20}
-#settingsWeatherTidesCard{order:40}
-#wxAbbrSettingsBlock{order:50}
-#settingsDppTemplatesCard{order:60}
-#settingsDataBackupCard{order:70}
+#settingsWeatherTidesCard{order:10}
+#settingsDppTemplatesCard{order:20}
+#safetyEmergencySettingsBlock{order:30}
+#wxAbbrSettingsBlock{order:40}
+#fuelManagementSettingsBlock{order:50}
+#settingsDataBackupCard{order:60}
 
 .settings-placeholder-card{
   display:none !important;
@@ -2757,6 +2788,16 @@ body[data-theme="night"] .settings-card-icon{
   grid-column:1 / -1;
 }
 
+.plan-route-card{order:10}
+.plan-overview-card{order:20}
+.plan-crew-card{order:21}
+.plan-tides-card{order:30}
+.plan-environment-card{order:40}
+.plan-daily-card{order:50}
+.planning-summary-card{order:60}
+.plan-dpp-host{order:70}
+.plan-bottom-actions{order:80}
+
 .plan-field-grid{
   display:grid;
   gap:var(--st-space-3);
@@ -2764,6 +2805,7 @@ body[data-theme="night"] .settings-card-icon{
 
 .plan-field-grid.two-col{
   grid-template-columns:repeat(2,minmax(0,1fr));
+  align-items:start;
 }
 
 .plan-textarea-grid textarea{
@@ -2780,14 +2822,17 @@ body[data-theme="night"] .settings-card-icon{
 
 .plan-redesign-form label{
   color:var(--st-text-muted);
+  display:grid;
   font-size:0.78rem;
   font-weight:750;
+  gap:0.25rem;
+  min-width:0;
 }
 
 .plan-redesign-form input,
 .plan-redesign-form textarea,
 .plan-redesign-form select{
-  margin-top:0.25rem;
+  margin-top:0;
 }
 
 .plan-redesign-form .grid-span-2{
@@ -2804,8 +2849,20 @@ body[data-theme="night"] .settings-card-icon{
 }
 
 .plan-page-summary-strip{
+  display:grid;
   grid-template-columns:repeat(4,minmax(7.5rem,1fr));
+  gap:var(--st-space-2);
   margin:0;
+}
+
+.plan-page-summary-strip .st-metric-chip{
+  min-width:0;
+}
+
+.plan-bottom-actions{
+  grid-column:1 / -1;
+  display:flex;
+  justify-content:flex-end;
 }
 
 .plan-dpp-host{
@@ -2818,7 +2875,8 @@ body[data-theme="night"] .settings-card-icon{
 }
 
 .plan-redesign-form.dpp-page-mode .plan-page-heading,
-.plan-redesign-form.dpp-page-mode .plan-card-grid{
+.plan-redesign-form.dpp-page-mode .plan-card-grid,
+.plan-redesign-form.dpp-page-mode .plan-bottom-actions{
   display:none;
 }
 
