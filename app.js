@@ -5,8 +5,9 @@ const THEME_KEY   = "steeler_logbook_theme_v1";
 const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 const DPP_WAYPOINTS_KEY = "steeler_dpp_waypoints_v1";
+const FUEL_MANAGEMENT_KEY = "steeler_fuel_management_v1";
 
-const APP_VERSION = "1.1.0-rc8a";
+const APP_VERSION = "1.1.0-rc8b";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -46,6 +47,11 @@ const STORAGE_SAFETY_CONFIG = {
     label: "DPP waypoints",
     mirrorKey: "steeler_lkg_dpp_waypoints_v1",
     mirrorMetaKey: "steeler_lkg_dpp_waypoints_v1_meta"
+  },
+  "steeler_fuel_management_v1": {
+    label: "fuel management",
+    mirrorKey: "steeler_lkg_fuel_management_v1",
+    mirrorMetaKey: "steeler_lkg_fuel_management_v1_meta"
   }
 };
 
@@ -1164,6 +1170,9 @@ function setupSettingsCardToggles(){
       if (dppTemplatesManager) dppTemplatesManager.style.display = "grid";
       importDppTemplateWaypointsToLibrary();
       setSettingsDppLibraryTab(settingsDppLibraryTab);
+    }
+    if (card.id === "fuelManagementSettingsBlock") {
+      renderFuelManagementSettings();
     }
   };
   document.querySelectorAll("[data-settings-card]").forEach(card => {
@@ -5751,6 +5760,9 @@ p.plan.vessel = planVessel.value.trim();
   updatePlanSummaryPanel();
 
   switchToTab("logTab");
+  renderLogEntries();
+  updateLogStatusStrip();
+  updateLogSummary();
 });
 
 // --- Plan summary panel (no START block) ---------------------------
@@ -6927,34 +6939,103 @@ function formatLitres(value){
   return Number.isInteger(n) ? String(n) : n.toFixed(1).replace(/\.0$/, "");
 }
 
-function estimateFuelTankRemainingBeforeEntry(p, entryTime, excludeEntryId = ""){
-  const entries = Array.isArray(p?.entries) ? p.entries.slice() : [];
-  const targetTime = String(entryTime || localDateTimeInputValue(new Date()));
-  const sorted = entries
-    .filter(e => !excludeEntryId || String(e.id) !== String(excludeEntryId))
-    .filter(e => !targetTime || !e.time || String(e.time) <= targetTime)
-    .sort((a, b) => String(a.time || "").localeCompare(String(b.time || "")));
+function defaultFuelManagementSettings(){
+  return {
+    tankCapacity: STEELER_FUEL_TANK_CAPACITY_L,
+    resetAt: "",
+    resetLevel: STEELER_FUEL_TANK_CAPACITY_L
+  };
+}
 
-  let remaining = null;
-  for (const e of sorted) {
-    const refuel = e?.refuel || null;
+function loadFuelManagementSettings(){
+  const stored = loadLocalStorageJsonItem(
+    FUEL_MANAGEMENT_KEY,
+    "fuel management",
+    defaultFuelManagementSettings(),
+    value => !!value && typeof value === "object"
+  );
+  return {
+    ...defaultFuelManagementSettings(),
+    ...stored,
+    tankCapacity: numberOrNull(stored?.tankCapacity) || STEELER_FUEL_TANK_CAPACITY_L,
+    resetLevel: numberOrNull(stored?.resetLevel) ?? STEELER_FUEL_TANK_CAPACITY_L
+  };
+}
+
+function saveFuelManagementSettings(settings){
+  const clean = {
+    ...defaultFuelManagementSettings(),
+    ...(settings || {})
+  };
+  clean.tankCapacity = numberOrNull(clean.tankCapacity) || STEELER_FUEL_TANK_CAPACITY_L;
+  clean.resetLevel = Math.max(0, Math.min(clean.tankCapacity, numberOrNull(clean.resetLevel) ?? clean.tankCapacity));
+  clean.resetAt = clean.resetAt || localDateTimeInputValue(new Date());
+  saveLocalStorageItem(FUEL_MANAGEMENT_KEY, JSON.stringify(clean), "fuel management");
+  return clean;
+}
+
+function getAllFuelRelevantEntries(){
+  return passages.flatMap(p => (Array.isArray(p.entries) ? p.entries : []).map(entry => ({ passage:p, entry })))
+    .filter(({ entry }) => entry && (entry.time || entry.refuel || entry.fuelUsed))
+    .sort((a, b) => String(a.entry.time || "").localeCompare(String(b.entry.time || "")));
+}
+
+function computeFuelManagementStats({ beforeTime = "", excludeEntryId = "" } = {}){
+  const settings = loadFuelManagementSettings();
+  const resetAt = String(settings.resetAt || "");
+  let remaining = numberOrNull(settings.resetLevel);
+  let refuelLitres = 0;
+  let refuelCost = 0;
+  let fuelUsed = 0;
+  let refuelCount = 0;
+  let fuelUseEntryCount = 0;
+
+  getAllFuelRelevantEntries().forEach(({ entry }) => {
+    if (excludeEntryId && String(entry.id) === String(excludeEntryId)) return;
+    const time = String(entry.time || "");
+    if (resetAt && time && time < resetAt) return;
+    if (beforeTime && time && time > beforeTime) return;
+
+    const refuel = entry.refuel || null;
     if (refuel) {
       const litres = numberOrNull(refuel.litres) || 0;
+      const cost = numberOrNull(refuel.cost) || 0;
+      if (litres > 0) {
+        refuelLitres += litres;
+        refuelCost += cost;
+        refuelCount += 1;
+      }
       if (refuel.tankFull) {
-        remaining = STEELER_FUEL_TANK_CAPACITY_L;
+        remaining = settings.tankCapacity;
       } else if (remaining != null) {
-        remaining = Math.min(STEELER_FUEL_TANK_CAPACITY_L, remaining + litres);
+        remaining = Math.min(settings.tankCapacity, remaining + litres);
       }
       if (numberOrNull(refuel.tankRemaining) != null) remaining = numberOrNull(refuel.tankRemaining);
     }
 
-    const used = numberOrNull(e?.fuelUsed);
-    if (remaining != null && used != null && used > 0) {
-      remaining = Math.max(0, remaining - used);
+    const used = numberOrNull(entry.fuelUsed);
+    if (used != null && used > 0) {
+      fuelUsed += used;
+      fuelUseEntryCount += 1;
+      if (remaining != null) remaining = Math.max(0, remaining - used);
     }
-  }
+  });
 
-  return remaining;
+  return {
+    settings,
+    remaining,
+    refuelLitres,
+    refuelCost,
+    refuelCount,
+    fuelUsed,
+    fuelUseEntryCount,
+    averageCostPerLitre: refuelLitres > 0 && refuelCost > 0 ? refuelCost / refuelLitres : null
+  };
+}
+
+function estimateFuelTankRemainingBeforeEntry(p, entryTime, excludeEntryId = ""){
+  const targetTime = String(entryTime || localDateTimeInputValue(new Date()));
+  return computeFuelManagementStats({ beforeTime: targetTime, excludeEntryId }).remaining;
 }
 
 function buildRefuelNote(litresRaw, costRaw, tankFull, tankRemaining){
@@ -8466,6 +8547,113 @@ function injectSafetyEmergencySettingsBlock(){
   }
 }
 
+function renderFuelManagementSettings(){
+  const resetAtEl = document.getElementById("fuelMgmtResetAt");
+  const resetLevelEl = document.getElementById("fuelMgmtResetLevel");
+  const statsEl = document.getElementById("fuelMgmtStats");
+  if (!resetAtEl || !resetLevelEl || !statsEl) return;
+
+  const stats = computeFuelManagementStats();
+  const settings = stats.settings;
+  resetAtEl.value = settings.resetAt || localDateTimeInputValue(new Date());
+  resetLevelEl.value = formatLitres(settings.resetLevel);
+
+  const remaining = stats.remaining == null ? "Unknown" : `${formatLitres(stats.remaining)}l`;
+  const used = stats.fuelUsed ? `${formatLitres(stats.fuelUsed)}l` : "0l";
+  const bought = stats.refuelLitres ? `${formatLitres(stats.refuelLitres)}l` : "0l";
+  const avg = stats.averageCostPerLitre == null ? "–" : `£${stats.averageCostPerLitre.toFixed(2)}/l`;
+
+  statsEl.innerHTML = `
+    <span class="st-metric-chip"><span>Tank Estimate</span><strong>${escapeHtml(remaining)}</strong></span>
+    <span class="st-metric-chip"><span>Fuel Used</span><strong>${escapeHtml(used)}</strong></span>
+    <span class="st-metric-chip"><span>Fuel Bought</span><strong>${escapeHtml(bought)}</strong></span>
+    <span class="st-metric-chip"><span>Avg Cost</span><strong>${escapeHtml(avg)}</strong></span>
+  `;
+}
+
+function saveFuelManagementFromSettings(fullReset = false){
+  const current = loadFuelManagementSettings();
+  const resetAt = document.getElementById("fuelMgmtResetAt")?.value || localDateTimeInputValue(new Date());
+  const level = fullReset
+    ? STEELER_FUEL_TANK_CAPACITY_L
+    : (numberOrNull(document.getElementById("fuelMgmtResetLevel")?.value) ?? current.resetLevel);
+  saveFuelManagementSettings({
+    ...current,
+    resetAt,
+    resetLevel: level
+  });
+  renderFuelManagementSettings();
+}
+
+function injectFuelManagementSettingsBlock(){
+  const container = __wxAbbrFindSettingsContainer();
+  if (!container) return;
+
+  const dppBtn = document.getElementById("settingsDppTemplatesCard");
+  const dppBlock = __wxAbbrBlockForEl(dppBtn, container);
+  if (!dppBlock) return;
+
+  let block = document.getElementById("fuelManagementSettingsBlock");
+  if (!block){
+    block = document.createElement(dppBlock.tagName.toLowerCase());
+    block.id = "fuelManagementSettingsBlock";
+    block.className = dppBlock.className || "";
+    block.setAttribute("data-settings-card", "");
+    block.innerHTML = `
+      <div class="settings-block-inner">
+        <div class="settings-card-header">
+          <div class="settings-card-main">
+            <span class="settings-card-icon" aria-hidden="true">FL</span>
+            <div>
+              <h3>Fuel Management</h3>
+              <p>Tank level reset and simple fuel statistics.</p>
+            </div>
+          </div>
+          <button type="button" id="toggleFuelManagementBtn" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>›</button>
+        </div>
+        <div id="fuelManagementPanel" class="settings-card-panel st-stack" data-settings-panel hidden>
+          <section class="settings-panel-card st-panel st-stack">
+            <div class="st-panel-title">Tank Level</div>
+            <div id="fuelMgmtStats" class="st-metric-strip"></div>
+            <div class="st-form-grid st-form-grid-compact">
+              <label class="st-labelled-field">
+                <span>Reset from</span>
+                <input id="fuelMgmtResetAt" type="datetime-local">
+              </label>
+              <label class="st-labelled-field">
+                <span>Tank level (L)</span>
+                <input id="fuelMgmtResetLevel" type="number" inputmode="decimal" min="0" max="${STEELER_FUEL_TANK_CAPACITY_L}" step="0.1">
+              </label>
+            </div>
+            <div class="st-action-row">
+              <button type="button" id="fuelMgmtFullBtn" class="btn btn-primary">Reset Tank Full</button>
+              <button type="button" id="fuelMgmtSaveBtn" class="btn btn-secondary">Save Tank Level</button>
+            </div>
+          </section>
+        </div>
+      </div>
+    `;
+  }
+
+  if (!block.parentElement) {
+    container.insertBefore(block, dppBlock.nextSibling);
+  }
+
+  renderFuelManagementSettings();
+
+  const fullBtn = document.getElementById("fuelMgmtFullBtn");
+  if (fullBtn && !fullBtn.dataset.bound) {
+    fullBtn.dataset.bound = "1";
+    fullBtn.addEventListener("click", () => saveFuelManagementFromSettings(true));
+  }
+
+  const saveBtn = document.getElementById("fuelMgmtSaveBtn");
+  if (saveBtn && !saveBtn.dataset.bound) {
+    saveBtn.dataset.bound = "1";
+    saveBtn.addEventListener("click", () => saveFuelManagementFromSettings(false));
+  }
+}
+
 // --- Initial load --------------------------------------------------
 
 if (new URLSearchParams(location.search).has("reset")) {
@@ -8486,6 +8674,7 @@ if (new URLSearchParams(location.search).has("reset")) {
 		try { migrateLegacyEcSettingsIntoSafetyInfo(); } catch (e) { console.warn('migrateLegacyEcSettingsIntoSafetyInfo failed', e); }
 		try { importDppTemplateWaypointsToLibrary(); } catch (e) { console.warn('importDppTemplateWaypointsToLibrary failed', e); }
 		try { injectSafetyEmergencySettingsBlock(); } catch (e) { console.warn('injectSafetyEmergencySettingsBlock failed', e); }
+		try { injectFuelManagementSettingsBlock(); } catch (e) { console.warn('injectFuelManagementSettingsBlock failed', e); }
 		try { setupSettingsCardToggles(); } catch (e) { console.warn('setupSettingsCardToggles failed', e); }
 
   refreshHomePassageList();

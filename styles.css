@@ -1427,6 +1427,10 @@ tr.show-delete .entry-del-btn {
   min-width: 0 !important;
 }
 
+.manual-log-grid [hidden] {
+  display: none !important;
+}
+
 .engine-start-grid label span,
 .manual-log-grid label span {
   display: block !important;
