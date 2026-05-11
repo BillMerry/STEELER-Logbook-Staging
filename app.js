@@ -8,7 +8,7 @@ const DPP_WAYPOINTS_KEY = "steeler_dpp_waypoints_v1";
 const FUEL_MANAGEMENT_KEY = "steeler_fuel_management_v1";
 const LOG_SPLIT_RATIO_KEY = "steeler_log_split_ratio_v1";
 
-const APP_VERSION = "1.1.0-rc11";
+const APP_VERSION = "1.1.0-rc11a";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -73,6 +73,19 @@ function warnStorageSaveFailed(label, error){
   if (storageSaveWarningsShown.has(label)) return;
   storageSaveWarningsShown.add(label);
   alert(`Warning: ${label} could not be saved on this device. Your latest changes may not be stored. Please make a backup when possible.`);
+}
+
+function normaliseMoonPhaseLabel(value) {
+  return String(value || "")
+    .replace(/🌑/g, "●")
+    .replace(/🌒/g, "◔")
+    .replace(/🌓/g, "◐")
+    .replace(/🌔/g, "◕")
+    .replace(/🌕/g, "○")
+    .replace(/🌖/g, "◕")
+    .replace(/🌗/g, "◑")
+    .replace(/🌘/g, "◔")
+    .trim();
 }
 
 function getStorageSafetyConfig(key, label){
@@ -1659,7 +1672,7 @@ function switchToTab(tabId) {
       const p = getCurrentPassage();
       if (p && p.plan) {
         if (typeof planSunriseSet !== "undefined" && planSunriseSet) p.plan.sunriseSet = planSunriseSet.value.trim();
-        if (typeof planMoonPhase !== "undefined" && planMoonPhase) p.plan.moonPhase = planMoonPhase.value.trim();
+        if (typeof planMoonPhase !== "undefined" && planMoonPhase) p.plan.moonPhase = normaliseMoonPhaseLabel(planMoonPhase.value);
         if (typeof planMoonRiseSet !== "undefined" && planMoonRiseSet) p.plan.moonRiseSet = planMoonRiseSet.value.trim();
         if (typeof planTidalCoeff !== "undefined" && planTidalCoeff) p.plan.tidalCoeff = planTidalCoeff.value.trim();
         if (typeof planCurrents !== "undefined" && planCurrents) p.plan.currents = planCurrents.value.trim();
@@ -3608,7 +3621,9 @@ planVessel.value = p.plan.vessel || "STEELER";
   planSunriseSet.value = p.plan.sunriseSet || "";
   if (planMoonPhase) {
     const d = p.plan.date || p.createdAt?.slice(0,10) || "";
-    planMoonPhase.value = p.plan.moonPhase || (d ? getMoonPhaseLabel(d) : "");
+    const moonPhaseValue = normaliseMoonPhaseLabel(p.plan.moonPhase || (d ? getMoonPhaseLabel(d) : ""));
+    planMoonPhase.value = moonPhaseValue;
+    if (p.plan.moonPhase && p.plan.moonPhase !== moonPhaseValue) p.plan.moonPhase = moonPhaseValue;
   }
   if (planMoonRiseSet) planMoonRiseSet.value = p.plan.moonRiseSet || "";
   planTidalCoeff.value = p.plan.tidalCoeff || "";
@@ -5209,7 +5224,7 @@ function scheduleAutoSunSync(){
 
     // Group C: CL-076-10 — auto-fill moon phase (does not overwrite manual edits)
     if (planMoonPhase && !planMoonPhase.value.trim() && planDate.value) {
-      planMoonPhase.value = getMoonPhaseLabel(planDate.value);
+      planMoonPhase.value = normaliseMoonPhaseLabel(getMoonPhaseLabel(planDate.value));
     }
   }, 180);
 }
@@ -5801,7 +5816,7 @@ p.plan.vessel = planVessel.value.trim();
   p.plan.skipper = planSkipper.value.trim();
   p.plan.crew = planCrew.value.trim();
   p.plan.sunriseSet = planSunriseSet.value.trim();
-  if (planMoonPhase) p.plan.moonPhase = planMoonPhase.value.trim();
+  if (planMoonPhase) p.plan.moonPhase = normaliseMoonPhaseLabel(planMoonPhase.value);
   if (planMoonRiseSet) p.plan.moonRiseSet = planMoonRiseSet.value.trim();
   p.plan.tidalCoeff = planTidalCoeff.value.trim();
   p.plan.currents = planCurrents.value.trim();
@@ -5856,7 +5871,7 @@ function updatePlanSummaryPanel() {
 		recalcDetailedPassagePlan(p, getSelectedDetailedPlanLegIndex(p));
 
   const sunriseSet = p.plan.sunriseSet || "";
-  const moonPhase = p.plan.moonPhase || "";
+  const moonPhase = normaliseMoonPhaseLabel(p.plan.moonPhase || "");
   const moonRiseSet = p.plan.moonRiseSet || "";
   const tidalCoeff = p.plan.tidalCoeff || "";
   const tideStations = p.plan.tideStations || [];
