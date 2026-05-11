@@ -194,12 +194,10 @@ main{
 }
 
 .transit-field-header{
-  align-items:center;
-  display:flex;
-  gap:0.5rem;
-  justify-content:space-between;
+  display:block;
   line-height:1.2;
   min-width:0;
+  padding-right:1.55rem;
 }
 
 .transit-field-header label{
@@ -2879,6 +2877,7 @@ body[data-theme="night"] .settings-card-icon{
   font-weight:750;
   gap:0.25rem;
   min-width:0;
+  position:relative;
 }
 
 .plan-redesign-form input,
@@ -2914,8 +2913,47 @@ body[data-theme="night"] .settings-card-icon{
 }
 
 .plan-redesign-form .transit-remove-btn{
+  -webkit-appearance:none;
+  align-items:center;
+  appearance:none;
+  background:transparent;
+  border:0;
+  border-radius:var(--st-radius-sm);
+  box-shadow:none;
+  color:var(--st-text-muted);
+  cursor:pointer;
+  display:inline-flex;
+  flex:0 0 auto;
+  height:1.4rem;
+  justify-content:center;
+  line-height:1;
+  min-height:0;
+  min-width:0;
+  padding:0;
+  position:absolute;
+  right:0;
+  top:-0.05rem;
+  width:1.4rem;
   align-self:center;
   margin-top:0;
+}
+
+.plan-redesign-form .transit-remove-btn svg{
+  display:block;
+  fill:none;
+  height:0.82rem;
+  stroke:currentColor;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+  stroke-width:2;
+  width:0.82rem;
+}
+
+.plan-redesign-form .transit-remove-btn:hover,
+.plan-redesign-form .transit-remove-btn:focus-visible{
+  background:var(--st-accent-soft);
+  color:var(--st-accent-strong);
+  outline:1px solid var(--st-accent-border);
 }
 
 .plan-page-summary-strip{
@@ -3139,7 +3177,7 @@ body[data-theme="night"] .settings-card-icon{
 }
 
 .log-layout{
-  gap:var(--st-space-3);
+  gap:var(--st-space-1);
 }
 
 .log-layout.split .plan-summary{
@@ -3157,9 +3195,9 @@ body[data-theme="night"] .settings-card-icon{
   align-self:stretch;
   cursor:col-resize;
   display:none;
-  flex:0 0 0.25rem;
+  flex:0 0 0.75rem;
   justify-content:center;
-  min-width:0.25rem;
+  min-width:0.75rem;
   touch-action:none;
 }
 
@@ -3170,14 +3208,14 @@ body[data-theme="night"] .settings-card-icon{
   display:block;
   height:3.5rem;
   transition:background 0.16s ease, width 0.16s ease;
-  width:0.08rem;
+  width:0.18rem;
 }
 
 .log-split-divider:hover::before,
 .log-split-divider:focus-visible::before,
 .log-layout.is-resizing .log-split-divider::before{
   background:var(--st-accent);
-  width:0.14rem;
+  width:0.28rem;
 }
 
 .log-layout.split .log-split-divider{
