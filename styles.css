@@ -248,6 +248,11 @@ body[data-theme="night"] textarea{
 
 .form textarea{resize:vertical}
 
+#planMoonPhase,
+.moon-phase-display{
+  filter:grayscale(1) saturate(0);
+}
+
 .row{display:flex;gap:0.5rem;margin-bottom:0.4rem}
 .row > label{flex:1 1 0}
 

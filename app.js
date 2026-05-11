@@ -8,7 +8,7 @@ const DPP_WAYPOINTS_KEY = "steeler_dpp_waypoints_v1";
 const FUEL_MANAGEMENT_KEY = "steeler_fuel_management_v1";
 const LOG_SPLIT_RATIO_KEY = "steeler_log_split_ratio_v1";
 
-const APP_VERSION = "1.1.0-rc11a";
+const APP_VERSION = "1.1.0-rc11b";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -77,14 +77,14 @@ function warnStorageSaveFailed(label, error){
 
 function normaliseMoonPhaseLabel(value) {
   return String(value || "")
-    .replace(/🌑/g, "●")
-    .replace(/🌒/g, "◔")
-    .replace(/🌓/g, "◐")
-    .replace(/🌔/g, "◕")
-    .replace(/🌕/g, "○")
-    .replace(/🌖/g, "◕")
-    .replace(/🌗/g, "◑")
-    .replace(/🌘/g, "◔")
+    .replace(/^●\s*New/i, "🌑 New")
+    .replace(/^◔\s*Wax cres/i, "🌒 Wax cres")
+    .replace(/^◐\s*1st qtr/i, "🌓 1st qtr")
+    .replace(/^◕\s*Wax gib/i, "🌔 Wax gib")
+    .replace(/^○\s*Full/i, "🌕 Full")
+    .replace(/^◕\s*Wan gib/i, "🌖 Wan gib")
+    .replace(/^◑\s*Last qtr/i, "🌗 Last qtr")
+    .replace(/^◔\s*Wan cres/i, "🌘 Wan cres")
     .trim();
 }
 
@@ -5986,7 +5986,7 @@ function updatePlanSummaryPanel() {
         <div class="block plan-link" data-goto="planSunriseSet">
           <p class="section-title">SUN &amp; MOON</p>
           <p><strong>Sunrise / Sunset:</strong> ${sunriseSet ? escapeHtml(sunriseSet) : "–"}</p>
-          <p><strong>Moon phase:</strong> ${moonPhase ? escapeHtml(moonPhase) : "–"}</p>
+          <p><strong>Moon phase:</strong> ${moonPhase ? `<span class="moon-phase-display">${escapeHtml(moonPhase)}</span>` : "–"}</p>
           <p><strong>Moon rise / set:</strong> ${moonRiseSet ? escapeHtml(moonRiseSet) : "–"}</p>
         </div>
 
