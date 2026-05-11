@@ -88,14 +88,14 @@ function getMoonPhaseLabel(dateStr){
     const idx = Math.floor((phase * 8) + 0.5) % 8;
 
     const phases = [
-      { e: "🌑", t: "New" },
-      { e: "🌒", t: "Wax cres" },
-      { e: "🌓", t: "1st qtr" },
-      { e: "🌔", t: "Wax gib" },
-      { e: "🌕", t: "Full" },
-      { e: "🌖", t: "Wan gib" },
-      { e: "🌗", t: "Last qtr" },
-      { e: "🌘", t: "Wan cres" },
+      { e: "●", t: "New" },
+      { e: "◔", t: "Wax cres" },
+      { e: "◐", t: "1st qtr" },
+      { e: "◕", t: "Wax gib" },
+      { e: "○", t: "Full" },
+      { e: "◕", t: "Wan gib" },
+      { e: "◑", t: "Last qtr" },
+      { e: "◔", t: "Wan cres" },
     ];
     const p = phases[idx] || phases[0];
     return `${p.e} ${p.t}`;

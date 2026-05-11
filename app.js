@@ -8,7 +8,7 @@ const DPP_WAYPOINTS_KEY = "steeler_dpp_waypoints_v1";
 const FUEL_MANAGEMENT_KEY = "steeler_fuel_management_v1";
 const LOG_SPLIT_RATIO_KEY = "steeler_log_split_ratio_v1";
 
-const APP_VERSION = "1.1.0-rc9c";
+const APP_VERSION = "1.1.0-rc11";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
