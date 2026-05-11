@@ -198,6 +198,7 @@ main{
   display:flex;
   gap:0.5rem;
   justify-content:space-between;
+  line-height:1.2;
   min-width:0;
 }
 
@@ -206,8 +207,25 @@ main{
 }
 
 .transit-remove-btn{
+  background:transparent;
+  border-color:transparent;
+  box-shadow:none;
   color:var(--accent);
   flex:0 0 auto;
+  min-height:1.45rem;
+  padding:0.12rem;
+  width:1.45rem;
+}
+
+.transit-remove-btn svg{
+  height:0.9rem;
+  width:0.9rem;
+}
+
+.transit-remove-btn:hover,
+.transit-remove-btn:focus-visible{
+  background:var(--st-accent-soft);
+  border-color:var(--st-accent-border);
 }
 
 .form input[type="text"],
@@ -3139,9 +3157,9 @@ body[data-theme="night"] .settings-card-icon{
   align-self:stretch;
   cursor:col-resize;
   display:none;
-  flex:0 0 0.75rem;
+  flex:0 0 0.25rem;
   justify-content:center;
-  min-width:0.75rem;
+  min-width:0.25rem;
   touch-action:none;
 }
 
@@ -3152,14 +3170,14 @@ body[data-theme="night"] .settings-card-icon{
   display:block;
   height:3.5rem;
   transition:background 0.16s ease, width 0.16s ease;
-  width:0.18rem;
+  width:0.08rem;
 }
 
 .log-split-divider:hover::before,
 .log-split-divider:focus-visible::before,
 .log-layout.is-resizing .log-split-divider::before{
   background:var(--st-accent);
-  width:0.28rem;
+  width:0.14rem;
 }
 
 .log-layout.split .log-split-divider{
