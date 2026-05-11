@@ -8,10 +8,11 @@ const DPP_WAYPOINTS_KEY = "steeler_dpp_waypoints_v1";
 const FUEL_MANAGEMENT_KEY = "steeler_fuel_management_v1";
 const LOG_SPLIT_RATIO_KEY = "steeler_log_split_ratio_v1";
 
-const APP_VERSION = "1.1.0-rc10";
+const APP_VERSION = "1.1.0-rc10a";
 
 const ICON_PATHS = {
   anchor: '<path d="M12 3v14"/><path d="M8 7h8"/><path d="M5 13c0 4 3 7 7 7s7-3 7-7"/><path d="M5 13l-2 2"/><path d="M19 13l2 2"/><circle cx="12" cy="5" r="2"/>',
+  arrowWaves: '<path d="M3 9c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2 2-2 4-2"/><path d="M4 16h14"/><path d="M14 12l4 4-4 4"/>',
   calendar: '<path d="M8 2v4"/><path d="M16 2v4"/><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/>',
   check: '<path d="M20 6L9 17l-5-5"/>',
   clipboard: '<path d="M9 4h6"/><path d="M9 2h6v4H9z"/><path d="M7 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><path d="M8 13h8"/><path d="M8 17h5"/>',
@@ -21,6 +22,7 @@ const ICON_PATHS = {
   download: '<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/>',
   ellipsis: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
   file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h6"/>',
+  filePdf: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h6"/><text x="12" y="20" text-anchor="middle" class="st-icon-text">PDF</text>',
   filter: '<path d="M3 5h18"/><path d="M6 12h12"/><path d="M10 19h4"/>',
   flag: '<path d="M5 21V4"/><path d="M5 4h10l-1 4 1 4H5"/>',
   fuel: '<path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/><path d="M4 11h12"/><path d="M16 7h2l2 3v8a2 2 0 0 1-4 0v-4h4"/>',
@@ -43,6 +45,7 @@ const ICON_PATHS = {
   shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v5"/><path d="M12 17h.01"/>',
   ship: '<path d="M3 17l2-7h14l2 7"/><path d="M7 10V6h10v4"/><path d="M9 6V3h6v3"/><path d="M4 17c2 2 4 2 6 0 2 2 4 2 6 0 2 2 4 2 6 0"/>',
   spreadsheet: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h8"/><path d="M11 10v10"/>',
+  spreadsheetCsv: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h8"/><path d="M11 10v10"/><text x="12" y="20" text-anchor="middle" class="st-icon-text">CSV</text>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M4.9 4.9l1.4 1.4"/><path d="M17.7 17.7l1.4 1.4"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="M4.9 19.1l1.4-1.4"/><path d="M17.7 6.3l1.4-1.4"/>',
   sunMoon: '<circle cx="8" cy="8" r="3"/><path d="M8 1v2"/><path d="M8 13v2"/><path d="M1 8h2"/><path d="M13 8h2"/><path d="M17 21a6 6 0 0 0 4-10 7 7 0 1 1-9 9 6 6 0 0 0 5 1z"/>',
   timer: '<circle cx="12" cy="13" r="8"/><path d="M12 13V8"/><path d="M12 13l3 2"/><path d="M9 2h6"/>',
@@ -61,6 +64,15 @@ function iconSvg(name, extraClass = "") {
 
 function iconLabelHtml(name, label) {
   return `${iconSvg(name)}<span>${label}</span>`;
+}
+
+function statusIconName(statusOrClass) {
+  const key = String(statusOrClass || "").toLowerCase().replace(/\s+/g, "-");
+  if (key.includes("engine")) return "gauge";
+  if (key.includes("under-way")) return "ship";
+  if (key.includes("dock")) return "anchor";
+  if (key.includes("complete")) return "check";
+  return "clipboard";
 }
 
 const storageSaveWarningsShown = new Set();
@@ -133,6 +145,8 @@ function setButtonIcon(selector, iconName, label) {
   if (!button || button.dataset.iconified === "1") return;
   const text = label || button.textContent.trim();
   button.innerHTML = `${iconSvg(iconName)}<span>${escapeHtml(text)}</span>`;
+  if (!button.getAttribute("aria-label")) button.setAttribute("aria-label", text);
+  if (!button.getAttribute("title")) button.setAttribute("title", text);
   button.classList.add("st-icon-button");
   button.dataset.iconified = "1";
 }
@@ -182,8 +196,8 @@ function applyUiIcons(root = document) {
     ["#splitViewBtn", "columns"],
     ["#expandPlanBtn", "map"],
     ["#expandLogBtn", "log"],
-    ["#exportCsvBtn", "spreadsheet"],
-    ["#exportPdfBtn", "file"],
+    ["#exportCsvBtn", "spreadsheetCsv", "Export CSV"],
+    ["#exportPdfBtn", "filePdf", "Export PDF"],
     ["#newPortBtn", "pin"],
     ["#exportPortsBtn", "download"],
     ["#importPortsBtn", "upload"],
@@ -234,7 +248,7 @@ function applyUiIcons(root = document) {
     "ROUTE SUMMARY": "route",
     "COMMS / PILOTAGE": "radio",
     "TIDES": "waves",
-    "TIDAL CURRENTS / FLOWS": "waves",
+    "TIDAL CURRENTS / FLOWS": "arrowWaves",
     "DAILY SUMMARY": "notebook",
     "SUN & MOON": "sunMoon",
     "WEATHER": "cloud"
@@ -3187,13 +3201,14 @@ function refreshHomePassageList() {
     const date = getPassageDateValue(passage);
     const routeText = getRouteNames(passage).join(" → ") || "?";
     const status = getPassageDashboardStatus(passage);
+    const statusClass = getPassageStatusClass(status);
     const entriesCount = passage.entries?.length || 0;
 
     const left = document.createElement("div");
     left.className = "passage-card-left";
     left.innerHTML = `
       <div class="passage-card-title">${escapeHtml(routeText)}</div>
-      <div class="passage-card-meta"><span>${escapeHtml(date)}</span><span>${entriesCount} entries</span><span class="st-status-chip status-${escapeHtml(getPassageStatusClass(status))}">${escapeHtml(status)}</span></div>
+      <div class="passage-card-meta"><span>${escapeHtml(date)}</span><span>${entriesCount} entries</span><span class="st-status-chip status-${escapeHtml(statusClass)}">${iconLabelHtml(statusIconName(statusClass), status)}</span></div>
     `;
 
     const summary = document.createElement("div");
@@ -3398,12 +3413,8 @@ function hasSpecialForLeg(p, kind, legIdx) {
 function updateLegIndicator() {
   const el = document.getElementById('legIndicator');
   if (!el) return;
-  const p = getCurrentPassage();
-  if (!p) { el.textContent = ''; return; }
-  const legs = getLegCount(p);
-  if (legs <= 1) { el.textContent = ''; return; }
-  const idx = getCurrentLegIndex(p) + 1;
-  el.textContent = `Leg ${idx} of ${legs}`;
+  el.textContent = '';
+  el.hidden = true;
 }
 
 function updateLogStatusStrip() {
@@ -3447,7 +3458,7 @@ function updateLogStatusStrip() {
     </button>
     <button type="button" class="log-status-state log-status-link" data-status-nav="home-status">
       <span class="log-status-label">${iconLabelHtml("check", "Status")}</span>
-      <strong class="log-status-badge status-${escapeHtml(statusClass)}">${escapeHtml(status)}</strong>
+      <strong class="log-status-badge status-${escapeHtml(statusClass)}">${iconLabelHtml(statusIconName(statusClass), status)}</strong>
     </button>
     <button type="button" class="st-metric-chip log-status-link" data-status-nav="plan-date"><span>${iconLabelHtml("calendar", "Date")}</span><strong>${escapeHtml(passageDate)}</strong></button>
     <button type="button" class="st-metric-chip log-status-link log-status-crew" data-status-nav="plan-crew"><span>${iconLabelHtml("users", "Crew")}</span><strong>${escapeHtml(crewText)}</strong></button>

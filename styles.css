@@ -167,12 +167,19 @@ main{
   display:inline-block;
   fill:none;
   flex:0 0 auto;
-  height:1.05em;
+  height:1.18em;
   stroke:currentColor;
   stroke-linecap:round;
   stroke-linejoin:round;
-  stroke-width:2;
-  width:1.05em;
+  stroke-width:2.25;
+  width:1.18em;
+}
+
+.st-icon-text{
+  fill:currentColor;
+  font-size:4px;
+  font-weight:850;
+  stroke:none;
 }
 
 .st-icon-button{
@@ -197,6 +204,52 @@ main{
 .settings-card-icon .st-icon{
   height:1.35rem;
   width:1.35rem;
+}
+
+.app-header .tab-btn,
+#themeToggleBtn,
+.log-operational-actions #engineStartBtn,
+.log-operational-actions #slipLinesBtn,
+.log-operational-actions #dockLinesBtn,
+.log-operational-actions #shutdownBtn,
+.log-view-actions #exportCsvBtn,
+.log-view-actions #exportPdfBtn{
+  justify-content:center;
+  padding:0;
+  width:2.65rem;
+}
+
+.app-header .tab-btn .st-icon,
+#themeToggleBtn .st-icon,
+.log-operational-actions #engineStartBtn .st-icon,
+.log-operational-actions #slipLinesBtn .st-icon,
+.log-operational-actions #dockLinesBtn .st-icon,
+.log-operational-actions #shutdownBtn .st-icon,
+.log-view-actions #exportCsvBtn .st-icon,
+.log-view-actions #exportPdfBtn .st-icon{
+  height:1.35rem;
+  width:1.35rem;
+}
+
+.app-header .tab-btn span,
+#themeToggleBtn span,
+.log-operational-actions #engineStartBtn span,
+.log-operational-actions #slipLinesBtn span,
+.log-operational-actions #dockLinesBtn span,
+.log-operational-actions #shutdownBtn span,
+.log-view-actions #exportCsvBtn span,
+.log-view-actions #exportPdfBtn span,
+.log-status-strip .st-icon-label span,
+.plan-summary .section-title .st-icon-label span{
+  position:absolute;
+  width:1px;
+  height:1px;
+  padding:0;
+  margin:-1px;
+  overflow:hidden;
+  clip:rect(0, 0, 0, 0);
+  white-space:nowrap;
+  border:0;
 }
 
 /* Forms */
@@ -1960,12 +2013,19 @@ body[data-theme="night"] .app-header h1{
 .st-status-chip{
   display:inline-flex;
   align-items:center;
+  gap:0.3rem;
   min-height:1.45rem;
   border-radius:999px;
   padding:0.12rem 0.48rem;
   background:rgba(38,122,62,0.12);
   color:var(--st-success);
   font-weight:750;
+}
+
+.st-status-chip .st-icon,
+.log-status-badge .st-icon{
+  height:1rem;
+  width:1rem;
 }
 
 .st-status-chip.status-planned{
@@ -2553,12 +2613,16 @@ body[data-theme="night"] .settings-card-icon{
 }
 
 .log-operational-actions{
-  flex:1 1 34rem;
+  flex:1 1 auto;
 }
 
 .log-view-actions{
   flex:0 1 auto;
   justify-content:flex-end;
+}
+
+.log-operational-actions #addEntryBtn{
+  margin-right:auto;
 }
 
 .log-operational-actions .btn:not(.btn-primary){
@@ -2574,7 +2638,7 @@ body[data-theme="night"] .settings-card-icon{
 }
 
 .leg-indicator{
-  display:inline-flex;
+  display:none;
   align-items:center;
   min-height:38px;
   padding:0 0.65rem;
@@ -2707,9 +2771,10 @@ body[data-theme="night"] .settings-card-icon{
 
 .log-status-state{
   display:flex;
-  flex-direction:column;
+  flex-direction:row;
+  align-items:center;
   justify-content:center;
-  gap:0.22rem;
+  gap:var(--st-space-2);
 }
 
 .log-status-label{
@@ -2738,7 +2803,7 @@ body[data-theme="night"] .settings-card-icon{
 
 .log-status-badge{
   align-items:center;
-  align-self:flex-start;
+  align-self:center;
   background:var(--st-surface-muted);
   border:1px solid var(--st-border);
   border-radius:var(--st-radius-sm);
@@ -2773,6 +2838,8 @@ body[data-theme="night"] .settings-card-icon{
 
 .log-status-strip .st-metric-chip{
   min-width:0;
+  align-items:center;
+  grid-template-columns:auto minmax(0,1fr);
 }
 
 .log-status-strip .st-metric-chip strong{
