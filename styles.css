@@ -163,6 +163,42 @@ main{
   background:var(--panel);
 }
 
+.st-icon{
+  display:inline-block;
+  fill:none;
+  flex:0 0 auto;
+  height:1.05em;
+  stroke:currentColor;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+  stroke-width:2;
+  width:1.05em;
+}
+
+.st-icon-button{
+  align-items:center;
+  display:inline-flex;
+  gap:0.4rem;
+}
+
+.st-icon-label{
+  align-items:center;
+  display:inline-flex;
+  gap:0.35rem;
+}
+
+.st-card-kicker .st-icon,
+.section-title .st-icon,
+.log-status-label .st-icon,
+.st-metric-chip .st-icon{
+  color:var(--st-accent-strong);
+}
+
+.settings-card-icon .st-icon{
+  height:1.35rem;
+  width:1.35rem;
+}
+
 /* Forms */
 .form h2{margin-top:0;font-size:1.1rem}
 .form h3{margin:0.9rem 0 0.35rem;font-size:0.95rem}

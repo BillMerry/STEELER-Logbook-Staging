@@ -8,7 +8,60 @@ const DPP_WAYPOINTS_KEY = "steeler_dpp_waypoints_v1";
 const FUEL_MANAGEMENT_KEY = "steeler_fuel_management_v1";
 const LOG_SPLIT_RATIO_KEY = "steeler_log_split_ratio_v1";
 
-const APP_VERSION = "1.1.0-rc9c";
+const APP_VERSION = "1.1.0-rc10";
+
+const ICON_PATHS = {
+  anchor: '<path d="M12 3v14"/><path d="M8 7h8"/><path d="M5 13c0 4 3 7 7 7s7-3 7-7"/><path d="M5 13l-2 2"/><path d="M19 13l2 2"/><circle cx="12" cy="5" r="2"/>',
+  calendar: '<path d="M8 2v4"/><path d="M16 2v4"/><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/>',
+  check: '<path d="M20 6L9 17l-5-5"/>',
+  clipboard: '<path d="M9 4h6"/><path d="M9 2h6v4H9z"/><path d="M7 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><path d="M8 13h8"/><path d="M8 17h5"/>',
+  cloud: '<path d="M17.5 19H7a4 4 0 1 1 .8-7.9A5.5 5.5 0 0 1 18.5 13H19a3 3 0 0 1-1.5 6z"/>',
+  columns: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/>',
+  database: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
+  download: '<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/>',
+  ellipsis: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+  file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h6"/>',
+  filter: '<path d="M3 5h18"/><path d="M6 12h12"/><path d="M10 19h4"/>',
+  flag: '<path d="M5 21V4"/><path d="M5 4h10l-1 4 1 4H5"/>',
+  fuel: '<path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/><path d="M4 11h12"/><path d="M16 7h2l2 3v8a2 2 0 0 1-4 0v-4h4"/>',
+  gauge: '<path d="M4 14a8 8 0 1 1 16 0"/><path d="M12 14l4-4"/><path d="M8 20h8"/>',
+  home: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/>',
+  list: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
+  log: '<path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M8 4v13a3 3 0 0 0 3 3"/><path d="M9 8h6"/><path d="M9 12h6"/>',
+  map: '<path d="M9 18l-6 3V6l6-3 6 3 6-3v15l-6 3z"/><path d="M9 3v15"/><path d="M15 6v15"/>',
+  moon: '<path d="M21 14.5A8.5 8.5 0 0 1 9.5 3 7 7 0 1 0 21 14.5z"/>',
+  notebook: '<path d="M6 4h11a2 2 0 0 1 2 2v14H8a3 3 0 0 1-3-3V5a1 1 0 0 1 1-1z"/><path d="M8 4v16"/><path d="M11 9h5"/><path d="M11 13h5"/><path d="M11 17h3"/>',
+  pin: '<path d="M12 21s7-5.5 7-12a7 7 0 0 0-14 0c0 6.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/>',
+  plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
+  power: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
+  radio: '<path d="M4 10h16v10H4z"/><path d="M8 10V6l8-3"/><circle cx="8" cy="15" r="1"/><path d="M12 14h5"/><path d="M12 17h5"/>',
+  refresh: '<path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/><path d="M3 12A9 9 0 0 1 18.5 5.8L21 8"/><path d="M21 3v5h-5"/>',
+  route: '<circle cx="6" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><path d="M8.5 16.5c3-2 4-7 7-9"/>',
+  save: '<path d="M5 3h12l2 2v16H5z"/><path d="M8 3v6h8V3"/><path d="M8 21v-7h8v7"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
+  settings: '<path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2 3.4-.2-.1a1.7 1.7 0 0 0-2 .3 1.7 1.7 0 0 0-.5 1.4V22H9v-.2a1.7 1.7 0 0 0-2.5-1.5l-.2.1-2-3.4.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.3-1.1H3v-4h.4a1.7 1.7 0 0 0 1.3-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 2-3.4.2.1A1.7 1.7 0 0 0 9 2.2V2h6v.2a1.7 1.7 0 0 0 2.5 1.5l.2-.1 2 3.4-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.3 1.1h.4v4h-.4a1.7 1.7 0 0 0-1.2 1z"/>',
+  shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v5"/><path d="M12 17h.01"/>',
+  ship: '<path d="M3 17l2-7h14l2 7"/><path d="M7 10V6h10v4"/><path d="M9 6V3h6v3"/><path d="M4 17c2 2 4 2 6 0 2 2 4 2 6 0 2 2 4 2 6 0"/>',
+  spreadsheet: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h8"/><path d="M11 10v10"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M4.9 4.9l1.4 1.4"/><path d="M17.7 17.7l1.4 1.4"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="M4.9 19.1l1.4-1.4"/><path d="M17.7 6.3l1.4-1.4"/>',
+  sunMoon: '<circle cx="8" cy="8" r="3"/><path d="M8 1v2"/><path d="M8 13v2"/><path d="M1 8h2"/><path d="M13 8h2"/><path d="M17 21a6 6 0 0 0 4-10 7 7 0 1 1-9 9 6 6 0 0 0 5 1z"/>',
+  timer: '<circle cx="12" cy="13" r="8"/><path d="M12 13V8"/><path d="M12 13l3 2"/><path d="M9 2h6"/>',
+  trash: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/>',
+  upload: '<path d="M12 21V9"/><path d="M7 14l5-5 5 5"/><path d="M5 3h14"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.8"/><path d="M16 3.2a4 4 0 0 1 0 7.6"/>',
+  waves: '<path d="M2 12c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2 2-2 4-2"/><path d="M2 17c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2 2-2 4-2"/>'
+};
+
+function iconSvg(name, extraClass = "") {
+  const paths = ICON_PATHS[name];
+  if (!paths) return "";
+  const cls = extraClass ? `st-icon ${extraClass}` : "st-icon";
+  return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${paths}</svg>`;
+}
+
+function iconLabelHtml(name, label) {
+  return `${iconSvg(name)}<span>${label}</span>`;
+}
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -73,6 +126,140 @@ function warnStorageSaveFailed(label, error){
   if (storageSaveWarningsShown.has(label)) return;
   storageSaveWarningsShown.add(label);
   alert(`Warning: ${label} could not be saved on this device. Your latest changes may not be stored. Please make a backup when possible.`);
+}
+
+function setButtonIcon(selector, iconName, label) {
+  const button = typeof selector === "string" ? document.querySelector(selector) : selector;
+  if (!button || button.dataset.iconified === "1") return;
+  const text = label || button.textContent.trim();
+  button.innerHTML = `${iconSvg(iconName)}<span>${escapeHtml(text)}</span>`;
+  button.classList.add("st-icon-button");
+  button.dataset.iconified = "1";
+}
+
+function setInlineIcon(el, iconName) {
+  if (!el || el.dataset.iconified === "1") return;
+  el.insertAdjacentHTML("afterbegin", iconSvg(iconName));
+  el.classList.add("st-icon-label");
+  el.dataset.iconified = "1";
+}
+
+function setSettingsCardIcon(card, iconName) {
+  const target = card?.querySelector(".settings-card-icon");
+  if (!target || target.dataset.iconified === "1") return;
+  target.innerHTML = iconSvg(iconName);
+  target.dataset.iconified = "1";
+}
+
+function applyUiIcons(root = document) {
+  const tabIcons = {
+    homeTab: "home",
+    planTab: "map",
+    logTab: "log",
+    settingsTab: "settings"
+  };
+  root.querySelectorAll?.(".tab-btn[data-tab]")?.forEach((btn) => {
+    setButtonIcon(btn, tabIcons[btn.dataset.tab] || "route");
+  });
+
+  [
+    ["#themeToggleBtn", "moon"],
+    ["#homeNewPassageBtn", "plus", "New Passage"],
+    ["#homePassageFilterBtn", "filter"],
+    ["#homePassageSortBtn", "calendar"],
+    ["#extendLegBtn", "plus", "Add Leg"],
+    ["#addTransitPortBtn", "pin", "Transit Port"],
+    ["#addTideStationBtn", "plus", "Add Station"],
+    ["#btnFetchWeather", "cloud"],
+    ["#btnFetchWeatherFR", "cloud"],
+    ["#addDailySummaryBtn", "plus", "Add Day"],
+    ["#planOpenDppBtn", "route"],
+    ["#addEntryBtn", "plus", "New Log Entry"],
+    ["#engineStartBtn", "gauge"],
+    ["#slipLinesBtn", "ship"],
+    ["#dockLinesBtn", "anchor"],
+    ["#shutdownBtn", "power"],
+    ["#splitViewBtn", "columns"],
+    ["#expandPlanBtn", "map"],
+    ["#expandLogBtn", "log"],
+    ["#exportCsvBtn", "spreadsheet"],
+    ["#exportPdfBtn", "file"],
+    ["#newPortBtn", "pin"],
+    ["#exportPortsBtn", "download"],
+    ["#importPortsBtn", "upload"],
+    ["#newDppTemplateBtn", "plus", "New Plan"],
+    ["#newDppWaypointBtn", "flag", "New WP"],
+    ["#exportDppTemplatesBtn", "download"],
+    ["#importDppTemplatesBtn", "upload"],
+    ["#exportBackupBtn", "database"],
+    ["#importBackupBtn", "upload"],
+    ["#wxAbbrAddBtn", "plus"],
+    ["#wxAbbrSortBtn", "list"],
+    ["#wxAbbrExportBtn", "download"],
+    ["#wxAbbrImportBtn", "upload"],
+    ["#wxAbbrResetBtn", "refresh"],
+    ["#wxAbbrClearBtn", "trash"],
+    ["#seiEcNewBtn", "users", "New Contact"],
+    ["#saveSafetyEmergencyBtn", "save"],
+    ["#exportVesselDetailsBtn", "download"],
+    ["#fuelMgmtFullBtn", "fuel"],
+    ["#fuelMgmtSaveBtn", "save"],
+    ["#settingsDppBackBtn", "route"],
+    ["#settingsDppAddWaypointBtn", "plus", "Add Waypoint"],
+    ["#settingsDppRecalcBtn", "refresh"],
+    ["#settingsDppAddSavedWpBtn", "flag"],
+    ["#settingsDppImportGpxBtn", "upload"],
+    ["#settingsDppReverseBtn", "refresh"],
+    ["#settingsDppLoadTemplateBtn", "route"],
+    ["#settingsDppSaveBtn", "save"],
+    ["#settingsDppUseTemplateBtn", "route"],
+    ["#settingsDppUseWaypointBtn", "flag"]
+  ].forEach(([selector, iconName, label]) => setButtonIcon(root.querySelector?.(selector) || document.querySelector(selector), iconName, label));
+
+  const cardIconMap = {
+    "Date, Sun & Moon": "sunMoon",
+    "Route": "route",
+    "Crew & Vessel": "users",
+    "Tides": "waves",
+    "Environmental Planning": "cloud",
+    "Daily Summary": "notebook",
+    "Planning Summary": "clipboard",
+    "Detailed Passage Plan": "route"
+  };
+  root.querySelectorAll?.(".st-card-kicker")?.forEach((kicker) => {
+    setInlineIcon(kicker, cardIconMap[kicker.textContent.trim()] || "clipboard");
+  });
+
+  const sectionIconMap = {
+    "ROUTE SUMMARY": "route",
+    "COMMS / PILOTAGE": "radio",
+    "TIDES": "waves",
+    "TIDAL CURRENTS / FLOWS": "waves",
+    "DAILY SUMMARY": "notebook",
+    "SUN & MOON": "sunMoon",
+    "WEATHER": "cloud"
+  };
+  root.querySelectorAll?.(".section-title")?.forEach((title) => {
+    const label = title.textContent.replace(/\s+/g, " ").trim();
+    setInlineIcon(title, sectionIconMap[label] || "clipboard");
+  });
+
+  root.querySelectorAll?.(".settings-card")?.forEach((card) => {
+    const heading = card.querySelector("h3")?.textContent?.trim() || "";
+    const icon = ({
+      "Ports": "pin",
+      "Detailed Passage Plans": "route",
+      "Passage Safety Information": "shield",
+      "Weather Shorthand": "cloud",
+      "Fuel Management": "fuel",
+      "Data & Backup": "database",
+      "Vessel": "ship",
+      "Appearance": "sun",
+      "Notifications": "radio",
+      "About": "settings"
+    })[heading];
+    if (icon) setSettingsCardIcon(card, icon);
+  });
 }
 
 function getStorageSafetyConfig(key, label){
@@ -1856,7 +2043,12 @@ const modalOkBtn     = document.getElementById("modalOkBtn");
 function applyTheme(theme) {
   document.body.dataset.theme = theme;
   saveLocalStorageItem(THEME_KEY, theme, "theme setting");
-  if (themeToggleBtn) themeToggleBtn.textContent = theme === "night" ? "Day" : "Night";
+  if (themeToggleBtn) {
+    const label = theme === "night" ? "Day" : "Night";
+    themeToggleBtn.innerHTML = `${iconSvg(theme === "night" ? "sun" : "moon")}<span>${label}</span>`;
+    themeToggleBtn.classList.add("st-icon-button");
+    themeToggleBtn.dataset.iconified = "1";
+  }
 }
 
 themeToggleBtn?.addEventListener("click", () => {
@@ -3249,18 +3441,18 @@ function updateLogStatusStrip() {
   logStatusStrip.hidden = false;
   logStatusStrip.innerHTML = `
     <button type="button" class="log-status-route log-status-link" data-status-nav="dpp">
-      <span class="log-status-label">Current Passage / Leg</span>
+      <span class="log-status-label">${iconLabelHtml("route", "Current Passage / Leg")}</span>
       <strong>${escapeHtml(routeText)}</strong>
       <span>${escapeHtml(legLabel)}</span>
     </button>
     <button type="button" class="log-status-state log-status-link" data-status-nav="home-status">
-      <span class="log-status-label">Status</span>
+      <span class="log-status-label">${iconLabelHtml("check", "Status")}</span>
       <strong class="log-status-badge status-${escapeHtml(statusClass)}">${escapeHtml(status)}</strong>
     </button>
-    <button type="button" class="st-metric-chip log-status-link" data-status-nav="plan-date"><span>Date</span><strong>${escapeHtml(passageDate)}</strong></button>
-    <button type="button" class="st-metric-chip log-status-link log-status-crew" data-status-nav="plan-crew"><span>Crew</span><strong>${escapeHtml(crewText)}</strong></button>
-    <button type="button" class="st-metric-chip log-status-link" data-status-nav="latest-log"><span>Under Way</span><strong>${escapeHtml(legSummary.durationText || "–")}</strong></button>
-    <button type="button" class="st-metric-chip log-status-link" data-status-nav="latest-log"><span>Entries</span><strong>${legEntries.length}</strong></button>
+    <button type="button" class="st-metric-chip log-status-link" data-status-nav="plan-date"><span>${iconLabelHtml("calendar", "Date")}</span><strong>${escapeHtml(passageDate)}</strong></button>
+    <button type="button" class="st-metric-chip log-status-link log-status-crew" data-status-nav="plan-crew"><span>${iconLabelHtml("users", "Crew")}</span><strong>${escapeHtml(crewText)}</strong></button>
+    <button type="button" class="st-metric-chip log-status-link" data-status-nav="latest-log"><span>${iconLabelHtml("timer", "Under Way")}</span><strong>${escapeHtml(legSummary.durationText || "–")}</strong></button>
+    <button type="button" class="st-metric-chip log-status-link" data-status-nav="latest-log"><span>${iconLabelHtml("list", "Entries")}</span><strong>${legEntries.length}</strong></button>
   `;
   logStatusStrip.querySelectorAll("[data-status-nav]").forEach((btn) => {
     btn.addEventListener("click", () => handleStatusStripNavigation(btn.dataset.statusNav));
@@ -4687,10 +4879,10 @@ function renderSettingsDppWorkspace(){
       <button type="button" class="btn btn-secondary btn-small" id="settingsDppBackBtn">Back to Detailed Passage Plans</button>
     </div>
     <div class="st-metric-strip dpp-summary-strip">
-      <span class="st-metric-chip"><span>Distance (NM)</span><strong>${escapeHtml(String(dppTotals.totalNm || 0))}</strong></span>
-      <span class="st-metric-chip"><span>Est. Time</span><strong>${escapeHtml(dppTotals.totalDuration || "00:00")}</strong></span>
-      <span class="st-metric-chip"><span>Est. Fuel (L)</span><strong>${escapeHtml(String(dppTotals.totalFuel || 0))}</strong></span>
-      <span class="st-metric-chip"><span>Total Time</span><strong>${escapeHtml(dppTotals.totalDuration || "00:00")}</strong></span>
+      <span class="st-metric-chip"><span>${iconLabelHtml("route", "Distance (NM)")}</span><strong>${escapeHtml(String(dppTotals.totalNm || 0))}</strong></span>
+      <span class="st-metric-chip"><span>${iconLabelHtml("timer", "Est. Time")}</span><strong>${escapeHtml(dppTotals.totalDuration || "00:00")}</strong></span>
+      <span class="st-metric-chip"><span>${iconLabelHtml("fuel", "Est. Fuel (L)")}</span><strong>${escapeHtml(String(dppTotals.totalFuel || 0))}</strong></span>
+      <span class="st-metric-chip"><span>${iconLabelHtml("timer", "Total Time")}</span><strong>${escapeHtml(dppTotals.totalDuration || "00:00")}</strong></span>
     </div>
     <div class="dpp-table-wrap">
       <table class="log-table dpp-table-compact">
@@ -4789,6 +4981,7 @@ function renderSettingsDppWorkspace(){
       </label>
     </div>
   `;
+  applyUiIcons(settingsDppWorkspace);
 
   const rerenderFromForm = () => {
     readSettingsDppWorkspaceForm();
@@ -5983,6 +6176,7 @@ function updatePlanSummaryPanel() {
     </div>
   `;
 
+  applyUiIcons(planSummaryPanel);
   try { setupPlanSummaryIndependentScroll(); } catch (e) {}
   try { updatePlanPageSummaryStrip(); } catch (e) {}
 }
@@ -6041,10 +6235,10 @@ function updatePlanPageSummaryStrip() {
 
   const totals = getPlanPageDetailedTotals(p);
   planPageSummaryStrip.innerHTML = `
-    <span class="st-metric-chip"><span>Legs</span><strong>${escapeHtml(String(totals.legs || "–"))}</strong></span>
-    <span class="st-metric-chip"><span>Distance (NM)</span><strong>${escapeHtml(totals.distance)}</strong></span>
-    <span class="st-metric-chip"><span>Est. Duration</span><strong>${escapeHtml(totals.duration)}</strong></span>
-    <span class="st-metric-chip"><span>Est. Fuel (L)</span><strong>${escapeHtml(totals.fuel)}</strong></span>
+    <span class="st-metric-chip"><span>${iconLabelHtml("route", "Legs")}</span><strong>${escapeHtml(String(totals.legs || "–"))}</strong></span>
+    <span class="st-metric-chip"><span>${iconLabelHtml("route", "Distance (NM)")}</span><strong>${escapeHtml(totals.distance)}</strong></span>
+    <span class="st-metric-chip"><span>${iconLabelHtml("timer", "Est. Duration")}</span><strong>${escapeHtml(totals.duration)}</strong></span>
+    <span class="st-metric-chip"><span>${iconLabelHtml("fuel", "Est. Fuel (L)")}</span><strong>${escapeHtml(totals.fuel)}</strong></span>
   `;
 }
 
@@ -8759,6 +8953,7 @@ if (new URLSearchParams(location.search).has("reset")) {
   loadPassageIntoUI();
   setupLogSplitDivider();
   setLogLayoutMode("split", splitViewBtn);
+  applyUiIcons();
 }
 
 // Service worker registration (PWA/offline)
