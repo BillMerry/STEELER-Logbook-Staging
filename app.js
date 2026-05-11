@@ -6,8 +6,9 @@ const PORTS_KEY   = "steeler_logbook_ports_v1";
 const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 const DPP_WAYPOINTS_KEY = "steeler_dpp_waypoints_v1";
 const FUEL_MANAGEMENT_KEY = "steeler_fuel_management_v1";
+const LOG_SPLIT_RATIO_KEY = "steeler_log_split_ratio_v1";
 
-const APP_VERSION = "1.1.0-rc9";
+const APP_VERSION = "1.1.0-rc9a";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -1826,6 +1827,7 @@ const logEmptyMessage = document.getElementById("logEmptyMessage");
 const planSummaryPanel = document.getElementById("planSummaryPanel");
 const logStatusStrip = document.getElementById("logStatusStrip");
 const logLayout = document.getElementById("logLayout");
+const logSplitDivider = document.getElementById("logSplitDivider");
 const splitViewBtn = document.getElementById("splitViewBtn");
 const expandPlanBtn = document.getElementById("expandPlanBtn");
 const expandLogBtn = document.getElementById("expandLogBtn");
@@ -3059,7 +3061,68 @@ function setActiveViewButton(btn) {
 function setLogLayoutMode(mode, btn) {
   logLayout.classList.remove("split", "plan-only", "log-only");
   logLayout.classList.add(mode === "plan-only" ? "plan-only" : mode === "log-only" ? "log-only" : "split");
+  if (mode === "split") applyLogSplitRatio(getStoredLogSplitRatio());
   if (btn) setActiveViewButton(btn);
+}
+
+function clampLogSplitRatio(ratio) {
+  const value = Number(ratio);
+  if (!Number.isFinite(value)) return 42;
+  return Math.min(65, Math.max(32, value));
+}
+
+function getStoredLogSplitRatio() {
+  return clampLogSplitRatio(storage.getItem(LOG_SPLIT_RATIO_KEY) || 42);
+}
+
+function applyLogSplitRatio(ratio) {
+  if (!logLayout) return;
+  logLayout.style.setProperty("--log-plan-width", `${clampLogSplitRatio(ratio)}%`);
+}
+
+function setupLogSplitDivider() {
+  if (!logLayout || !logSplitDivider) return;
+
+  const updateFromClientX = (clientX, persist = true) => {
+    const rect = logLayout.getBoundingClientRect();
+    if (!rect.width) return;
+    const ratio = clampLogSplitRatio(((clientX - rect.left) / rect.width) * 100);
+    applyLogSplitRatio(ratio);
+    if (persist) storage.setItem(LOG_SPLIT_RATIO_KEY, String(ratio));
+  };
+
+  logSplitDivider.addEventListener("pointerdown", (e) => {
+    if (!logLayout.classList.contains("split")) return;
+    e.preventDefault();
+    logLayout.classList.add("is-resizing");
+    logSplitDivider.setPointerCapture?.(e.pointerId);
+
+    const onMove = (moveEvent) => updateFromClientX(moveEvent.clientX, true);
+    const onEnd = () => {
+      logLayout.classList.remove("is-resizing");
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd, { once: true });
+    window.addEventListener("pointercancel", onEnd, { once: true });
+  });
+
+  logSplitDivider.addEventListener("keydown", (e) => {
+    if (!logLayout.classList.contains("split")) return;
+    const step = e.shiftKey ? 5 : 2;
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      const next = getStoredLogSplitRatio() + (e.key === "ArrowRight" ? step : -step);
+      const ratio = clampLogSplitRatio(next);
+      applyLogSplitRatio(ratio);
+      storage.setItem(LOG_SPLIT_RATIO_KEY, String(ratio));
+    }
+  });
+
+  applyLogSplitRatio(getStoredLogSplitRatio());
 }
 
 splitViewBtn.addEventListener("click", () => setLogLayoutMode("split", splitViewBtn));
@@ -8694,6 +8757,7 @@ if (new URLSearchParams(location.search).has("reset")) {
   if (!currentPassageId && passages.length > 0) currentPassageId = passages[0].id;
 
   loadPassageIntoUI();
+  setupLogSplitDivider();
   setLogLayoutMode("split", splitViewBtn);
 }
 

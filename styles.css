@@ -173,9 +173,41 @@ main{
   margin-bottom:0.35rem;
 }
 
+.btn-icon{
+  align-items:center;
+  aspect-ratio:1;
+  display:inline-flex;
+  justify-content:center;
+  min-height:2.15rem;
+  padding:0.32rem;
+  width:2.15rem;
+}
+
+.btn-icon svg{
+  fill:none;
+  height:1.05rem;
+  stroke:currentColor;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+  stroke-width:2;
+  width:1.05rem;
+}
+
+.transit-field-header{
+  align-items:center;
+  display:flex;
+  gap:0.5rem;
+  justify-content:space-between;
+  min-width:0;
+}
+
+.transit-field-header label{
+  margin:0;
+}
+
 .transit-remove-btn{
-  align-self:flex-start;
-  margin-top:0.15rem;
+  color:var(--accent);
+  flex:0 0 auto;
 }
 
 .form input[type="text"],
@@ -204,7 +236,7 @@ body[data-theme="night"] textarea{
 .row > label{flex:1 1 0}
 
 .row-date{align-items:flex-end}
-.field-compact{flex:0 0 12rem}
+.field-compact{flex:0 0 12rem;min-width:0;width:100%}
 .field-compact input{height:2.05rem} /* ensures Date + Sunrise same height */
 
 .grid-2{
@@ -229,7 +261,8 @@ body[data-theme="night"] textarea{
   grid-template-columns:repeat(var(--cols,2),minmax(0,1fr));
 }
 
-.plan-ports-grid label{
+.plan-ports-grid label,
+.plan-ports-grid .transit-label{
   margin:0;
 }
 
@@ -260,7 +293,7 @@ body[data-theme="night"] .daily-summary-row{border-color:#333}
 
 .daily-summary-row .ds-row{
   display:grid;
-  grid-template-columns:minmax(10rem,0.9fr) minmax(9rem,0.8fr) minmax(12rem,1.5fr);
+  grid-template-columns:repeat(3,minmax(0,1fr));
   gap:var(--st-space-2);
   align-items:start;
   margin-bottom:0.35rem;
@@ -2820,7 +2853,8 @@ body[data-theme="night"] .settings-card-icon{
   margin:0.35rem 0 0.45rem;
 }
 
-.plan-redesign-form label{
+.plan-redesign-form label,
+.plan-redesign-form .transit-label{
   color:var(--st-text-muted);
   display:grid;
   font-size:0.78rem;
@@ -2832,7 +2866,25 @@ body[data-theme="night"] .settings-card-icon{
 .plan-redesign-form input,
 .plan-redesign-form textarea,
 .plan-redesign-form select{
+  box-sizing:border-box;
   margin-top:0;
+  min-width:0;
+  width:100%;
+}
+
+.plan-redesign-form input[type="date"],
+.daily-summary-row input[type="date"]{
+  -webkit-appearance:none;
+  appearance:none;
+  line-height:1.2;
+}
+
+.daily-summary-row input,
+.daily-summary-row textarea,
+.daily-summary-row select{
+  box-sizing:border-box;
+  min-width:0;
+  width:100%;
 }
 
 .plan-redesign-form .grid-span-2{
@@ -2844,8 +2896,8 @@ body[data-theme="night"] .settings-card-icon{
 }
 
 .plan-redesign-form .transit-remove-btn{
-  align-self:flex-start;
-  margin-top:0.45rem;
+  align-self:center;
+  margin-top:0;
 }
 
 .plan-page-summary-strip{
@@ -3073,13 +3125,50 @@ body[data-theme="night"] .settings-card-icon{
 }
 
 .log-layout.split .plan-summary{
-  flex-basis:42%;
-  max-width:42%;
+  flex:0 0 var(--log-plan-width, 42%);
+  max-width:var(--log-plan-width, 42%);
 }
 
 .log-layout.split .log-table-wrapper{
-  flex-basis:58%;
-  max-width:58%;
+  flex:1 1 0;
+  max-width:none;
+}
+
+.log-split-divider{
+  align-items:center;
+  align-self:stretch;
+  cursor:col-resize;
+  display:none;
+  flex:0 0 0.75rem;
+  justify-content:center;
+  min-width:0.75rem;
+  touch-action:none;
+}
+
+.log-split-divider::before{
+  background:var(--st-border);
+  border-radius:999px;
+  content:"";
+  display:block;
+  height:3.5rem;
+  transition:background 0.16s ease, width 0.16s ease;
+  width:0.18rem;
+}
+
+.log-split-divider:hover::before,
+.log-split-divider:focus-visible::before,
+.log-layout.is-resizing .log-split-divider::before{
+  background:var(--st-accent);
+  width:0.28rem;
+}
+
+.log-layout.split .log-split-divider{
+  display:flex;
+}
+
+.log-layout.plan-only .log-split-divider,
+.log-layout.log-only .log-split-divider{
+  display:none;
 }
 
 .plan-summary{
@@ -3253,8 +3342,13 @@ body[data-theme="night"] .log-entry-row:nth-child(even) .log-display-cell{
 
   .log-layout.split .plan-summary,
   .log-layout.split .log-table-wrapper{
-    flex-basis:50%;
-    max-width:50%;
+    flex-basis:var(--log-plan-width, 42%);
+    max-width:var(--log-plan-width, 42%);
+  }
+
+  .log-layout.split .log-table-wrapper{
+    flex:1 1 0;
+    max-width:none;
   }
 
   .plan-overview-card,
@@ -3264,6 +3358,14 @@ body[data-theme="night"] .log-entry-row:nth-child(even) .log-display-cell{
 
   .plan-page-summary-strip{
     grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+
+  .daily-summary-row .ds-row{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+
+  .daily-summary-row .ds-row label:last-child{
+    grid-column:1 / -1;
   }
 
   .settings-grid{
@@ -3345,6 +3447,10 @@ body[data-theme="night"] .log-entry-row:nth-child(even) .log-display-cell{
     flex-basis:auto;
     max-width:none;
     min-height:18rem;
+  }
+
+  .log-layout.split .log-split-divider{
+    display:none;
   }
 
   .engine-start-vhf-notes{
