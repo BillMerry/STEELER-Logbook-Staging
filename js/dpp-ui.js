@@ -58,12 +58,24 @@ function renderDetailedPassagePlan(p){
   const savedWaypointOptions = savedWaypoints.length
     ? savedWaypoints.map((wp) => `<option value="${escapeHtml(wp.id)}">${escapeHtml(wp.name)}${wp.coordsText ? ` · ${escapeHtml(wp.coordsText)}` : ""}</option>`).join("")
     : '<option value="">No saved WPs</option>';
+  const routePortWaypoints = typeof getCurrentRoutePortWaypointOptions === "function" ? getCurrentRoutePortWaypointOptions(p) : [];
+  const routePortWaypointOptions = routePortWaypoints.length
+    ? routePortWaypoints.map((pt, idx) => `<option value="${idx}">${escapeHtml(pt.role)} · ${escapeHtml(pt.name)}${pt.coordsText ? ` · ${escapeHtml(pt.coordsText)}` : ""}</option>`).join("")
+    : '<option value="">No current route ports</option>';
   const dppWaypointLoadHtml = `
     <div class="dpp-template-load-panel" id="dppWaypointLoadPanel" hidden>
       <select id="dppWaypointSelect" ${savedWaypoints.length ? "" : "disabled"}>
         ${savedWaypointOptions}
       </select>
       <button type="button" class="btn btn-secondary btn-small" id="dppUseWaypointBtn" ${savedWaypoints.length ? "" : "disabled"}>Add Selected</button>
+    </div>
+  `;
+  const dppRoutePortLoadHtml = `
+    <div class="dpp-template-load-panel" id="dppRoutePortLoadPanel" hidden>
+      <select id="dppRoutePortSelect" ${routePortWaypoints.length ? "" : "disabled"}>
+        ${routePortWaypointOptions}
+      </select>
+      <button type="button" class="btn btn-secondary btn-small" id="dppUseRoutePortBtn" ${routePortWaypoints.length ? "" : "disabled"}>Add Selected</button>
     </div>
   `;
   const legTabsHtml = legCount > 1
@@ -157,6 +169,7 @@ function renderDetailedPassagePlan(p){
     <div class="dpp-action-row">
       <button type="button" class="btn btn-secondary btn-small" id="dppAddWaypointBtn">+ Add Waypoint</button>
       <button type="button" class="btn btn-secondary btn-small" id="dppAddSavedWaypointBtn">Add Saved WP</button>
+      <button type="button" class="btn btn-secondary btn-small" id="dppAddRoutePortBtn">Add Route Port</button>
       <button type="button" class="btn btn-secondary btn-small" id="dppRecalcBtn">Recalculate</button>
       <button type="button" class="btn btn-secondary btn-small" id="dppImportGpxBtn">Import GPX</button>
       <button type="button" class="btn btn-secondary btn-small" id="dppReverseBtn">Reverse Route</button>
@@ -166,6 +179,7 @@ function renderDetailedPassagePlan(p){
     </div>
     ${dppTemplateLoadHtml}
     ${dppWaypointLoadHtml}
+    ${dppRoutePortLoadHtml}
 
     <div class="dpp-notes-grid">
       <label class="dpp-note-card">
@@ -228,6 +242,12 @@ function renderDetailedPassagePlan(p){
     panel.hidden = !panel.hidden;
   });
 
+  mount.querySelector("#dppAddRoutePortBtn")?.addEventListener("click", () => {
+    const panel = mount.querySelector("#dppRoutePortLoadPanel");
+    if (!panel) return;
+    panel.hidden = !panel.hidden;
+  });
+
   mount.querySelector("#dppUseWaypointBtn")?.addEventListener("click", () => {
     try {
       const selectedId = mount.querySelector("#dppWaypointSelect")?.value || "";
@@ -243,6 +263,24 @@ function renderDetailedPassagePlan(p){
     } catch (err) {
       console.error(err);
       alert(err?.message || "Could not add that saved waypoint.");
+    }
+  });
+
+  mount.querySelector("#dppUseRoutePortBtn")?.addEventListener("click", () => {
+    try {
+      const selectedIdx = Number(mount.querySelector("#dppRoutePortSelect")?.value || 0);
+      const selected = routePortWaypoints[selectedIdx];
+      if (!selected || typeof routePortToDppWaypoint !== "function") return;
+      const activeDetailed = readDetailedPassagePlanFromForm();
+      activeDetailed.waypoints.push(routePortToDppWaypoint(selected));
+      setDetailedPassagePlanForLeg(p, legIdx, activeDetailed);
+      recalcDetailedPassagePlan(p, legIdx);
+      savePassages();
+      renderDetailedPassagePlan(p);
+      updatePlanSummaryPanel();
+    } catch (err) {
+      console.error(err);
+      alert(err?.message || "Could not add that route port.");
     }
   });
 

@@ -8,7 +8,7 @@ const DPP_WAYPOINTS_KEY = "steeler_dpp_waypoints_v1";
 const FUEL_MANAGEMENT_KEY = "steeler_fuel_management_v1";
 const LOG_SPLIT_RATIO_KEY = "steeler_log_split_ratio_v1";
 
-const APP_VERSION = "1.1.0-rc11b";
+const APP_VERSION = "1.1.0-rc11c";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -282,13 +282,21 @@ function attachSettingsSwipeDelete(row, onDelete, { label = "Delete" } = {}){
   delBtn.type = "button";
   delBtn.className = "st-swipe-delete-btn";
   delBtn.textContent = label;
-  delBtn.addEventListener("click", (ev) => {
+  let deleteTapHandled = false;
+  const handleDeleteTap = (ev) => {
     ev.preventDefault();
     ev.stopPropagation();
     ev.stopImmediatePropagation?.();
+    if (deleteTapHandled) return;
+    deleteTapHandled = true;
+    window.setTimeout(() => { deleteTapHandled = false; }, 500);
     row.dataset.justSwiped = "1";
+    row.classList.remove("show-delete");
+    clearSwipeOffset();
     onDelete?.();
-  });
+  };
+  delBtn.addEventListener("pointerup", handleDeleteTap);
+  delBtn.addEventListener("click", handleDeleteTap);
   actions.appendChild(delBtn);
   actions.addEventListener("click", (ev) => {
     ev.preventDefault();
@@ -622,8 +630,8 @@ function setAppVersionBadge(){
 }
 window.addEventListener("DOMContentLoaded", setAppVersionBadge);
 document.addEventListener("click", (e) => {
-  if (e.target.closest(".entry-del-btn, .passage-delete-btn")) return;
-  if (e.target.closest("tr.show-delete, .passage-card.show-delete")) return;
+  if (e.target.closest(".entry-del-btn, .passage-delete-btn, .st-swipe-delete-btn")) return;
+  if (e.target.closest("tr.show-delete, .passage-card.show-delete, .st-swipe-row.show-delete")) return;
   hideAllSwipeDeleteButtons();
 });
 window.addEventListener("DOMContentLoaded", applyLogReadabilityPolish);
@@ -4218,6 +4226,54 @@ function savedWaypointToDppWaypoint(saved){
   };
 }
 
+function getCurrentRoutePortWaypointOptions(p = getCurrentPassage()){
+  if (!p || !p.plan) return [];
+  const points = [];
+  const addPoint = (role, name, portId = "") => {
+    const cleanName = String(name || "").trim();
+    if (!cleanName) return;
+    const port = (portId ? findPortItemById(portId) : null) || findPortItemByName(cleanName);
+    const coords = portHasCoords(port) ? { lat: Number(port.lat), lon: Number(port.lon) } : getPortCoords(cleanName);
+    const lat = coords && Number.isFinite(Number(coords.lat)) ? Number(coords.lat) : null;
+    const lon = coords && Number.isFinite(Number(coords.lon)) ? Number(coords.lon) : null;
+    points.push({
+      id: `${role.toLowerCase().replace(/[^a-z0-9]+/g, "_")}_${points.length}`,
+      role,
+      name: cleanName,
+      portId: port?.id || portId || "",
+      lat,
+      lon,
+      coordsText: Number.isFinite(lat) && Number.isFinite(lon) ? formatDetailedWaypointCoords(lat, lon) : ""
+    });
+  };
+
+  addPoint("Origin", p.plan.from, p.plan.fromPortId);
+  normaliseTransitPorts(p).forEach((tp, idx) => {
+    addPoint(`Transit Port ${idx + 1}`, tp?.name || "", tp?.portId || "");
+  });
+  addPoint("Destination", p.plan.to, p.plan.toPortId);
+
+  return points;
+}
+
+function routePortToDppWaypoint(point){
+  const lat = point?.lat == null ? NaN : Number(point.lat);
+  const lon = point?.lon == null ? NaN : Number(point.lon);
+  return {
+    id: "wp_" + Date.now() + "_" + Math.random().toString(36).slice(2),
+    time: "",
+    name: point?.name || "",
+    coordsText: point?.coordsText || formatDetailedWaypointCoords(lat, lon),
+    lat: Number.isFinite(lat) ? lat : null,
+    lon: Number.isFinite(lon) ? lon : null,
+    distToNext: "",
+    cogToNext: "",
+    plannedSpeed: "",
+    timeToNext: "",
+    fuelToNext: ""
+  };
+}
+
 function syncDppWaypointsFromDetailed(detailed){
   const clean = normaliseDetailedPassagePlan(detailed);
   let addedOrUpdated = 0;
@@ -4689,6 +4745,10 @@ function renderSettingsDppWorkspace(){
   const savedWaypointOptions = savedWaypoints.length
     ? savedWaypoints.map((wp) => `<option value="${escapeHtml(wp.id)}">${escapeHtml(wp.name)}${wp.coordsText ? ` · ${escapeHtml(wp.coordsText)}` : ""}</option>`).join("")
     : '<option value="">No saved WPs</option>';
+  const routePortWaypoints = getCurrentRoutePortWaypointOptions();
+  const routePortWaypointOptions = routePortWaypoints.length
+    ? routePortWaypoints.map((pt, idx) => `<option value="${idx}">${escapeHtml(pt.role)} · ${escapeHtml(pt.name)}${pt.coordsText ? ` · ${escapeHtml(pt.coordsText)}` : ""}</option>`).join("")
+    : '<option value="">No current route ports</option>';
 
   settingsDppWorkspace.innerHTML = `
     <div class="dpp-header settings-dpp-header">
@@ -4772,6 +4832,7 @@ function renderSettingsDppWorkspace(){
       <button type="button" class="btn btn-secondary btn-small" id="settingsDppAddWaypointBtn">+ Add Waypoint</button>
       <button type="button" class="btn btn-secondary btn-small" id="settingsDppRecalcBtn">Recalculate</button>
       <button type="button" class="btn btn-secondary btn-small" id="settingsDppAddSavedWpBtn">Add Saved WP</button>
+      <button type="button" class="btn btn-secondary btn-small" id="settingsDppAddRoutePortBtn">Add Route Port</button>
       <button type="button" class="btn btn-secondary btn-small" id="settingsDppImportGpxBtn">Import GPX</button>
       <button type="button" class="btn btn-secondary btn-small" id="settingsDppReverseBtn">Reverse Route</button>
       <button type="button" class="btn btn-secondary btn-small" id="settingsDppLoadTemplateBtn">Load DPP Template</button>
@@ -4788,6 +4849,12 @@ function renderSettingsDppWorkspace(){
         ${savedWaypointOptions}
       </select>
       <button type="button" class="btn btn-secondary btn-small" id="settingsDppUseWaypointBtn" ${savedWaypoints.length ? "" : "disabled"}>Add Selected</button>
+    </div>
+    <div class="dpp-template-load-panel" id="settingsDppRoutePortLoadPanel" hidden>
+      <select id="settingsDppRoutePortSelect" ${routePortWaypoints.length ? "" : "disabled"}>
+        ${routePortWaypointOptions}
+      </select>
+      <button type="button" class="btn btn-secondary btn-small" id="settingsDppUseRoutePortBtn" ${routePortWaypoints.length ? "" : "disabled"}>Add Selected</button>
     </div>
     <div class="dpp-notes-grid">
       <label class="dpp-note-card">
@@ -4862,12 +4929,27 @@ function renderSettingsDppWorkspace(){
     panel.hidden = !panel.hidden;
   });
 
+  settingsDppWorkspace.querySelector("#settingsDppAddRoutePortBtn")?.addEventListener("click", () => {
+    const panel = settingsDppWorkspace.querySelector("#settingsDppRoutePortLoadPanel");
+    if (!panel) return;
+    panel.hidden = !panel.hidden;
+  });
+
   settingsDppWorkspace.querySelector("#settingsDppUseWaypointBtn")?.addEventListener("click", () => {
     const selectedId = settingsDppWorkspace.querySelector("#settingsDppWaypointSelect")?.value || "";
     const saved = getDppWaypointById(selectedId);
     if (!saved) return;
     const active = readSettingsDppWorkspaceForm();
     active.waypoints.push(savedWaypointToDppWaypoint(saved));
+    renderSettingsDppWorkspace();
+  });
+
+  settingsDppWorkspace.querySelector("#settingsDppUseRoutePortBtn")?.addEventListener("click", () => {
+    const selectedIdx = Number(settingsDppWorkspace.querySelector("#settingsDppRoutePortSelect")?.value || 0);
+    const selected = routePortWaypoints[selectedIdx];
+    if (!selected) return;
+    const active = readSettingsDppWorkspaceForm();
+    active.waypoints.push(routePortToDppWaypoint(selected));
     renderSettingsDppWorkspace();
   });
 
@@ -6374,7 +6456,7 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
             <div></div>
           </div>
 
-          <div class="manual-log-row manual-log-options">
+          <div class="manual-log-row manual-log-options manual-log-wp-row">
             <label class="entry-dialog-check">
               <input id="dlgWpReached" type="checkbox" ${isWpEntry ? "checked" : ""} ${waypointOptions.length ? "" : "disabled"}>
               <span>Waypoint reached</span>
@@ -6384,7 +6466,9 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
               <span>Waypoint</span>
               <select id="dlgWpSelect">${wpOptionHtml}</select>
             </label>
+          </div>
 
+          <div class="manual-log-row manual-log-options manual-log-refuel-row">
             <label class="entry-dialog-check">
               <input id="dlgRefuel" type="checkbox" ${isRefuelEntry ? "checked" : ""}>
               <span>Refuel</span>
@@ -7347,7 +7431,7 @@ function deleteBinSvg(){
 }
 
 function hideAllSwipeDeleteButtons(exceptEl = null){
-  document.querySelectorAll("tr.show-delete, .passage-card.show-delete").forEach(el => {
+  document.querySelectorAll("tr.show-delete, .passage-card.show-delete, .st-swipe-row.show-delete").forEach(el => {
     if (exceptEl && el === exceptEl) return;
     el.classList.remove("show-delete");
   });
@@ -7478,6 +7562,12 @@ function deleteLogEntryById(entryId) {
 
   const ok = confirm("Delete this log entry?");
   if (!ok) return;
+
+  hideAllSwipeDeleteButtons();
+  document.querySelectorAll("tr.swipe-dragging").forEach(el => {
+    el.classList.remove("swipe-dragging");
+    el.style.removeProperty("--swipe-x");
+  });
 
   p.entries.splice(idx, 1);
 
@@ -7668,6 +7758,8 @@ function renderLogEntries() {
 				delBtn.addEventListener("click", (ev) => {
 						ev.preventDefault();
 						ev.stopPropagation();
+						ev.stopImmediatePropagation?.();
+						tr.dataset.justSwiped = "1";
 						deleteLogEntryById(entry.id);
 				});
 				actions.appendChild(delBtn);

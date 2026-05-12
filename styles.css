@@ -1464,7 +1464,15 @@ tr.show-delete .entry-del-btn {
 }
 
 .manual-log-options {
-  grid-template-columns: 150px minmax(220px, 1fr) 110px 96px 96px 110px !important;
+  align-items:end !important;
+}
+
+.manual-log-wp-row {
+  grid-template-columns: minmax(13rem, max-content) minmax(20rem, 1fr) !important;
+}
+
+.manual-log-refuel-row {
+  grid-template-columns: minmax(8rem, max-content) minmax(7rem, 9rem) minmax(7rem, 9rem) minmax(9rem, max-content) 1fr !important;
 }
 
 .entry-dialog-check {
@@ -1476,7 +1484,23 @@ tr.show-delete .entry-del-btn {
 }
 
 .entry-dialog-check input {
-  width:auto !important;
+  width:1.45rem !important;
+  height:1.45rem !important;
+  min-width:1.45rem !important;
+  min-height:1.45rem !important;
+  flex:0 0 1.45rem !important;
+  margin:0 !important;
+  padding:0 !important;
+}
+
+#modalBody .entry-dialog-check input[type="checkbox"]{
+  width:1.45rem !important;
+  height:1.45rem !important;
+  min-width:1.45rem !important;
+  min-height:1.45rem !important;
+  flex:0 0 1.45rem !important;
+  margin:0 !important;
+  padding:0 !important;
 }
 
 .engine-start-grid label,
@@ -1492,6 +1516,11 @@ tr.show-delete .entry-del-btn {
   justify-content:flex-start !important;
   min-width:0 !important;
   white-space:nowrap !important;
+}
+
+.manual-log-options .entry-dialog-check span{
+  overflow:hidden !important;
+  text-overflow:ellipsis !important;
 }
 
 .manual-log-options .entry-dialog-field{
@@ -1513,6 +1542,7 @@ tr.show-delete .entry-del-btn {
 .manual-log-grid select {
   width: 100% !important;
   box-sizing: border-box !important;
+  min-width:0 !important;
 }
 
 .position-input-wrap {
@@ -2081,7 +2111,7 @@ body[data-theme="night"] .app-header h1{
   position:absolute;
   top:50%;
   right:var(--st-space-2);
-  z-index:0;
+  z-index:2;
   display:flex;
   align-items:center;
   justify-content:center;
@@ -2102,6 +2132,8 @@ body[data-theme="night"] .app-header h1{
 }
 
 .st-swipe-delete-btn{
+  position:relative;
+  z-index:3;
   min-width:3.2rem;
   min-height:2.5rem;
   border:1px solid rgba(180,35,24,0.28);
@@ -2109,6 +2141,9 @@ body[data-theme="night"] .app-header h1{
   background:var(--st-danger);
   color:#fff;
   font-weight:850;
+  touch-action:manipulation;
+  user-select:none;
+  -webkit-user-select:none;
 }
 
 @media (hover:hover) and (pointer:fine){
