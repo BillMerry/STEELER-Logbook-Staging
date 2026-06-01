@@ -500,6 +500,19 @@ body[data-theme="night"] .log-table th, body[data-theme="night"] .log-table td{b
 .log-layout.log-only .log-table{table-layout:fixed}
 .log-layout.log-only .log-table th,
 .log-layout.log-only .log-table td{padding:0.18rem 0.25rem}
+.log-layout.plan-only .plan-summary{
+  font-size:1.04rem;
+}
+.log-layout.plan-only .plan-summary .section-title{
+  font-size:1.07rem;
+}
+.log-layout.log-only .log-table,
+.log-layout.log-only .log-display-cell{
+  font-size:1.07rem;
+}
+.log-layout.log-only .log-table thead th{
+  font-size:0.94rem;
+}
 .log-table col.col-time{width:5.5ch}
 .log-table col.col-cog{width:3.8ch}
 .log-table col.col-speed{width:3.8ch}
@@ -1582,6 +1595,10 @@ tr.show-delete .entry-del-btn {
   font-weight: 750 !important;
 }
 
+.vhf-box label + label {
+  margin-top: 0.32rem !important;
+}
+
 .vhf-box input[type="checkbox"] {
   width: 22px !important;
   height: 22px !important;
@@ -1740,6 +1757,7 @@ body.st-app-shell{
   letter-spacing:0.08em;
   padding:0.12rem 0.42rem;
 }
+
 
 .app-header-logo{
   max-height:5.2rem;
