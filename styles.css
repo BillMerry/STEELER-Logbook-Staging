@@ -496,32 +496,34 @@ body[data-theme="night"] .log-table th, body[data-theme="night"] .log-table td{b
   background:var(--panel);
 }
 
-/* Tighten columns in Log full view to widen NOTES/ACTIONS */
+/* Balance Log full columns so data cells have room without crowding notes. */
 .log-layout.log-only .log-table{table-layout:fixed}
 .log-layout.log-only .log-table th,
-.log-layout.log-only .log-table td{padding:0.18rem 0.25rem}
+.log-layout.log-only .log-table td{padding:0.28rem 0.42rem !important}
 .log-layout.plan-only .plan-summary{
-  font-size:1.04rem;
+  font-size:1.17rem !important;
+  line-height:1.35 !important;
 }
 .log-layout.plan-only .plan-summary .section-title{
-  font-size:1.07rem;
+  font-size:1.12rem !important;
 }
 .log-layout.log-only .log-table,
 .log-layout.log-only .log-display-cell{
-  font-size:1.07rem;
+  font-size:1.07rem !important;
+  line-height:1.36 !important;
 }
 .log-layout.log-only .log-table thead th{
-  font-size:0.94rem;
+  font-size:0.94rem !important;
 }
-.log-table col.col-time{width:5.5ch}
-.log-table col.col-cog{width:3.8ch}
-.log-table col.col-speed{width:3.8ch}
-.log-table col.col-rpm{width:4.8ch}
-.log-table col.col-eng{width:5.8ch}
-.log-table col.col-logw{width:4.8ch}
-.log-table col.col-logg{width:4.8ch}
-.log-table col.col-fuel{width:4.8ch}
-.log-table col.col-notes{width:auto}
+.log-layout.log-only .log-table col.col-time{width:6.6ch}
+.log-layout.log-only .log-table col.col-cog{width:5.2ch}
+.log-layout.log-only .log-table col.col-speed{width:5.2ch}
+.log-layout.log-only .log-table col.col-rpm{width:6ch}
+.log-layout.log-only .log-table col.col-eng{width:7ch}
+.log-layout.log-only .log-table col.col-logw{width:5.8ch}
+.log-layout.log-only .log-table col.col-logg{width:5.8ch}
+.log-layout.log-only .log-table col.col-fuel{width:6.8ch}
+.log-layout.log-only .log-table col.col-notes{width:auto}
 
 .log-entry-row{
   cursor:pointer;
@@ -1182,6 +1184,11 @@ body[data-theme="night"] .ports-delete { border-color: rgba(255,255,255,0.18); c
   line-height: 1.28 !important;
 }
 
+.log-layout.plan-only #planSummaryPanel {
+  font-size: 1.17rem !important;
+  line-height: 1.35 !important;
+}
+
 #planSummaryPanel strong,
 .plan-summary-panel strong {
   font-weight: 700 !important;
@@ -1452,12 +1459,35 @@ tr.show-delete .entry-del-btn {
   margin: 0 0 0.12rem 0 !important;
 }
 
+.engine-start-main-grid {
+  display: grid !important;
+  grid-template-columns: minmax(0, 0.98fr) minmax(22rem, 0.62fr) !important;
+  gap: 0.8rem !important;
+  align-items: stretch !important;
+}
+
+.engine-start-fields {
+  min-width: 0 !important;
+}
+
 .engine-start-values {
-  grid-template-columns: 96px 82px 96px 96px 112px 1fr !important;
+  grid-template-columns: 96px 82px 96px 96px 112px !important;
 }
 
 .engine-start-env {
-  grid-template-columns: 96px 96px 96px 96px 96px 72px 1fr !important;
+  grid-template-columns: 96px 96px 96px 96px 96px 72px !important;
+}
+
+.engine-start-checks-panel {
+  align-self: stretch !important;
+}
+
+.engine-start-checks-panel .st-modal-section-title {
+  margin-bottom: 0.45rem !important;
+}
+
+.engine-start-notes-row {
+  margin-top: 0 !important;
 }
 
 .engine-start-vhf-notes {
@@ -3568,6 +3598,10 @@ body[data-theme="night"] .log-entry-row:nth-child(even) .log-display-cell{
   }
 
   .engine-start-vhf-notes{
+    grid-template-columns:1fr !important;
+  }
+
+  .engine-start-main-grid{
     grid-template-columns:1fr !important;
   }
 }
