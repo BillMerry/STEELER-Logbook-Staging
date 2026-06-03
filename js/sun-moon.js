@@ -43,19 +43,10 @@ function calcSunTimeUtcMinutes(isRise, y, mo, d, lat, lon){
 }
 
 function formatTimeEuropeLondon(dateUtc){
-  try{
-    return new Intl.DateTimeFormat("en-GB", {
-      hour: "2-digit", minute: "2-digit",
-      hour12: false,
-      timeZone: "Europe/London"
-    }).format(dateUtc);
-  }catch{
-    // fallback: local
-    return dateUtc.toLocaleTimeString("en-GB", {hour:"2-digit", minute:"2-digit", hour12:false});
-  }
+  return formatTimeInZone(dateUtc, "Europe/London");
 }
 
-function calcSunTimes(isoDate, lat, lon){
+function calcSunTimes(isoDate, lat, lon, timeZone = "Europe/London"){
   const p = parseISODate(isoDate);
   if (!p) return null;
   const riseMin = calcSunTimeUtcMinutes(true, p.y, p.mo, p.d, lat, lon);
@@ -66,8 +57,8 @@ function calcSunTimes(isoDate, lat, lon){
   const setUtc  = new Date(Date.UTC(p.y, p.mo-1, p.d, 0, 0, 0) + setMin*60000);
 
   return {
-    sunrise: formatTimeEuropeLondon(riseUtc),
-    sunset:  formatTimeEuropeLondon(setUtc)
+    sunrise: formatTimeInZone(riseUtc, timeZone),
+    sunset:  formatTimeInZone(setUtc, timeZone)
   };
 }
 

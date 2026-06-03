@@ -125,6 +125,7 @@ function exportCurrentPassageToCsv() {
   const lines = [];
   lines.push("Passage Plan");
   lines.push(`Date,${quote(date)}`);
+  lines.push(`Time zone,${quote(getPassageTimeZoneLabel(p))}`);
   lines.push(`Origin,${quote(p.plan.from)}`);
   lines.push(`Intended Destination,${quote(p.plan.to)}`);
   lines.push(`Vessel,${quote(p.plan.vessel)}`);

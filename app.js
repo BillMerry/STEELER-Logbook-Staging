@@ -8,7 +8,13 @@ const DPP_WAYPOINTS_KEY = "steeler_dpp_waypoints_v1";
 const FUEL_MANAGEMENT_KEY = "steeler_fuel_management_v1";
 const LOG_SPLIT_RATIO_KEY = "steeler_log_split_ratio_v1";
 
-const APP_VERSION = "1.1.2-rc1";
+const APP_VERSION = "1.1.2-rc2";
+const DEFAULT_PASSAGE_TIME_ZONE = "Europe/London";
+const PASSAGE_TIME_ZONES = {
+  "Europe/London": "UK / Ireland (GMT/BST)",
+  "Europe/Paris": "France / Channel (CET/CEST)",
+  "UTC": "UTC"
+};
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -1569,6 +1575,32 @@ function getCurrentPassage() {
   return passages.find(p => p.id === currentPassageId) || null;
 }
 
+function normalisePassageTimeZone(value) {
+  const tz = String(value || "").trim();
+  return Object.prototype.hasOwnProperty.call(PASSAGE_TIME_ZONES, tz) ? tz : DEFAULT_PASSAGE_TIME_ZONE;
+}
+
+function getPassageTimeZone(p) {
+  return normalisePassageTimeZone(p?.plan?.timeZone);
+}
+
+function getCurrentPassageTimeZone() {
+  return getPassageTimeZone(getCurrentPassage());
+}
+
+function getPassageTimeZoneLabel(p) {
+  const tz = getPassageTimeZone(p);
+  return PASSAGE_TIME_ZONES[tz] || tz;
+}
+
+function passageDateToday(p = null) {
+  return localDateInputValue(new Date(), getPassageTimeZone(p));
+}
+
+function passageDateTimeNow(p = null) {
+  return localDateTimeInputValue(new Date(), getPassageTimeZone(p));
+}
+
 function escapeHtml(str) {
   if (str == null) return "";
   return String(str)
@@ -1811,6 +1843,7 @@ let settingsDppLibraryTab = "plans";
 
 const planForm = document.getElementById("planForm");
 const planDate = document.getElementById("planDate");
+const planTimeZone = document.getElementById("planTimeZone");
 const planFrom = document.getElementById("planFrom");
 const planTo   = document.getElementById("planTo");
 const addTransitPortBtn = document.getElementById("addTransitPortBtn");
@@ -2325,6 +2358,8 @@ async function autoComputeSunriseSetForCurrent(){
   if (!p) return;
 
   const date = (p.plan.date || planDate?.value || "").trim();
+  const timeZone = normalisePassageTimeZone(planTimeZone?.value || p.plan.timeZone);
+  p.plan.timeZone = timeZone;
   const from = (p.plan.from || planFrom?.value || "").trim();
   const to   = (p.plan.to   || planTo?.value || "").trim();
 
@@ -2339,12 +2374,12 @@ async function autoComputeSunriseSetForCurrent(){
 
   if (!origin) return;
 
-  const sunOrigin = calcSunTimes(date, origin.lat, origin.lon);
+  const sunOrigin = calcSunTimes(date, origin.lat, origin.lon, timeZone);
   if (!sunOrigin) return;
 
   let sunset = sunOrigin.sunset;
   if (dest && dest !== origin){
-    const sunDest = calcSunTimes(date, dest.lat, dest.lon);
+    const sunDest = calcSunTimes(date, dest.lat, dest.lon, timeZone);
     if (sunDest && sunDest.sunset) sunset = sunDest.sunset;
   }
 
@@ -2364,9 +2399,9 @@ async function autoComputeSunriseSetForCurrent(){
       if (moonDest?.set) moonSet = moonDest.set;
     }
 
-    const riseStr = moonRise ? formatTimeEuropeLondon(moonRise)
+    const riseStr = moonRise ? formatTimeInZone(moonRise, timeZone)
       : (moonOrigin?.alwaysUp ? "Always up" : (moonOrigin?.alwaysDown ? "Always down" : ""));
-    const setStr  = moonSet ? formatTimeEuropeLondon(moonSet) : "";
+    const setStr  = moonSet ? formatTimeInZone(moonSet, timeZone) : "";
 
     const moonVal = (riseStr || setStr) ? `${riseStr || "—"} / ${setStr || "—"}` : "";
     p.plan.moonRiseSet = moonVal;
@@ -2849,7 +2884,8 @@ function clonePassagePlanForCopy(plan) {
 
   return {
     ...copy,
-    date: copy.date || new Date().toISOString().slice(0, 10),
+    date: copy.date || passageDateToday({ plan: { timeZone: copy.timeZone } }),
+    timeZone: normalisePassageTimeZone(copy.timeZone),
     from: copy.from || "",
     to: copy.to || "",
     transitPorts: copy.transitPorts,
@@ -3669,13 +3705,14 @@ function removeTransitPortAt(index){
 
 function createPassage() {
   const id = "p_" + Date.now();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = passageDateToday();
 
   const passage = {
     id,
     flags: { engineStart: false, slip: false, dock: false },
     plan: {
       date: today,
+      timeZone: DEFAULT_PASSAGE_TIME_ZONE,
       from: "",
       to: "",
       transitPorts: [],
@@ -3722,7 +3759,9 @@ function createPassage() {
 }
 
 function loadPlanIntoForm(p) {
+  p.plan.timeZone = getPassageTimeZone(p);
   planDate.value = p.plan.date || "";
+  if (planTimeZone) planTimeZone.value = p.plan.timeZone;
   planFrom.value = p.plan.from || "";
   planTo.value   = p.plan.to   || "";
   try{ setWeatherStatus(""); }catch{}
@@ -5418,6 +5457,7 @@ function scheduleAutoSunSync(){
     const p = getCurrentPassage();
     if (!p) return;
     p.plan.date = planDate.value;
+    p.plan.timeZone = normalisePassageTimeZone(planTimeZone?.value || p.plan.timeZone);
     p.plan.from = planFrom.value.trim();
     p.plan.to   = planTo.value.trim();
     autoComputeSunriseSetForCurrent();
@@ -5430,6 +5470,7 @@ function scheduleAutoSunSync(){
   }, 180);
 }
 planDate.addEventListener("input", scheduleAutoSunSync);
+planTimeZone?.addEventListener("change", scheduleAutoSunSync);
 planFrom.addEventListener("input", scheduleAutoSunSync);
 planFrom.addEventListener("input", updatePlanCommsFromPorts);
 planTo.addEventListener("input", updatePlanCommsFromPorts);
@@ -5961,6 +6002,7 @@ planForm.addEventListener("submit", async (e) => {
   if (!p) return;
 
   p.plan.date = planDate.value;
+  p.plan.timeZone = normalisePassageTimeZone(planTimeZone?.value || p.plan.timeZone);
   p.plan.from = planFrom.value.trim();
   p.plan.to   = planTo.value.trim();
 
@@ -6072,6 +6114,7 @@ function updatePlanSummaryPanel() {
 		recalcDetailedPassagePlan(p, getSelectedDetailedPlanLegIndex(p));
 
   const sunriseSet = p.plan.sunriseSet || "";
+  const timeZoneLabel = getPassageTimeZoneLabel(p);
   const moonPhase = normaliseMoonPhaseLabel(p.plan.moonPhase || "");
   const moonRiseSet = p.plan.moonRiseSet || "";
   const tidalCoeff = p.plan.tidalCoeff || "";
@@ -6186,6 +6229,7 @@ function updatePlanSummaryPanel() {
       <div class="col plan-summary-col plan-summary-col-right">
         <div class="block plan-link" data-goto="planSunriseSet">
           <p class="section-title">SUN &amp; MOON</p>
+          <p><strong>Time zone:</strong> ${escapeHtml(timeZoneLabel)}</p>
           <p><strong>Sunrise / Sunset:</strong> ${sunriseSet ? escapeHtml(sunriseSet) : "–"}</p>
           <p><strong>Moon phase:</strong> ${moonPhase ? `<span class="moon-phase-display">${escapeHtml(moonPhase)}</span>` : "–"}</p>
           <p><strong>Moon rise / set:</strong> ${moonRiseSet ? escapeHtml(moonRiseSet) : "–"}</p>
@@ -6857,7 +6901,7 @@ async function openEngineStartEntryDialog(p, legIdx, entry = null) {
               <div class="engine-start-row engine-start-values st-modal-section">
                 <label class="entry-dialog-field">
                   <span>Time</span>
-                  <input id="esTime" type="text" inputmode="numeric" value="${escapeHtml(entry?.time ? timeOnlyFromIso(entry.time) : timeOnlyFromIso(localDateTimeInputValue(new Date())))}">
+                  <input id="esTime" type="text" inputmode="numeric" value="${escapeHtml(entry?.time ? timeOnlyFromIso(entry.time) : timeOnlyFromIso(passageDateTimeNow(p)))}">
                 </label>
 
                 <label class="entry-dialog-field">
@@ -7064,7 +7108,7 @@ async function openShutdownEntryDialog(p, legIdx, isFinalLeg, entry = null) {
       bodyHtml: `
         <div class="st-task-sheet shutdown-sheet entry-dialog-grid entry-dialog-grid-two">
           ${dialogSection('Shutdown values',
-            dialogField('Time', 'shTime', entry?.time ? timeOnlyFromIso(entry.time) : timeOnlyFromIso(localDateTimeInputValue(new Date())), { inputMode: 'numeric' }) +
+            dialogField('Time', 'shTime', entry?.time ? timeOnlyFromIso(entry.time) : timeOnlyFromIso(passageDateTimeNow(p)), { inputMode: 'numeric' }) +
             dialogField('Fuel %(R)', 'shFuelR', prev.fuelEndPercentR || prev.fuelEndPercent || '', { type: 'number', inputMode: 'numeric', step: '1' }) +
             dialogField('Fuel %(C)', 'shFuelC', prev.fuelEndPercentC || '', { type: 'number', inputMode: 'numeric', step: '1' }) +
             dialogField('Engine hours (end)', 'shEh', prev.engineHoursEnd || '', { type: 'number', inputMode: 'decimal', step: '0.1' })
@@ -7171,7 +7215,7 @@ function addSpecialEntry(noteText, notesOverride = null) {
   if (passageIsShutdown(p)) return alert("Shutdown already recorded – no further log entries allowed.");
 
   const now = new Date();
-  const timeStr = localDateTimeInputValue(now);
+  const timeStr = localDateTimeInputValue(now, getPassageTimeZone(p));
 
   const entry = {
     id: "e_" + Date.now(),
@@ -7399,7 +7443,7 @@ async function addWaypointReachedEntry(p){
   }
 
   return await new Promise((resolve) => {
-    const nowIso = localDateTimeInputValue(new Date());
+    const nowIso = passageDateTimeNow(p);
     const optionHtml = options
       .map(({ wp, waypointIndex }) => {
         const labelBits = [wp.name || `Waypoint ${waypointIndex + 1}`];
@@ -7490,7 +7534,7 @@ async function addLogEntry(){
 
   const entry = {
     id: newId('e'),
-    time: localDateTimeInputValue(new Date()),
+    time: passageDateTimeNow(p),
     leg: getCurrentLegIndex(p),
     course: "",
     speed: "",
@@ -7525,7 +7569,7 @@ function addDockEntry() {
   if (passageIsShutdown(p)) return alert("Shutdown already recorded – no further log entries allowed.");
 
   const now = new Date();
-  const timeStr = localDateTimeInputValue(now);
+  const timeStr = localDateTimeInputValue(now, getPassageTimeZone(p));
 
   const entry = {
     id: "e_" + Date.now(),

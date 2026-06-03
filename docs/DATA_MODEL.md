@@ -89,6 +89,7 @@ Stored inside `steeler_logbook_passages_v5`.
 ```js
 {
   date: "2026-05-03",
+  timeZone: "Europe/London",
   from: "Lymington",
   to: "Cherbourg",
   fromPortId: "port_...",      // optional
@@ -121,6 +122,8 @@ Stored inside `steeler_logbook_passages_v5`.
 ```
 
 `transitPorts` may be absent or may contain legacy strings in older data. The current code normalises them to `{ name, portId }` objects and caps them at three transit ports.
+
+`timeZone` stores the passage's operational time zone as an IANA zone id. New passages default to `Europe/London`; supported UI choices are currently `Europe/London`, `Europe/Paris`, and `UTC`. Older passages may not have this field and are treated as `Europe/London`.
 
 ## TideStation
 

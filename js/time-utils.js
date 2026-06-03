@@ -17,9 +17,45 @@ function dayOfYear(y, mo, d){
   return Math.floor((dt - start) / 86400000) + 1;
 }
 
-function localDateTimeInputValue(d = new Date()) {
+function localDateTimeInputValue(d = new Date(), timeZone = "") {
   const pad = (n) => String(n).padStart(2, "0");
+  if (timeZone) {
+    try {
+      const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+      }).formatToParts(d).reduce((acc, part) => {
+        if (part.type !== "literal") acc[part.type] = part.value;
+        return acc;
+      }, {});
+      if (parts.year && parts.month && parts.day && parts.hour && parts.minute) {
+        return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+      }
+    } catch {}
+  }
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function localDateInputValue(d = new Date(), timeZone = "") {
+  return localDateTimeInputValue(d, timeZone).slice(0, 10);
+}
+
+function formatTimeInZone(dateUtc, timeZone = "") {
+  try {
+    return new Intl.DateTimeFormat("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      timeZone: timeZone || undefined
+    }).format(dateUtc);
+  } catch {
+    return dateUtc.toLocaleTimeString("en-GB", {hour:"2-digit", minute:"2-digit", hour12:false});
+  }
 }
 
 function timeOnlyFromIso(iso) {
@@ -49,6 +85,8 @@ window.STEELER.timeUtils = {
   parseISODate: typeof parseISODate !== "undefined" ? parseISODate : undefined,
   dayOfYear: typeof dayOfYear !== "undefined" ? dayOfYear : undefined,
   localDateTimeInputValue: typeof localDateTimeInputValue !== "undefined" ? localDateTimeInputValue : undefined,
+  localDateInputValue: typeof localDateInputValue !== "undefined" ? localDateInputValue : undefined,
+  formatTimeInZone: typeof formatTimeInZone !== "undefined" ? formatTimeInZone : undefined,
   timeOnlyFromIso: typeof timeOnlyFromIso !== "undefined" ? timeOnlyFromIso : undefined,
   normalizeEntryTimeInput: typeof normalizeEntryTimeInput !== "undefined" ? normalizeEntryTimeInput : undefined
 };
