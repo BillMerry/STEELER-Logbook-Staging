@@ -123,7 +123,7 @@ Stored inside `steeler_logbook_passages_v5`.
 
 `transitPorts` may be absent or may contain legacy strings in older data. The current code normalises them to `{ name, portId }` objects and caps them at three transit ports.
 
-`timeZone` stores the passage's operational time zone as an IANA zone id. New passages default to `Europe/London`; supported UI choices are currently `Europe/London`, `Europe/Paris`, and `UTC`. Older passages may not have this field and are treated as `Europe/London`.
+`timeZone` stores the passage's operational time zone as an IANA zone id. New passages default from the device time zone where it maps to a supported choice. Supported UI choices are currently shown as `BST` (`Europe/London`), `GMT / UTC` (`UTC`), and `CET` (`Europe/Paris`). Older passages may not have this field and are treated as `Europe/London`.
 
 ## TideStation
 

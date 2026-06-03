@@ -8,12 +8,12 @@ const DPP_WAYPOINTS_KEY = "steeler_dpp_waypoints_v1";
 const FUEL_MANAGEMENT_KEY = "steeler_fuel_management_v1";
 const LOG_SPLIT_RATIO_KEY = "steeler_log_split_ratio_v1";
 
-const APP_VERSION = "1.1.2-rc2";
+const APP_VERSION = "1.1.2-rc3";
 const DEFAULT_PASSAGE_TIME_ZONE = "Europe/London";
 const PASSAGE_TIME_ZONES = {
-  "Europe/London": "UK / Ireland (GMT/BST)",
-  "Europe/Paris": "France / Channel (CET/CEST)",
-  "UTC": "UTC"
+  "Europe/London": "BST",
+  "UTC": "GMT / UTC",
+  "Europe/Paris": "CET"
 };
 
 const storageSaveWarningsShown = new Set();
@@ -1580,6 +1580,23 @@ function normalisePassageTimeZone(value) {
   return Object.prototype.hasOwnProperty.call(PASSAGE_TIME_ZONES, tz) ? tz : DEFAULT_PASSAGE_TIME_ZONE;
 }
 
+function getDevicePassageTimeZone() {
+  let deviceZone = "";
+  try {
+    deviceZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch {}
+
+  if (Object.prototype.hasOwnProperty.call(PASSAGE_TIME_ZONES, deviceZone)) return deviceZone;
+  if (/^(Europe\/Paris|Europe\/Brussels|Europe\/Berlin|Europe\/Madrid|Europe\/Rome|Europe\/Amsterdam)$/i.test(deviceZone)) return "Europe/Paris";
+  if (/^(Europe\/London|Europe\/Dublin|Europe\/Jersey|Europe\/Guernsey|Europe\/Isle_of_Man)$/i.test(deviceZone)) return "Europe/London";
+  if (/^(UTC|Etc\/UTC|Etc\/GMT|GMT)$/i.test(deviceZone)) return "UTC";
+
+  const offsetMinutes = -new Date().getTimezoneOffset();
+  if (offsetMinutes === 0) return "UTC";
+  if (offsetMinutes === 60 || offsetMinutes === 120) return "Europe/Paris";
+  return DEFAULT_PASSAGE_TIME_ZONE;
+}
+
 function getPassageTimeZone(p) {
   return normalisePassageTimeZone(p?.plan?.timeZone);
 }
@@ -1594,7 +1611,7 @@ function getPassageTimeZoneLabel(p) {
 }
 
 function passageDateToday(p = null) {
-  return localDateInputValue(new Date(), getPassageTimeZone(p));
+  return localDateInputValue(new Date(), p ? getPassageTimeZone(p) : getDevicePassageTimeZone());
 }
 
 function passageDateTimeNow(p = null) {
@@ -3114,6 +3131,14 @@ function getPassageStatusClass(status) {
     .replace(/^-|-$/g, "");
 }
 
+function selectHomePassage(passage, { openLog = false } = {}) {
+  if (!passage) return;
+  currentPassageId = passage.id;
+  loadPassageIntoUI();
+  refreshHomePassageList();
+  if (openLog) switchToTab("logTab");
+}
+
 function refreshHomePassageList() {
   homePassageList.innerHTML = "";
   if (homeCopyPassageBtn) homeCopyPassageBtn.disabled = !currentPassageId || !passages.some(p => p.id === currentPassageId);
@@ -3172,6 +3197,14 @@ function refreshHomePassageList() {
     const chevron = document.createElement("div");
     chevron.className = "passage-card-chevron";
     chevron.textContent = ">";
+    chevron.title = "Open log";
+    chevron.setAttribute("role", "button");
+    chevron.setAttribute("aria-label", "Open log");
+    chevron.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      selectHomePassage(passage, { openLog: true });
+    });
 
     const main = document.createElement("div");
     main.className = "passage-card-main";
@@ -3211,14 +3244,36 @@ function refreshHomePassageList() {
     card.appendChild(main);
     card.appendChild(actions);
 
+    let homeCardLongPressTimer = null;
+    const clearHomeCardLongPress = () => {
+      clearTimeout(homeCardLongPressTimer);
+      homeCardLongPressTimer = null;
+    };
+
+    card.addEventListener("pointerdown", (e) => {
+      if (e.target.closest(".passage-copy-btn, .passage-delete-btn")) return;
+      clearHomeCardLongPress();
+      homeCardLongPressTimer = setTimeout(() => {
+        card.dataset.openedByLongPress = "1";
+        selectHomePassage(passage, { openLog: true });
+        setTimeout(() => { delete card.dataset.openedByLongPress; }, 450);
+      }, 650);
+    });
+    card.addEventListener("pointerup", clearHomeCardLongPress);
+    card.addEventListener("pointerleave", clearHomeCardLongPress);
+    card.addEventListener("pointercancel", clearHomeCardLongPress);
+    card.addEventListener("dblclick", (e) => {
+      if (e.target.closest(".passage-copy-btn, .passage-delete-btn")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      selectHomePassage(passage, { openLog: true });
+    });
+
     card.addEventListener("click", (e) => {
       if (card.dataset.justSwiped === "1") return;
+      if (card.dataset.openedByLongPress === "1") return;
       if (e.target.closest(".passage-copy-btn, .passage-delete-btn")) return;
-
-      currentPassageId = passage.id;
-      loadPassageIntoUI();
-      refreshHomePassageList();
-      switchToTab("logTab");
+      selectHomePassage(passage, { openLog: false });
     });
 
     attachSwipeToCard(card, passage.id);
@@ -3705,14 +3760,15 @@ function removeTransitPortAt(index){
 
 function createPassage() {
   const id = "p_" + Date.now();
-  const today = passageDateToday();
+  const deviceTimeZone = getDevicePassageTimeZone();
+  const today = passageDateToday({ plan: { timeZone: deviceTimeZone } });
 
   const passage = {
     id,
     flags: { engineStart: false, slip: false, dock: false },
     plan: {
       date: today,
-      timeZone: DEFAULT_PASSAGE_TIME_ZONE,
+      timeZone: deviceTimeZone,
       from: "",
       to: "",
       transitPorts: [],

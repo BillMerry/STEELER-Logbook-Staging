@@ -53,6 +53,33 @@ function getMarineTrafficLink(vessel){
   return "";
 }
 
+function getSmsTimeZoneLabel(timeZone, utcDate = null){
+  const tz = normalisePassageTimeZone(timeZone);
+  if (tz === "UTC") return "GMT";
+  if (tz === "Europe/Paris") return "CET";
+  if (utcDate instanceof Date && !isNaN(utcDate)) {
+    const offset = getTimeZoneOffsetMinutes(utcDate, "Europe/London");
+    return offset === 60 ? "BST" : "GMT";
+  }
+  return "BST";
+}
+
+function formatSmsPassageTime(p, hhmm, isoDate = ""){
+  const raw = String(hhmm || "").trim();
+  if (!raw) return "";
+  const date = String(isoDate || p?.plan?.date || "").trim();
+  const planZone = getPassageTimeZone(p);
+  const utcDate = date ? zonedDateTimeToUtc(date, raw, planZone) : null;
+  const planLabel = getSmsTimeZoneLabel(planZone, utcDate);
+  const planText = `${raw} ${planLabel}`;
+
+  if (planZone !== "Europe/Paris" || !utcDate) return planText;
+
+  const ukTime = formatTimeInZone(utcDate, "Europe/London");
+  const ukLabel = getSmsTimeZoneLabel("Europe/London", utcDate);
+  return `${planText} (${ukTime} ${ukLabel})`;
+}
+
 function getPassageEtaInfo(p, detailedPlan = null){
   const wps = detailedPlan?.waypoints || p?.plan?.detailed?.waypoints || [];
   if (!wps.length) return { etaText: "", overdueText: "" };
@@ -95,14 +122,26 @@ function getPassageEtaInfo(p, detailedPlan = null){
     }
   } catch(e) {}
 
-  const etaText = etaDateText ? `${eta} on ${etaDateText}` : eta;
+  const etaTimeText = formatSmsPassageTime(p, eta, etaDateText);
+  const etaText = etaDateText ? `${etaTimeText} on ${etaDateText}` : etaTimeText;
 
   const overdueHours = Number(getSafetyInfo()?.defaults?.overdueHours || 2);
   const base = hhmmToMinutes(eta);
   const overdue = Number.isFinite(base) ? roundHHMMToNearest5(minutesToHHMM(base + overdueHours * 60)) : "";
+  let overdueDateText = etaDateText;
+  if (overdue && etaDateText && Number.isFinite(base) && base + overdueHours * 60 >= 1440) {
+    try {
+      const d = new Date(etaDateText + "T12:00:00");
+      if (!isNaN(d.getTime())) {
+        d.setDate(d.getDate() + Math.floor((base + overdueHours * 60) / 1440));
+        overdueDateText = d.toISOString().slice(0, 10);
+      }
+    } catch {}
+  }
+  const overdueTimeText = overdue ? formatSmsPassageTime(p, overdue, overdueDateText) : "";
 
   const overdueText = overdue
-    ? `If you have not heard from us by around ${overdue}, please try to contact us. If you cannot reach us, call 999 or 112 and ask for the Coastguard.`
+    ? `If you have not heard from us by around ${overdueTimeText}, please try to contact us. If you cannot reach us, call 999 or 112 and ask for the Coastguard.`
     : "";
 
   return { etaText, overdueText };
