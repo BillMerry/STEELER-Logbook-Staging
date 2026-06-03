@@ -8,7 +8,7 @@ const DPP_WAYPOINTS_KEY = "steeler_dpp_waypoints_v1";
 const FUEL_MANAGEMENT_KEY = "steeler_fuel_management_v1";
 const LOG_SPLIT_RATIO_KEY = "steeler_log_split_ratio_v1";
 
-const APP_VERSION = "1.1.1-rc1a";
+const APP_VERSION = "1.1.2-rc1";
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
@@ -630,7 +630,7 @@ function setAppVersionBadge(){
 }
 window.addEventListener("DOMContentLoaded", setAppVersionBadge);
 document.addEventListener("click", (e) => {
-  if (e.target.closest(".entry-del-btn, .passage-delete-btn, .st-swipe-delete-btn")) return;
+  if (e.target.closest(".entry-del-btn, .passage-copy-btn, .passage-delete-btn, .st-swipe-delete-btn")) return;
   if (e.target.closest("tr.show-delete, .passage-card.show-delete, .st-swipe-row.show-delete")) return;
   hideAllSwipeDeleteButtons();
 });
@@ -1778,6 +1778,7 @@ const tabButtons = document.querySelectorAll(".tab-btn");
 const tabs       = document.querySelectorAll(".tab");
 
 const homeNewPassageBtn = document.getElementById("homeNewPassageBtn");
+const homeCopyPassageBtn = document.getElementById("homeCopyPassageBtn");
 const homePassageList   = document.getElementById("homePassageList");
 const homePassageSearch = document.getElementById("homePassageSearch");
 const homePassageFilterBtn = document.getElementById("homePassageFilterBtn");
@@ -2801,6 +2802,108 @@ function deletePassageById(id) {
   loadPassageIntoUI();
 }
 
+function cloneJsonSafe(value, fallback) {
+  try {
+    return JSON.parse(JSON.stringify(value == null ? fallback : value));
+  } catch (e) {
+    return fallback;
+  }
+}
+
+function clonePassagePlanForCopy(plan) {
+  const source = plan && typeof plan === "object" ? plan : {};
+  const copy = cloneJsonSafe(source, {});
+  const now = Date.now();
+
+  copy.transitPorts = Array.isArray(copy.transitPorts)
+    ? copy.transitPorts.map(t => t && typeof t === "object"
+      ? { ...t, name: String(t.name || "").trim(), portId: t.portId ? String(t.portId) : "" }
+      : { name: String(t || "").trim(), portId: "" })
+    : [];
+
+  copy.tideStations = Array.isArray(copy.tideStations)
+    ? copy.tideStations.map((st, idx) => ({
+      ...st,
+      id: `ts_${now}_${idx}_${Math.random().toString(36).slice(2)}`,
+      events: Array.isArray(st?.events) ? cloneJsonSafe(st.events, []) : []
+    }))
+    : [];
+
+  copy.dailySummaries = Array.isArray(copy.dailySummaries)
+    ? copy.dailySummaries.map((day, idx) => ({
+      ...day,
+      id: `ds_${now}_${idx}_${Math.random().toString(36).slice(2)}`
+    }))
+    : [];
+
+  if (typeof cloneDetailedPassagePlan === "function") {
+    copy.detailed = cloneDetailedPassagePlan(copy.detailed, { regenerateIds: true });
+    copy.detailedLegs = Array.isArray(copy.detailedLegs)
+      ? copy.detailedLegs.map(d => cloneDetailedPassagePlan(d, { regenerateIds: true }))
+      : [];
+  } else {
+    copy.detailed = cloneJsonSafe(copy.detailed, { waypoints: [], hazards: "", portsOfRefuge: "", crewWelfare: "" });
+    copy.detailedLegs = Array.isArray(copy.detailedLegs) ? cloneJsonSafe(copy.detailedLegs, []) : [];
+  }
+  copy.detailedLegIndex = 0;
+
+  return {
+    ...copy,
+    date: copy.date || new Date().toISOString().slice(0, 10),
+    from: copy.from || "",
+    to: copy.to || "",
+    transitPorts: copy.transitPorts,
+    vessel: copy.vessel || "STEELER",
+    skipper: copy.skipper || "",
+    crew: copy.crew || "",
+    sunriseSet: copy.sunriseSet || "",
+    moonPhase: copy.moonPhase || "",
+    moonRiseSet: copy.moonRiseSet || "",
+    tidalCoeff: copy.tidalCoeff || "",
+    tideStations: copy.tideStations,
+    currents: copy.currents || "",
+    weather: copy.weather || "",
+    comms: copy.comms || "",
+    engineHoursStart: copy.engineHoursStart || "",
+    fuelStartPercent: copy.fuelStartPercent || "",
+    dailySummaries: copy.dailySummaries,
+    detailed: copy.detailed || { waypoints: [], hazards: "", portsOfRefuge: "", crewWelfare: "" },
+    detailedLegs: copy.detailedLegs,
+    detailedLegIndex: copy.detailedLegIndex
+  };
+}
+
+function copyPassagePlanById(id) {
+  const source = passages.find(p => p.id === id);
+  if (!source || !source.plan) return;
+  const route = getRouteNames(source).join(" → ") || "this passage";
+  const ok = confirm(`Copy the passage plan for ${route}?\n\nA new planned passage will be created with the same plan details, ready to edit. Log entries and completion state will not be copied.`);
+  if (!ok) return;
+
+  const copied = {
+    id: newId("p"),
+    flags: { engineStart: false, slip: false, dock: false },
+    plan: clonePassagePlanForCopy(source.plan),
+    entries: [],
+    finish: {
+      engineHoursEnd: "",
+      fuelEndPercent: "",
+      notes: "",
+      shutdownLogged: false
+    },
+    createdAt: new Date().toISOString()
+  };
+
+  ensureAutoTideStations(copied);
+  ensureDetailedPassagePlans(copied);
+  passages.unshift(copied);
+  currentPassageId = copied.id;
+  savePassages();
+  refreshHomePassageList();
+  loadPassageIntoUI();
+  switchToTab("planTab");
+}
+
 function attachSwipeToCard(card, passageId) {
   let startX = 0;
   let startY = 0;
@@ -2808,8 +2911,8 @@ function attachSwipeToCard(card, passageId) {
   let isHorizontalSwipe = false;
   let wheelX = 0;
   let wheelTimer = null;
-  const revealPx = 76;
-  const lockThresholdPx = 76;
+  const revealPx = 92;
+  const lockThresholdPx = 84;
   const commitThresholdPx = 220;
 
   const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
@@ -2977,6 +3080,7 @@ function getPassageStatusClass(status) {
 
 function refreshHomePassageList() {
   homePassageList.innerHTML = "";
+  if (homeCopyPassageBtn) homeCopyPassageBtn.disabled = !currentPassageId || !passages.some(p => p.id === currentPassageId);
 
   if (passages.length === 0) {
     const p = document.createElement("p");
@@ -3042,10 +3146,23 @@ function refreshHomePassageList() {
     const actions = document.createElement("div");
     actions.className = "passage-card-actions";
 
+    const copy = document.createElement("button");
+    copy.className = "passage-copy-btn";
+    copy.innerHTML = copySvg();
+    copy.title = "Copy passage plan";
+    copy.setAttribute("aria-label", "Copy passage plan");
+
+    copy.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      copyPassagePlanById(passage.id);
+    });
+
     const del = document.createElement("button");
     del.className = "passage-delete-btn";
     del.innerHTML = deleteBinSvg();
-				del.title = "Delete passage";
+    del.title = "Delete passage";
+    del.setAttribute("aria-label", "Delete passage");
     
     del.addEventListener("click", (e) => {
       e.preventDefault();
@@ -3053,13 +3170,14 @@ function refreshHomePassageList() {
       deletePassageById(passage.id);
     });
 
+    actions.appendChild(copy);
     actions.appendChild(del);
     card.appendChild(main);
     card.appendChild(actions);
 
     card.addEventListener("click", (e) => {
       if (card.dataset.justSwiped === "1") return;
-      if (e.target.closest(".passage-delete-btn")) return;
+      if (e.target.closest(".passage-copy-btn, .passage-delete-btn")) return;
 
       currentPassageId = passage.id;
       loadPassageIntoUI();
@@ -7441,6 +7559,15 @@ function deleteBinSvg(){
   `;
 }
 
+function copySvg(){
+  return `
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+      <path fill="currentColor" d="M8 7h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zm0 2v10h10V9H8z"/>
+      <path fill="currentColor" d="M4 3h10v2H5v9H3V5a2 2 0 0 1 2-2z"/>
+    </svg>
+  `;
+}
+
 function hideAllSwipeDeleteButtons(exceptEl = null){
   document.querySelectorAll("tr.show-delete, .passage-card.show-delete, .st-swipe-row.show-delete").forEach(el => {
     if (exceptEl && el === exceptEl) return;
@@ -8108,6 +8235,15 @@ homeNewPassageBtn.addEventListener("click", () => {
   }
   createPassage();
   switchToTab("planTab");
+});
+
+homeCopyPassageBtn?.addEventListener("click", () => {
+  const p = getCurrentPassage();
+  if (!p) {
+    alert("Select a passage to copy first.");
+    return;
+  }
+  copyPassagePlanById(p.id);
 });
 
 homePassageSearch?.addEventListener("input", refreshHomePassageList);

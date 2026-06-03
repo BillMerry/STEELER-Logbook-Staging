@@ -380,7 +380,7 @@ body[data-theme="night"] .daily-summary-row{border-color:#333}
   transition:transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.passage-card.show-delete .passage-card-main{transform:translateX(-2.45rem)}
+.passage-card.show-delete .passage-card-main{transform:translateX(-5.75rem)}
 .passage-card.swipe-dragging .passage-card-main{
   transform:translateX(var(--swipe-x, 0px));
   transition:none;
@@ -410,6 +410,7 @@ body[data-theme="night"] .daily-summary-row{border-color:#333}
 .passage-card-summary.empty{visibility:hidden;}
 
 
+.passage-copy-btn,
 .passage-delete-btn{
   border-radius:999px;
   padding:0.25rem 0.55rem;
@@ -1313,7 +1314,7 @@ tr.show-delete .entry-del-btn {
 }
 
 .passage-card.show-delete .passage-card-main {
-  transform: translateX(-4.75rem) !important;
+  transform: translateX(-5.75rem) !important;
 }
 
 .passage-card.swipe-dragging .passage-card-main {
@@ -1335,8 +1336,8 @@ tr.show-delete .entry-del-btn {
 }
 
 .entry-del-btn,
+.passage-copy-btn,
 .passage-delete-btn {
-  background: #d32f2f !important;
   color: #fff !important;
   border-radius: 6px !important;
   width: 34px !important;
@@ -1347,7 +1348,18 @@ tr.show-delete .entry-del-btn {
   padding: 0 !important;
 }
 
+.entry-del-btn,
+.passage-delete-btn {
+  background: #d32f2f !important;
+}
+
+.passage-copy-btn {
+  background: var(--st-accent-strong, #1f6feb) !important;
+  border-color: var(--st-accent-strong, #1f6feb) !important;
+}
+
 .entry-del-btn svg,
+.passage-copy-btn svg,
 .passage-delete-btn svg {
   width: 18px;
   height: 18px;
@@ -2031,10 +2043,19 @@ body[data-theme="night"] .app-header h1{
   text-align:right;
 }
 
+.passage-copy-btn,
 .passage-delete-btn{
   min-height:38px;
   min-width:38px;
   border-radius:var(--st-radius-md);
+}
+
+.passage-copy-btn{
+  color:var(--st-accent-strong);
+  border-color:var(--st-accent-border);
+}
+
+.passage-delete-btn{
   color:var(--st-danger);
   border-color:rgba(180,35,24,0.28);
 }
