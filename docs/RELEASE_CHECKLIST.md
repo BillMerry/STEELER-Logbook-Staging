@@ -49,15 +49,16 @@ Test from a clean browser profile or an iPad where possible:
 
 ## Backup / Restore Checks
 
-- Export a full logbook backup.
-- Confirm full logbook backup includes DPP templates and restore brings them back when present.
+- Export a full STEELER data backup.
+- Confirm full data backup includes passages, ports, Safety / Emergency Info, DPP templates, saved waypoints, weather abbreviations, fuel settings and app settings.
+- Restore the full data backup and confirm all included data returns.
 - Export a ports backup.
 - Export a DPP Templates backup.
-- Restore the full logbook backup and confirm passages and Safety / Emergency Info return.
+- Restore an older full logbook backup and confirm passages and Safety / Emergency Info return while current ports are left unchanged.
 - Import the ports backup and confirm ports merge by name.
 - Import the DPP Templates backup and confirm templates merge by name.
 - Edit a Detailed Passage Plan template in Settings and confirm applying it to a passage uses the edited waypoints, speeds and notes.
-- Confirm current ports are not overwritten by full logbook restore.
+- Confirm the destination device keeps its own `steeler_device_id_v1` after restoring a data backup.
 
 ## Data Safety / Recovery Checks
 

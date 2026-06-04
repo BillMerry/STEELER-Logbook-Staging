@@ -7,8 +7,11 @@ const DPP_TEMPLATES_KEY = "steeler_dpp_templates_v1";
 const DPP_WAYPOINTS_KEY = "steeler_dpp_waypoints_v1";
 const FUEL_MANAGEMENT_KEY = "steeler_fuel_management_v1";
 const LOG_SPLIT_RATIO_KEY = "steeler_log_split_ratio_v1";
+const DEVICE_ID_KEY = "steeler_device_id_v1";
 
-const APP_VERSION = "1.1.2-rc3";
+const APP_VERSION = "1.2.0-rc1";
+const LOCAL_DATA_SCHEMA_VERSION = 1;
+const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_PASSAGE_TIME_ZONE = "Europe/London";
 const PASSAGE_TIME_ZONES = {
   "Europe/London": "BST",
@@ -73,6 +76,59 @@ const storage = {
     localStorage.removeItem(key);
   }
 };
+
+function nowIso(){
+  return new Date().toISOString();
+}
+
+function isValidIsoString(value){
+  if (!value || typeof value !== "string") return false;
+  const d = new Date(value);
+  return !Number.isNaN(d.getTime());
+}
+
+function makeStableId(prefix = "id"){
+  const safePrefix = String(prefix || "id").replace(/[^a-z0-9_-]/gi, "") || "id";
+  if (window.crypto && crypto.randomUUID) return `${safePrefix}_${crypto.randomUUID()}`;
+  return `${safePrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function getOrCreateDeviceId(){
+  let id = "";
+  try{
+    id = storage.getItem(DEVICE_ID_KEY) || "";
+    if (!id) {
+      id = makeStableId("device");
+      storage.setItem(DEVICE_ID_KEY, id);
+    }
+  }catch(e){
+    console.warn("Could not read or create device id", e);
+    id = id || makeStableId("device");
+  }
+  return id;
+}
+
+function downloadJsonPayload(payload, filenamePrefix){
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+
+  const d = new Date();
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const da = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const filename = `${filenamePrefix}-${y}${mo}${da}${hh}${mm}.json`;
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 function warnStorageSaveFailed(label, error){
   console.warn(`Failed to save ${label}`, error);
@@ -1372,6 +1428,83 @@ function setupTidePasteModal(){
 
 // --- Storage helpers -----------------------------------------------
 
+function normaliseLogEntrySyncFields(entry, passage, fallbackDate, deviceId){
+  if (!entry || typeof entry !== "object") return false;
+  let changed = false;
+  if (!entry.id) {
+    entry.id = makeStableId("e");
+    changed = true;
+  }
+  const fallbackCreatedAt = isValidIsoString(entry.time)
+    ? new Date(entry.time).toISOString()
+    : (isValidIsoString(passage?.createdAt) ? passage.createdAt : fallbackDate);
+  if (!isValidIsoString(entry.createdAt)) {
+    entry.createdAt = fallbackCreatedAt;
+    changed = true;
+  }
+  if (!isValidIsoString(entry.updatedAt)) {
+    entry.updatedAt = entry.createdAt;
+    changed = true;
+  }
+  if (!entry.schemaVersion) {
+    entry.schemaVersion = LOCAL_DATA_SCHEMA_VERSION;
+    changed = true;
+  }
+  if (!entry.lastModifiedDeviceId) {
+    entry.lastModifiedDeviceId = deviceId;
+    changed = true;
+  }
+  if (entry.deleted === true && !isValidIsoString(entry.deletedAt)) {
+    entry.deletedAt = entry.updatedAt;
+    changed = true;
+  }
+  return changed;
+}
+
+function normalisePassageSyncFields(passage, deviceId){
+  if (!passage || typeof passage !== "object") return false;
+  let changed = false;
+  const fallbackDate = nowIso();
+  if (!passage.id) {
+    passage.id = makeStableId("p");
+    changed = true;
+  }
+  if (!isValidIsoString(passage.createdAt)) {
+    passage.createdAt = fallbackDate;
+    changed = true;
+  }
+  if (!isValidIsoString(passage.updatedAt)) {
+    passage.updatedAt = passage.createdAt;
+    changed = true;
+  }
+  if (!passage.schemaVersion) {
+    passage.schemaVersion = LOCAL_DATA_SCHEMA_VERSION;
+    changed = true;
+  }
+  if (!passage.lastModifiedDeviceId) {
+    passage.lastModifiedDeviceId = deviceId;
+    changed = true;
+  }
+  if (!Array.isArray(passage.entries)) {
+    passage.entries = [];
+    changed = true;
+  }
+  passage.entries.forEach((entry) => {
+    if (normaliseLogEntrySyncFields(entry, passage, passage.createdAt, deviceId)) changed = true;
+  });
+  return changed;
+}
+
+function normalisePassagesForSync(passagesList){
+  if (!Array.isArray(passagesList)) return false;
+  const deviceId = getOrCreateDeviceId();
+  let changed = false;
+  passagesList.forEach((passage) => {
+    if (normalisePassageSyncFields(passage, deviceId)) changed = true;
+  });
+  return changed;
+}
+
 function loadPassages() {
   passages = loadLocalStorageJsonItem(
     STORAGE_KEY,
@@ -1379,10 +1512,12 @@ function loadPassages() {
     [],
     Array.isArray
   );
+  if (normalisePassagesForSync(passages)) savePassages();
 }
 
 function savePassages() {
   try {
+    normalisePassagesForSync(passages);
     saveLocalStorageItem(STORAGE_KEY, JSON.stringify(passages), "passages");
   } catch (e) {
     console.error("Failed to save passages", e);
@@ -1414,6 +1549,19 @@ function loadPorts() {
 
   // ensure every port has a stable id
   try{ for (const p of knownPorts){ ensurePortId(p); } }catch{}
+  try{
+    const deviceId = getOrCreateDeviceId();
+    const now = nowIso();
+    let changed = false;
+    for (const p of knownPorts){
+      if (!p || typeof p !== "object") continue;
+      if (!isValidIsoString(p.createdAt)) { p.createdAt = now; changed = true; }
+      if (!isValidIsoString(p.updatedAt)) { p.updatedAt = p.createdAt; changed = true; }
+      if (!p.schemaVersion) { p.schemaVersion = LOCAL_DATA_SCHEMA_VERSION; changed = true; }
+      if (!p.lastModifiedDeviceId) { p.lastModifiedDeviceId = deviceId; changed = true; }
+    }
+    if (changed) savePorts();
+  }catch{}
 
   // Strip any legacy tideId fields from stored ports (no longer used)
   try{ for (const p of knownPorts){ if (p && typeof p === 'object' && 'tideId' in p) delete p.tideId; } }catch{}
@@ -1421,6 +1569,16 @@ function loadPorts() {
 
 function savePorts() {
   try {
+    const deviceId = getOrCreateDeviceId();
+    const now = nowIso();
+    (knownPorts || []).forEach((p) => {
+      if (!p || typeof p !== "object") return;
+      ensurePortId(p);
+      if (!isValidIsoString(p.createdAt)) p.createdAt = now;
+      if (!isValidIsoString(p.updatedAt)) p.updatedAt = now;
+      if (!p.schemaVersion) p.schemaVersion = LOCAL_DATA_SCHEMA_VERSION;
+      if (!p.lastModifiedDeviceId) p.lastModifiedDeviceId = deviceId;
+    });
     const payload = { all: knownPorts, recent: recentPorts };
     saveLocalStorageItem(PORTS_KEY, JSON.stringify(payload), "ports");
     // If Plan comms is empty, auto-fill from updated port data
@@ -2495,39 +2653,35 @@ function closeModal(){
 
 // --- Backup / Restore ----------------------------------------------
 
-function exportBackup() {
+function createDataBackupPayload(){
+  normalisePassagesForSync(passages);
   const payload = {
-    format: "steeler-logbook-backup",
-    version: 3,
+    format: DATA_BACKUP_FORMAT,
+    version: 1,
+    schemaVersion: LOCAL_DATA_SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
+    appVersion: APP_VERSION,
+    exportedByDeviceId: getOrCreateDeviceId(),
     data: {
-						passages,
-						theme: storage.getItem(THEME_KEY) || "day",
-						safetyInfo: getSafetyInfo(),
+      passages,
+      theme: storage.getItem(THEME_KEY) || "day",
+      knownPorts: { all: knownPorts, recent: recentPorts },
+      safetyInfo: getSafetyInfo(),
+      legacyEcSettings: loadEcSettings(),
       dppTemplates: loadDppTemplateStore(),
-      dppWaypoints: loadDppWaypointStore()
-				}
+      dppWaypoints: loadDppWaypointStore(),
+      weatherAbbreviations: loadAbbrDb(),
+      fuelManagement: loadFuelManagementSettings(),
+      settings: {
+        logSplitRatio: storage.getItem(LOG_SPLIT_RATIO_KEY) || ""
+      }
+    }
   };
+  return payload;
+}
 
-  const json = JSON.stringify(payload, null, 2);
-  const blob = new Blob([json], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-
-  const d = new Date();
-  const y = d.getFullYear();
-  const mo = String(d.getMonth() + 1).padStart(2, "0");
-  const da = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  const filename = `STEELER-Logbook-backup-${y}${mo}${da}${hh}${mm}.json`;
-
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+function exportBackup() {
+  downloadJsonPayload(createDataBackupPayload(), "STEELER-Data-backup");
 }
 
 function exportPortsBackup() {
@@ -2593,57 +2747,116 @@ function exportDppTemplatesBackup() {
   URL.revokeObjectURL(url);
 }
 
+function refreshAfterDataRestore(){
+  refreshHomePassageList();
+  currentPassageId = passages[0]?.id || null;
+  loadPassageIntoUI();
+  refreshPortUI();
+  try { injectSafetyEmergencySettingsBlock(); } catch(e) {}
+  try { injectFuelManagementSettingsBlock(); } catch(e) {}
+  importDppTemplateWaypointsToLibrary();
+  renderDppTemplatesManager();
+  renderDppWaypointsManager();
+  try { updatePlanSummaryPanel(); } catch(e) {}
+}
+
+function restoreDataBackupObject(obj){
+  if (!obj || obj.format !== DATA_BACKUP_FORMAT || !obj.data) {
+    alert("That file doesn’t look like a STEELER data backup.");
+    return false;
+  }
+  if (!Array.isArray(obj.data.passages)) {
+    alert("Backup file is missing expected passage data.");
+    return false;
+  }
+
+  const ok = confirm(
+    "Restore full STEELER data backup?\n\n" +
+    "This will replace passages, ports, Safety / Emergency Info, DPP templates, saved waypoints, weather abbreviations, fuel settings and app settings on this device."
+  );
+  if (!ok) return false;
+
+  passages = obj.data.passages;
+  normalisePassagesForSync(passages);
+  saveLocalStorageItem(STORAGE_KEY, JSON.stringify(passages), "passages");
+
+  const portsPayload = obj.data.knownPorts || {};
+  knownPorts = Array.isArray(portsPayload.all) ? portsPayload.all : [];
+  recentPorts = Array.isArray(portsPayload.recent) ? portsPayload.recent : [];
+  cleanPortsInPlace();
+  savePorts();
+
+  if (obj.data.safetyInfo) {
+    saveLocalStorageItem(SAFETY_INFO_KEY, JSON.stringify(obj.data.safetyInfo), "Safety / Emergency Info");
+  }
+  if (obj.data.legacyEcSettings) {
+    saveLocalStorageItem(EC_SETTINGS_KEY, JSON.stringify(obj.data.legacyEcSettings), "legacy emergency contact settings");
+  }
+  if (obj.data.dppTemplates) saveDppTemplateStore(obj.data.dppTemplates);
+  if (obj.data.dppWaypoints) saveDppWaypointStore(obj.data.dppWaypoints);
+  if (obj.data.weatherAbbreviations) {
+    saveLocalStorageItem(ABBR_DB_KEY, JSON.stringify(obj.data.weatherAbbreviations), "weather abbreviations");
+  }
+  if (obj.data.fuelManagement) {
+    saveFuelManagementSettings(obj.data.fuelManagement);
+  }
+  if (obj.data.settings && obj.data.settings.logSplitRatio) {
+    storage.setItem(LOG_SPLIT_RATIO_KEY, String(obj.data.settings.logSplitRatio));
+  }
+  applyTheme(obj.data.theme || "day");
+  refreshAfterDataRestore();
+  alert("Full STEELER data backup restored successfully.");
+  return true;
+}
+
+function restoreLegacyLogbookBackupObject(obj){
+  if (!obj || obj.format !== "steeler-logbook-backup" || !obj.data) {
+    alert("That file doesn’t look like a STEELER Logbook backup.");
+    return false;
+  }
+  if (!Array.isArray(obj.data.passages)) {
+    alert("Backup file is missing expected passage data.");
+    return false;
+  }
+  const hasDppTemplates = !!obj.data.dppTemplates;
+  const hasDppWaypoints = !!obj.data.dppWaypoints;
+  const ok = confirm(
+    "Restore older logbook backup? This will REPLACE the current passages and Safety / Emergency Info on this device if present in the backup." +
+    (hasDppTemplates ? " DPP templates in the backup will also replace current DPP templates." : "") +
+    (hasDppWaypoints ? " DPP waypoints in the backup will also replace current DPP waypoints." : "") +
+    " Ports will be left unchanged."
+  );
+  if (!ok) return false;
+
+  passages = obj.data.passages;
+  normalisePassagesForSync(passages);
+  saveLocalStorageItem(STORAGE_KEY, JSON.stringify(passages), "passages");
+  if (obj.data.safetyInfo) {
+    try {
+      saveLocalStorageItem(SAFETY_INFO_KEY, JSON.stringify(obj.data.safetyInfo), "Safety / Emergency Info");
+    } catch(e) {
+      console.warn("Failed to restore Safety / Emergency Info", e);
+      warnStorageSaveFailed("Safety / Emergency Info", e);
+    }
+  }
+  if (hasDppTemplates) saveDppTemplateStore(obj.data.dppTemplates);
+  if (hasDppWaypoints) saveDppWaypointStore(obj.data.dppWaypoints);
+  applyTheme(obj.data.theme || "day");
+  refreshAfterDataRestore();
+  alert("Backup restored successfully. Ports were left unchanged.");
+  return true;
+}
+
 function importBackupFile(file) {
   const reader = new FileReader();
   reader.onload = () => {
     try {
       const obj = JSON.parse(reader.result);
-      if (!obj || obj.format !== "steeler-logbook-backup" || !obj.data) {
-        alert("That file doesn’t look like a STEELER Logbook backup.");
+      if (obj?.format === DATA_BACKUP_FORMAT) {
+        restoreDataBackupObject(obj);
         return;
       }
-      if (!Array.isArray(obj.data.passages)) {
-        alert("Backup file is missing expected passage data.");
-        return;
-      }
-      const hasDppTemplates = !!obj.data.dppTemplates;
-      const hasDppWaypoints = !!obj.data.dppWaypoints;
-      const ok = confirm(
-        "Restore backup? This will REPLACE the current passages and Safety / Emergency Info on this device if present in the backup." +
-        (hasDppTemplates ? " DPP templates in the backup will also replace current DPP templates." : "") +
-        (hasDppWaypoints ? " DPP waypoints in the backup will also replace current DPP waypoints." : "") +
-        " Ports will be left unchanged."
-      );
-      if (!ok) return;
-
-      passages = obj.data.passages;
-      saveLocalStorageItem(STORAGE_KEY, JSON.stringify(passages), "passages");
-							if (obj.data.safetyInfo) {
-									try {
-											saveLocalStorageItem(SAFETY_INFO_KEY, JSON.stringify(obj.data.safetyInfo), "Safety / Emergency Info");
-									} catch(e) {
-											console.warn("Failed to restore Safety / Emergency Info", e);
-											warnStorageSaveFailed("Safety / Emergency Info", e);
-									}
-							}
-      if (hasDppTemplates) {
-        saveDppTemplateStore(obj.data.dppTemplates);
-      }
-      if (hasDppWaypoints) {
-        saveDppWaypointStore(obj.data.dppWaypoints);
-      }
-      // Legacy support: if an older full backup still contains ports, preserve current ports.
-      // Ports are now managed separately via Export/Import Ports.
-      applyTheme(obj.data.theme || "day");
-
-      refreshHomePassageList();
-      currentPassageId = passages[0]?.id || null;
-      loadPassageIntoUI();
-      try { injectSafetyEmergencySettingsBlock(); } catch(e) {}
-      importDppTemplateWaypointsToLibrary();
-      renderDppTemplatesManager();
-      renderDppWaypointsManager();
-      alert("Backup restored successfully. Ports were left unchanged.");
+      restoreLegacyLogbookBackupObject(obj);
     } catch (e) {
       console.error(e);
       alert("Could not restore that file (invalid JSON).");

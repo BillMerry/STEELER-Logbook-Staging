@@ -1,6 +1,6 @@
 # STEELER Logbook Data Model
 
-This document records the local data shapes used by the v1.0.1 build. It began as the v0.11.5 baseline documentation and has been updated as the architecture foundation work added safety mirrors, modules, v0.20.x sea-use tweaks, and reusable Detailed Passage Plan templates.
+This document records the local data shapes used by the v1.2.0 sync-foundation build. It began as the v0.11.5 baseline documentation and has been updated as the architecture foundation work added safety mirrors, modules, v0.20.x sea-use tweaks, reusable Detailed Passage Plan templates, and the first offline-first sync preparation fields.
 
 The app is an offline-first browser PWA. User data is stored in `localStorage` as JSON strings, except for the theme value. Storage keys and data shapes must not be changed without an explicit migration plan and backup/restore testing.
 
@@ -15,6 +15,10 @@ The app is an offline-first browser PWA. User data is stored in `localStorage` a
 | `steeler_ec_settings_v1` | Legacy emergency contact settings | JSON legacy object; migrated into safety info when present |
 | `STEELER_ABBR_DB_V1` | Weather abbreviation database and user edits | JSON abbreviation database; flat and legacy grouped shapes are accepted |
 | `steeler_dpp_templates_v1` | Globally reusable Detailed Passage Plan templates | JSON `DppTemplateStore` object |
+| `steeler_dpp_waypoints_v1` | Globally reusable Detailed Passage Plan waypoints | JSON `DppWaypointStore` object |
+| `steeler_fuel_management_v1` | Fuel tank/reset settings | JSON fuel management object |
+| `steeler_log_split_ratio_v1` | Log/plan split layout preference | Plain string number |
+| `steeler_device_id_v1` | Local device/client identity for future sync | Plain string generated locally; not restored from data backups |
 
 ## Safety Mirror Keys
 
@@ -77,6 +81,9 @@ Stored inside `steeler_logbook_passages_v5`.
   entries: LogEntry[],
   finish: PassageFinish,
   createdAt: "2026-05-03T08:00:00.000Z",
+  updatedAt: "2026-05-03T08:00:00.000Z",
+  schemaVersion: 1,
+  lastModifiedDeviceId: "device_...",
 
   // Optional fields added by later workflows
   pob: "4",
@@ -219,6 +226,33 @@ Stored separately from passages in `steeler_dpp_templates_v1`. These templates a
 
 DPP templates include waypoint planned speeds plus the leg-specific `hazards`, `portsOfRefuge`, and `crewWelfare` fields. When a template is used, waypoint IDs are regenerated for the target leg so the saved template remains independent of the passage.
 
+## DppWaypointStore
+
+Stored separately from passages in `steeler_dpp_waypoints_v1`.
+
+```js
+{
+  version: 1,
+  updatedAt: "2026-05-04T12:00:00.000Z",
+  waypoints: DppSavedWaypoint[]
+}
+```
+
+## DppSavedWaypoint
+
+```js
+{
+  id: "dpp_wp_...",
+  name: "Needles Fairway",
+  coordsText: "50º39.000'N, 001º35.000'W",
+  lat: 50.65,
+  lon: -1.583333,
+  notes: "",
+  createdAt: "2026-05-04T12:00:00.000Z",
+  updatedAt: "2026-05-04T12:10:00.000Z"
+}
+```
+
 ## LogEntry
 
 ```js
@@ -238,6 +272,12 @@ DPP templates include waypoint planned speeds plus the leg-specific `hazards`, `
   fuelUsed: "",
   notes: "",
   entryType: "manual" | "engine-start" | "shutdown",
+  createdAt: "2026-05-03T08:30:00.000Z",
+  updatedAt: "2026-05-03T08:30:00.000Z",
+  schemaVersion: 1,
+  lastModifiedDeviceId: "device_...",
+  deleted: false,
+  deletedAt: "",
 
   // Engine-start/shutdown workflows may also store typed copies.
   fuelStartPercentR: "",
@@ -304,7 +344,11 @@ Stored inside `steeler_logbook_ports_v1.data.all`.
   name: "Cherbourg",
   lat: 49.642,
   lon: -1.622,
-  commsPilotage: ""
+  commsPilotage: "",
+  createdAt: "2026-05-03T12:00:00.000Z",
+  updatedAt: "2026-05-03T12:00:00.000Z",
+  schemaVersion: 1,
+  lastModifiedDeviceId: "device_..."
 }
 ```
 
@@ -424,9 +468,53 @@ Stored in `STEELER_ABBR_DB_V1`. The current code accepts a legacy grouped shape 
 
 Rules are applied in stored order. User edits must be preserved when shipped defaults are merged.
 
+## FuelManagementSettings
+
+Stored in `steeler_fuel_management_v1`.
+
+```js
+{
+  tankCapacity: 2000,
+  resetAt: "2026-05-03T12:00",
+  resetLevel: 2000
+}
+```
+
 ## Backup Payloads
 
-Full logbook backup:
+Primary full data backup:
+
+```js
+{
+  format: "steeler-data-backup",
+  version: 1,
+  schemaVersion: 1,
+  exportedAt: "2026-05-03T12:00:00.000Z",
+  appVersion: "1.2.0-rc1",
+  exportedByDeviceId: "device_...",
+  data: {
+    passages: Passage[],
+    theme: "day",
+    knownPorts: {
+      all: Port[],
+      recent: string[]
+    },
+    safetyInfo: SafetyEmergencyInfo,
+    legacyEcSettings: EcSettings,
+    dppTemplates: DppTemplateStore,
+    dppWaypoints: DppWaypointStore,
+    weatherAbbreviations: WeatherAbbreviationDb,
+    fuelManagement: FuelManagementSettings,
+    settings: {
+      logSplitRatio: "42"
+    }
+  }
+}
+```
+
+The primary data backup is the preferred v1.2.0 archive/restore format. It includes all local STEELER data needed for a full-device restore, but it does not restore the destination device's `steeler_device_id_v1`.
+
+Legacy full logbook backup:
 
 ```js
 {
@@ -442,9 +530,9 @@ Full logbook backup:
 }
 ```
 
-`dppTemplates` is optional for backwards compatibility. Backups created before v1.0.1 do not include it and still restore normally. Restoring a full backup that contains `dppTemplates` replaces the current DPP template store; ports remain separate.
+`dppTemplates` and `dppWaypoints` are optional for backwards compatibility. Backups created before v1.0.1 do not include DPP templates and still restore normally. Restoring a legacy full logbook backup preserves current ports.
 
-Ports backup:
+Legacy ports backup:
 
 ```js
 {
@@ -465,10 +553,11 @@ DPP Templates backup:
 ```js
 {
   format: "steeler-dpp-templates-backup",
-  version: 1,
+  version: 2,
   exportedAt: "2026-05-03T12:00:00.000Z",
   data: {
-    dppTemplates: DppTemplateStore
+    dppTemplates: DppTemplateStore,
+    dppWaypoints: DppWaypointStore
   }
 }
 ```

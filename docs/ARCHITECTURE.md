@@ -1,6 +1,6 @@
 # STEELER Logbook Architecture
 
-This document records the v1.0.1 architecture foundation, including the v0.20.x sea-use tweaks and Detailed Passage Plan template management.
+This document records the v1.2.0 sync-foundation architecture, including the v0.20.x sea-use tweaks, Detailed Passage Plan template management, and the first offline-first data sync groundwork.
 
 STEELER Logbook is a vanilla HTML/CSS/JavaScript offline-first PWA intended for iPad use at sea. Reliability, predictable offline behaviour and preservation of existing passage data are more important than reducing file size or changing code shape for its own sake.
 
@@ -37,6 +37,8 @@ Modules should provide focused helpers for calculations, parsing, rendering or d
 - Safety mirrors/last-known-good keys are separate safety keys and must not replace the canonical data keys.
 - Parse failures should be visible and recoverable, with a route to export raw corrupted data before reset or recovery.
 - Backup/restore format changes must be backward compatible.
+- The primary v1.2.0 backup format is `steeler-data-backup`, which archives all local STEELER data on the device. Older logbook, ports, and DPP backup formats remain readable where supported.
+- A local `steeler_device_id_v1` value identifies this browser/device for future sync. It is created locally and must not be replaced by restoring a data backup.
 
 ## Service Worker Release Rules
 
