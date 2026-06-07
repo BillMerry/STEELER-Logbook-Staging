@@ -12,7 +12,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.2.0-rc21";
+const APP_VERSION = "1.2.0-rc22";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
@@ -3603,20 +3603,31 @@ function escapeHtml(str) {
 function linkifyNoteHtml(value){
   const text = String(value || "");
   if (!text) return "";
-  const urlPattern = /\b((?:https?:\/\/|www\.)[^\s<>"']+)/gi;
+  const urlPattern = /\b((?:https?:\/\/|www\.)[^\s<>"']+|(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s<>"']*)?)/gi;
   let html = "";
   let lastIndex = 0;
   text.replace(urlPattern, (match, _url, offset) => {
     html += escapeHtml(text.slice(lastIndex, offset));
     const trailing = match.match(/[),.;:!?]+$/)?.[0] || "";
     const clean = trailing ? match.slice(0, -trailing.length) : match;
-    const href = clean.toLowerCase().startsWith("www.") ? `https://${clean}` : clean;
-    html += `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(clean)}</a>${escapeHtml(trailing)}`;
+    const lower = clean.toLowerCase();
+    const href = lower.startsWith("http://") || lower.startsWith("https://") ? clean : `https://${clean}`;
+    html += `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" data-note-link="true">${escapeHtml(clean)}</a>${escapeHtml(trailing)}`;
     lastIndex = offset + match.length;
     return match;
   });
   html += escapeHtml(text.slice(lastIndex));
   return html.replace(/\n/g, "<br>");
+}
+
+function activateNoteLinks(root){
+  root?.querySelectorAll?.("a[data-note-link]")?.forEach(link => {
+    if (link.dataset.noteLinkReady === "true") return;
+    link.dataset.noteLinkReady = "true";
+    link.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+    });
+  });
 }
 
 
@@ -8364,6 +8375,7 @@ function updatePlanSummaryPanel() {
     </div>
   `;
 
+  activateNoteLinks(planSummaryPanel);
   try { setupPlanSummaryIndependentScroll(); } catch (e) {}
   try { updatePlanPageSummaryStrip(); } catch (e) {}
 }
@@ -10056,6 +10068,7 @@ function renderLogEntries() {
     const notesText = document.createElement('div');
     notesText.className = 'log-notes-display';
     notesText.innerHTML = entry.notes ? linkifyNoteHtml(entry.notes) : '—';
+    activateNoteLinks(notesText);
     tdNotes.appendChild(notesText);
 
     const latStr = (entry.lat == null) ? "" : String(entry.lat);
