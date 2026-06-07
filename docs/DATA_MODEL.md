@@ -545,7 +545,7 @@ When the manual Settings action sends a cloud backup, the app wraps this same pa
     format: "steeler-cloud-backup-record",
     version: 1,
     createdAt: "2026-05-03T12:00:00.000Z",
-    appVersion: "1.2.0-rc5",
+    appVersion: "1.2.0-rc6",
     deviceId: "device_...",
     backup: SteelerDataBackup
   }
@@ -553,6 +553,22 @@ When the manual Settings action sends a cloud backup, the app wraps this same pa
 ```
 
 This is an archive copy only. It does not pull records back from Cloudflare and does not merge or overwrite local data.
+
+The read-only cloud backup list is returned by `/v1/backups` and contains summary fields only:
+
+```js
+{
+  recordId: "cloud_backup_...",
+  createdAt: "2026-05-03T12:00:00.000Z",
+  appVersion: "1.2.0-rc6",
+  deviceId: "device_...",
+  passageCount: 4,
+  serverUpdatedAt: "2026-05-03 12:00:01",
+  serverRevision: 12
+}
+```
+
+This list does not include the full backup JSON and is not used for restore.
 
 Legacy full logbook backup:
 

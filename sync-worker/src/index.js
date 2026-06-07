@@ -205,6 +205,47 @@ async function handlePull(request, env) {
   });
 }
 
+async function handleBackups(request, env) {
+  const ownerId = getOwnerId(env);
+  const url = new URL(request.url);
+  const limit = Math.max(1, Math.min(20, Number(url.searchParams.get("limit") || 5)));
+
+  const result = await env.SYNC_DB.prepare(`
+    SELECT record_id, payload_json, client_updated_at, server_updated_at,
+           server_revision, last_changed_device_id
+    FROM sync_records
+    WHERE owner_id = ? AND record_type = 'cloud-backup' AND deleted = 0
+    ORDER BY server_revision DESC
+    LIMIT ?
+  `).bind(ownerId, limit).all();
+
+  const backups = (result.results || []).map((row) => {
+    let payload = {};
+    try {
+      payload = JSON.parse(row.payload_json || "{}");
+    } catch {
+      payload = {};
+    }
+    const backup = payload.backup || {};
+    const backupData = backup.data || {};
+    return {
+      recordId: row.record_id,
+      createdAt: payload.createdAt || backup.exportedAt || row.client_updated_at || "",
+      appVersion: payload.appVersion || backup.appVersion || "",
+      deviceId: payload.deviceId || backup.exportedByDeviceId || row.last_changed_device_id || "",
+      passageCount: Array.isArray(backupData.passages) ? backupData.passages.length : null,
+      serverUpdatedAt: row.server_updated_at,
+      serverRevision: row.server_revision
+    };
+  });
+
+  return jsonResponse({
+    ok: true,
+    backups,
+    serverRevision: await getCurrentRevision(env)
+  });
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { headers: JSON_HEADERS });
@@ -223,6 +264,7 @@ export default {
     }
 
     if (url.pathname === "/v1/status" && request.method === "GET") return handleStatus(request, env);
+    if (url.pathname === "/v1/backups" && request.method === "GET") return handleBackups(request, env);
     if (url.pathname === "/v1/records" && request.method === "GET") return handlePull(request, env);
     if (url.pathname === "/v1/records/push" && request.method === "POST") return handlePush(request, env);
 

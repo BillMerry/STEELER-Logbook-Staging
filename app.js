@@ -11,7 +11,7 @@ const DEVICE_ID_KEY = "steeler_device_id_v1";
 const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 
-const APP_VERSION = "1.2.0-rc5";
+const APP_VERSION = "1.2.0-rc6";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
@@ -278,6 +278,10 @@ function renderLocalSyncStatus(){
       <div class="st-action-row">
         <button type="button" id="syncCheckStatusBtn" class="btn btn-secondary">Check Sync</button>
         <button type="button" id="syncSendBackupBtn" class="btn">Send Backup to Cloud</button>
+        <button type="button" id="syncRefreshBackupsBtn" class="btn btn-secondary">Refresh Cloud Backups</button>
+      </div>
+      <div id="syncCloudBackups" class="sync-cloud-backups">
+        <p class="hint">Refresh Cloud Backups shows recent backup copies stored in Cloudflare. It does not download, restore, merge or change local data.</p>
       </div>
       <p id="syncCheckMessage" class="hint">${escapeHtml(summary.lastSyncError || "Check Sync tests the Worker. Send Backup uploads one backup copy only; it does not pull, merge or overwrite local data.")}</p>
     </div>
@@ -301,6 +305,12 @@ function bindSyncStatusControls(){
   if (backupBtn && backupBtn.dataset.bound !== "1") {
     backupBtn.dataset.bound = "1";
     backupBtn.addEventListener("click", sendCloudBackup);
+  }
+
+  const refreshBtn = document.getElementById("syncRefreshBackupsBtn");
+  if (refreshBtn && refreshBtn.dataset.bound !== "1") {
+    refreshBtn.dataset.bound = "1";
+    refreshBtn.addEventListener("click", () => refreshCloudBackups());
   }
 }
 
@@ -370,6 +380,93 @@ async function checkSyncWorkerStatus(){
     });
     renderLocalSyncStatus();
     setSyncCheckMessage(`Sync check failed: ${e && e.message ? e.message : e}`);
+  }finally{
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderCloudBackups(backups){
+  const el = document.getElementById("syncCloudBackups");
+  if (!el) return;
+
+  if (!Array.isArray(backups) || backups.length === 0) {
+    el.innerHTML = `<p class="hint">No cloud backups found yet.</p>`;
+    return;
+  }
+
+  el.innerHTML = `
+    <div class="sync-cloud-backup-list">
+      ${backups.map((backup) => {
+        const deviceId = String(backup.deviceId || "");
+        const shortDeviceId = deviceId ? deviceId.slice(0, 18) : "Unknown";
+        const passageText = backup.passageCount == null
+          ? "Passages unknown"
+          : `${backup.passageCount} passage${backup.passageCount === 1 ? "" : "s"}`;
+        return `
+          <div class="sync-cloud-backup-item">
+            <div>
+              <strong>${escapeHtml(formatSyncStatusTime(backup.createdAt))}</strong>
+              <span>${escapeHtml(`${backup.appVersion || "Unknown version"} · ${passageText}`)}</span>
+            </div>
+            <div>
+              <span>${escapeHtml(`Device ${shortDeviceId}`)}</span>
+              <span>${escapeHtml(`Revision ${backup.serverRevision || 0}`)}</span>
+            </div>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+async function refreshCloudBackups(options = {}){
+  const btn = document.getElementById("syncRefreshBackupsBtn");
+  const connection = getSavedSyncConnection();
+  if (connection.error) {
+    setSyncCheckMessage(connection.error);
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+  if (!options.silent) setSyncCheckMessage("Checking cloud backup list...");
+  const checkedAt = nowIso();
+
+  try{
+    const res = await fetch(`${connection.baseUrl}/v1/backups?limit=5`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${connection.config.token}`
+      },
+      cache: "no-store"
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok !== true) {
+      throw new Error(data.error || `Worker returned ${res.status}`);
+    }
+
+    const backups = Array.isArray(data.backups) ? data.backups : [];
+    saveLocalSyncStatus({
+      status: "cloud-backup-list-ok",
+      lastRemoteStatus: "ok",
+      lastRemoteCheckAt: checkedAt,
+      lastRemoteRevision: data.serverRevision,
+      lastCloudBackupListAt: checkedAt,
+      lastCloudBackupCount: backups.length,
+      lastSyncError: ""
+    });
+    renderCloudBackups(backups);
+    if (!options.silent) {
+      setSyncCheckMessage(`Found ${backups.length} cloud backup${backups.length === 1 ? "" : "s"}. No data was downloaded or changed.`);
+    }
+  }catch(e){
+    saveLocalSyncStatus({
+      status: "cloud-backup-list-error",
+      lastRemoteStatus: "error",
+      lastRemoteCheckAt: checkedAt,
+      lastSyncError: e && e.message ? e.message : String(e || "Cloud backup list failed")
+    });
+    renderCloudBackups([]);
+    setSyncCheckMessage(`Cloud backup list failed: ${e && e.message ? e.message : e}`);
   }finally{
     if (btn) btn.disabled = false;
   }
@@ -448,6 +545,7 @@ async function sendCloudBackup(){
     });
     renderLocalSyncStatus();
     setSyncCheckMessage(`Cloud backup sent. Server revision ${accepted.serverRevision || data.serverRevision || 0}. No data was pulled or merged.`);
+    refreshCloudBackups({ silent: true });
   }catch(e){
     saveLocalSyncStatus({
       status: "cloud-backup-error",
