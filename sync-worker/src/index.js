@@ -246,6 +246,48 @@ async function handleBackups(request, env) {
   });
 }
 
+async function handleBackupDownload(request, env, recordId) {
+  const cleanRecordId = String(recordId || "").trim();
+  if (!cleanRecordId) return errorResponse("Missing backup record id.", 400);
+
+  const ownerId = getOwnerId(env);
+  const row = await env.SYNC_DB.prepare(`
+    SELECT record_id, payload_json, client_updated_at, server_updated_at,
+           server_revision, last_changed_device_id
+    FROM sync_records
+    WHERE owner_id = ? AND record_id = ? AND record_type = 'cloud-backup' AND deleted = 0
+    LIMIT 1
+  `).bind(ownerId, cleanRecordId).first();
+
+  if (!row) return errorResponse("Cloud backup not found.", 404);
+
+  let payload = {};
+  try {
+    payload = JSON.parse(row.payload_json || "{}");
+  } catch {
+    return errorResponse("Cloud backup payload could not be read.", 500);
+  }
+
+  const backup = payload.backup || null;
+  if (!backup || backup.format !== "steeler-data-backup") {
+    return errorResponse("Cloud backup payload is not a STEELER data backup.", 500);
+  }
+
+  return jsonResponse({
+    ok: true,
+    recordId: row.record_id,
+    backup,
+    summary: {
+      createdAt: payload.createdAt || backup.exportedAt || row.client_updated_at || "",
+      appVersion: payload.appVersion || backup.appVersion || "",
+      deviceId: payload.deviceId || backup.exportedByDeviceId || row.last_changed_device_id || "",
+      serverUpdatedAt: row.server_updated_at,
+      serverRevision: row.server_revision
+    },
+    note: "Downloaded backup JSON only; restore is not performed by the Worker."
+  });
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { headers: JSON_HEADERS });
@@ -265,6 +307,9 @@ export default {
 
     if (url.pathname === "/v1/status" && request.method === "GET") return handleStatus(request, env);
     if (url.pathname === "/v1/backups" && request.method === "GET") return handleBackups(request, env);
+    if (url.pathname.startsWith("/v1/backups/") && request.method === "GET") {
+      return handleBackupDownload(request, env, decodeURIComponent(url.pathname.slice("/v1/backups/".length)));
+    }
     if (url.pathname === "/v1/records" && request.method === "GET") return handlePull(request, env);
     if (url.pathname === "/v1/records/push" && request.method === "POST") return handlePush(request, env);
 

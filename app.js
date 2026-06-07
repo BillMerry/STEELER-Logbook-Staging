@@ -11,7 +11,7 @@ const DEVICE_ID_KEY = "steeler_device_id_v1";
 const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 
-const APP_VERSION = "1.2.0-rc6";
+const APP_VERSION = "1.2.0-rc7";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
@@ -411,12 +411,14 @@ function renderCloudBackups(backups){
             <div>
               <span>${escapeHtml(`Device ${shortDeviceId}`)}</span>
               <span>${escapeHtml(`Revision ${backup.serverRevision || 0}`)}</span>
+              <button type="button" class="btn btn-secondary sync-download-backup-btn" data-record-id="${escapeHtml(backup.recordId || "")}">Download Backup</button>
             </div>
           </div>
         `;
       }).join("")}
     </div>
   `;
+  bindCloudBackupDownloadControls();
 }
 
 async function refreshCloudBackups(options = {}){
@@ -467,6 +469,68 @@ async function refreshCloudBackups(options = {}){
     });
     renderCloudBackups([]);
     setSyncCheckMessage(`Cloud backup list failed: ${e && e.message ? e.message : e}`);
+  }finally{
+    if (btn) btn.disabled = false;
+  }
+}
+
+function bindCloudBackupDownloadControls(){
+  document.querySelectorAll(".sync-download-backup-btn").forEach((btn) => {
+    if (btn.dataset.bound === "1") return;
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", () => downloadCloudBackup(btn.dataset.recordId || "", btn));
+  });
+}
+
+async function downloadCloudBackup(recordId, btn){
+  const cleanRecordId = String(recordId || "").trim();
+  if (!cleanRecordId) {
+    setSyncCheckMessage("Cloud backup record id is missing.");
+    return;
+  }
+
+  const connection = getSavedSyncConnection();
+  if (connection.error) {
+    setSyncCheckMessage(connection.error);
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+  setSyncCheckMessage("Downloading cloud backup JSON...");
+  const checkedAt = nowIso();
+
+  try{
+    const res = await fetch(`${connection.baseUrl}/v1/backups/${encodeURIComponent(cleanRecordId)}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${connection.config.token}`
+      },
+      cache: "no-store"
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok !== true || !data.backup) {
+      throw new Error(data.error || `Worker returned ${res.status}`);
+    }
+
+    downloadJsonPayload(data.backup, "STEELER-Cloud-data-backup");
+    saveLocalSyncStatus({
+      status: "cloud-backup-download-ok",
+      lastRemoteStatus: "ok",
+      lastRemoteCheckAt: checkedAt,
+      lastRemoteRevision: data.summary?.serverRevision,
+      lastCloudBackupDownloadAt: checkedAt,
+      lastCloudBackupDownloadRecordId: cleanRecordId,
+      lastSyncError: ""
+    });
+    setSyncCheckMessage("Cloud backup downloaded as a JSON file. Nothing was restored or changed in the app.");
+  }catch(e){
+    saveLocalSyncStatus({
+      status: "cloud-backup-download-error",
+      lastRemoteStatus: "error",
+      lastRemoteCheckAt: checkedAt,
+      lastSyncError: e && e.message ? e.message : String(e || "Cloud backup download failed")
+    });
+    setSyncCheckMessage(`Cloud backup download failed: ${e && e.message ? e.message : e}`);
   }finally{
     if (btn) btn.disabled = false;
   }

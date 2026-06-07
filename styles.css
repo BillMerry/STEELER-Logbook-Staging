@@ -447,6 +447,7 @@ body[data-theme="night"] .daily-summary-row{border-color:#333}
 .sync-cloud-backup-item strong{font-size:0.9rem}
 .sync-cloud-backup-item span{font-size:0.78rem;color:var(--muted);overflow-wrap:anywhere}
 .sync-cloud-backup-item>div:last-child{text-align:right}
+.sync-download-backup-btn{margin-top:0.35rem}
 @media (max-width: 520px){
   .sync-cloud-backup-item{grid-template-columns:1fr}
   .sync-cloud-backup-item>div:last-child{text-align:left}
