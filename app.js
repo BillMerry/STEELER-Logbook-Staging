@@ -12,7 +12,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.2.0-rc20";
+const APP_VERSION = "1.2.0-rc21";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
@@ -3600,6 +3600,25 @@ function escapeHtml(str) {
     .replace(/'/g, "&#039;");
 }
 
+function linkifyNoteHtml(value){
+  const text = String(value || "");
+  if (!text) return "";
+  const urlPattern = /\b((?:https?:\/\/|www\.)[^\s<>"']+)/gi;
+  let html = "";
+  let lastIndex = 0;
+  text.replace(urlPattern, (match, _url, offset) => {
+    html += escapeHtml(text.slice(lastIndex, offset));
+    const trailing = match.match(/[),.;:!?]+$/)?.[0] || "";
+    const clean = trailing ? match.slice(0, -trailing.length) : match;
+    const href = clean.toLowerCase().startsWith("www.") ? `https://${clean}` : clean;
+    html += `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(clean)}</a>${escapeHtml(trailing)}`;
+    lastIndex = offset + match.length;
+    return match;
+  });
+  html += escapeHtml(text.slice(lastIndex));
+  return html.replace(/\n/g, "<br>");
+}
+
 
 function getPortCommsPilotageText(portNameStr){
   const name = (portNameStr || "").trim();
@@ -6469,6 +6488,7 @@ function savedWaypointToDppWaypoint(saved){
     lat: Number.isFinite(lat) ? lat : null,
     lon: Number.isFinite(lon) ? lon : null,
     distToNext: "",
+    manualDistToNext: "",
     cogToNext: "",
     plannedSpeed: "",
     timeToNext: "",
@@ -6517,6 +6537,7 @@ function routePortToDppWaypoint(point){
     lat: Number.isFinite(lat) ? lat : null,
     lon: Number.isFinite(lon) ? lon : null,
     distToNext: "",
+    manualDistToNext: "",
     cogToNext: "",
     plannedSpeed: "",
     timeToNext: "",
@@ -6578,6 +6599,7 @@ function readDppTemplateEditorForm(){
       lat: parsed ? parsed.lat : null,
       lon: parsed ? parsed.lon : null,
       distToNext: "",
+      manualDistToNext: (row.querySelector(".template-wp-distance-override")?.value || "").trim(),
       cogToNext: "",
       plannedSpeed: (row.querySelector(".template-wp-speed")?.value || "").trim(),
       timeToNext: "",
@@ -6605,6 +6627,7 @@ function renderDppTemplateEditorRows(detailed){
     <tr data-template-wp-row="${idx}" data-template-wp-id="${escapeHtml(wp.id || "")}">
       <td><input type="text" class="template-wp-name" value="${escapeHtml(wp.name || "")}" placeholder="Waypoint"></td>
       <td><input type="text" class="template-wp-coords" value="${escapeHtml(wp.coordsText || formatDetailedWaypointCoords(Number(wp.lat), Number(wp.lon)))}" placeholder="50.57507° N, 2.44846° W"></td>
+      <td><input type="number" step="0.1" inputmode="decimal" class="template-wp-distance-override" value="${escapeHtml(wp.manualDistToNext || "")}" placeholder="${wp.distToNext !== "" ? escapeHtml(String(wp.distToNext)) : "NM"}"></td>
       <td><input type="number" step="0.1" inputmode="decimal" class="template-wp-speed" value="${escapeHtml(wp.plannedSpeed || "")}" placeholder="kt"></td>
       <td><button type="button" class="btn btn-secondary btn-small template-wp-delete">Delete</button></td>
     </tr>
@@ -6636,11 +6659,12 @@ function openDppTemplateEditor(id){
         <input type="text" id="templateDppName" value="${escapeHtml(tpl.name)}">
       </label>
       <div style="overflow-x:auto; margin-top:0.8rem;">
-        <table class="log-table template-dpp-table" style="min-width:760px;">
+        <table class="log-table template-dpp-table" style="min-width:840px;">
           <thead>
             <tr>
               <th>Waypoint</th>
               <th>WP Lat/Lon</th>
+              <th>NM</th>
               <th>Plan kt</th>
               <th></th>
             </tr>
@@ -6696,6 +6720,7 @@ function openDppTemplateEditor(id){
       lat: null,
       lon: null,
       distToNext: "",
+      manualDistToNext: "",
       cogToNext: "",
       plannedSpeed: "",
       timeToNext: "",
@@ -6818,7 +6843,7 @@ function renderDppWaypointsManager(openId = ""){
         <div class="st-list-card-main">
           <div class="st-list-summary">
             <div class="st-list-title">${escapeHtml(wp.name || "Untitled WP")}</div>
-            <div class="st-list-meta">${escapeHtml(wp.coordsText || "No position stored")}${wp.notes ? ` · ${escapeHtml(wp.notes)}` : ""}</div>
+            <div class="st-list-meta">${escapeHtml(wp.coordsText || "No position stored")}${wp.notes ? ` · ${linkifyNoteHtml(wp.notes)}` : ""}</div>
           </div>
           <div class="st-row-edit-panel" ${isOpen ? "" : "hidden"}>
             <div class="st-form-grid st-form-grid-compact">
@@ -6922,6 +6947,7 @@ function readSettingsDppWorkspaceForm(){
       lat: parsed ? parsed.lat : null,
       lon: parsed ? parsed.lon : null,
       distToNext: "",
+      manualDistToNext: (row.querySelector(".dpp-distance-override")?.value || "").trim(),
       cogToNext: "",
       plannedSpeed: (row.querySelector(".dpp-speed")?.value || "").trim(),
       timeToNext: "",
@@ -7046,7 +7072,7 @@ function renderSettingsDppWorkspace(){
               <td><input type="text" class="dpp-time" value="${escapeHtml(wp.time || "")}" placeholder="HH:MM"></td>
               <td><input type="text" class="dpp-name" value="${escapeHtml(wp.name || "")}" placeholder="Waypoint"></td>
               <td><input type="text" class="dpp-coords" value="${escapeHtml(wp.coordsText || formatDetailedWaypointCoords(wp.lat, wp.lon))}" placeholder="50º45.123'N, 001º18.456'W or 50.752, -1.308"></td>
-              <td>${wp.distToNext !== "" ? escapeHtml(String(wp.distToNext)) : "–"}</td>
+              <td><input type="number" step="0.1" inputmode="decimal" class="dpp-distance-override" value="${escapeHtml(wp.manualDistToNext || "")}" placeholder="${wp.distToNext !== "" ? escapeHtml(String(wp.distToNext)) : "NM"}" title="Override distance to next waypoint"></td>
               <td>${wp.cogToNext ? escapeHtml(wp.cogToNext) : "–"}</td>
               <td><input type="number" step="0.1" inputmode="decimal" class="dpp-speed" value="${escapeHtml(wp.plannedSpeed || "")}" placeholder="kt"></td>
               <td>${wp.timeToNext ? escapeHtml(wp.timeToNext) : "–"}</td>
@@ -7147,6 +7173,7 @@ function renderSettingsDppWorkspace(){
       lat: null,
       lon: null,
       distToNext: "",
+      manualDistToNext: "",
       cogToNext: "",
       plannedSpeed: "",
       timeToNext: "",
@@ -7162,6 +7189,7 @@ function renderSettingsDppWorkspace(){
     if ((active.waypoints || []).length < 2) return;
     const firstTime = active.waypoints[0]?.time || "";
     active.waypoints.reverse();
+    active.waypoints.forEach((wp) => { wp.manualDistToNext = ""; });
     if (active.waypoints.length) active.waypoints[0].time = firstTime;
     for (let i = 1; i < active.waypoints.length; i++) active.waypoints[i].time = "";
     renderSettingsDppWorkspace();
@@ -8231,9 +8259,9 @@ function updatePlanSummaryPanel() {
 								return `<div class="daily-summary-item dpp-progress-item" title="${escapeHtml(label || "–")}">${escapeHtml(label || "–")}</div>`;
 						}).join("")
 				: "<p><em>–</em></p>";
-		const detailedHazardsHtml = detailed.hazards ? escapeHtml(detailed.hazards).replace(/\n/g, "<br>") : "<em>–</em>";
-		const detailedRefugeHtml = detailed.portsOfRefuge ? escapeHtml(detailed.portsOfRefuge).replace(/\n/g, "<br>") : "<em>–</em>";
-		const detailedWelfareHtml = detailed.crewWelfare ? escapeHtml(detailed.crewWelfare).replace(/\n/g, "<br>") : "<em>–</em>";
+		const detailedHazardsHtml = detailed.hazards ? linkifyNoteHtml(detailed.hazards) : "<em>–</em>";
+		const detailedRefugeHtml = detailed.portsOfRefuge ? linkifyNoteHtml(detailed.portsOfRefuge) : "<em>–</em>";
+		const detailedWelfareHtml = detailed.crewWelfare ? linkifyNoteHtml(detailed.crewWelfare) : "<em>–</em>";
 
   const tideStationsBlocks = tideStations.map(ts => {
     const stationName = (ts.name || "").trim();
@@ -8281,7 +8309,7 @@ function updatePlanSummaryPanel() {
     ? dailySummaries.map(ds => {
         const dateLabel = ds.date ? formatDateShort(ds.date) : "No date";
         const feeLabel  = ds.fee  ? ` – ${escapeHtml(ds.fee)}` : "";
-        const notesLabel = ds.notes ? ` – ${escapeHtml(ds.notes)}` : "";
+        const notesLabel = ds.notes ? ` – ${linkifyNoteHtml(ds.notes)}` : "";
         return `<div class="daily-summary-item plan-link" data-goto="dailySummariesContainer">${escapeHtml(dateLabel)}${feeLabel}${notesLabel}</div>`;
       }).join("")
     : '<p class="plan-link" data-goto="dailySummariesContainer"><em>–</em></p>';
@@ -8410,6 +8438,7 @@ function setupPlanSummaryIndependentScroll(){
 }
 
 planSummaryPanel.addEventListener("click", (e) => {
+  if (e.target.closest("a")) return;
   const target = e.target.closest(".plan-link");
   if (!target) return;
   const fieldId = target.dataset.goto;
@@ -10018,11 +10047,15 @@ function renderLogEntries() {
 
     const tdNotes = document.createElement('td');
     tdNotes.className = 'log-display-cell log-notes-cell';
-    tdNotes.addEventListener('click', (ev) => { ev.stopPropagation(); openEntryDialog(entry); });
+    tdNotes.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      if (ev.target.closest("a")) return;
+      openEntryDialog(entry);
+    });
 
     const notesText = document.createElement('div');
     notesText.className = 'log-notes-display';
-    notesText.textContent = entry.notes || '—';
+    notesText.innerHTML = entry.notes ? linkifyNoteHtml(entry.notes) : '—';
     tdNotes.appendChild(notesText);
 
     const latStr = (entry.lat == null) ? "" : String(entry.lat);

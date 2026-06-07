@@ -67,6 +67,8 @@ Test from a clean browser profile or an iPad where possible:
 - Enter the staging Worker URL/token, tap Check Sync, and confirm it reports Worker OK without changing passage data.
 - Tap Preview Sync and confirm it reports local/cloud sync-record counts plus safe-send, safe-receive, and needs-review counts without uploading, downloading into the app, restoring, merging, or changing local passage data.
 - Edit one shared settings record, such as Ports, DPP templates, weather abbreviations or fuel settings, and confirm Preview Sync shows a useful summary of what changed.
+- Add a URL to a log note or DPP note and confirm it displays as a clickable link.
+- Override a DPP leg distance and confirm the total distance/time/fuel use the manual NM value.
 - Confirm Advanced sync tools can be expanded and contain Check Sync, one-way Send/Receive, and cloud backup controls.
 - For one needs-review item, choose either Keep this device or Use cloud. Confirm only that one item is resolved and the other needs-review items are left alone. If using cloud, confirm a safety backup downloads first.
 - Tap Full Sync and confirm it sends only safe-send records, receives only safe-receive records, downloads a safety backup before receiving, refreshes the preview, and leaves needs-review records untouched.

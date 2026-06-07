@@ -200,6 +200,7 @@ Tide stations are planned data. Manual fields are the editable source of truth; 
   lat: 50.65,
   lon: -1.583333,
   distToNext: 12.4,
+  manualDistToNext: "",
   cogToNext: "187",
   plannedSpeed: "8.0",
   timeToNext: "01:33",
@@ -207,7 +208,7 @@ Tide stations are planned data. Manual fields are the editable source of truth; 
 }
 ```
 
-`distToNext`, `cogToNext`, `timeToNext`, and `fuelToNext` are recalculated from coordinates and planned speed. They are stored in passage data today, but should be treated as derived values.
+`distToNext`, `cogToNext`, `timeToNext`, and `fuelToNext` are recalculated from coordinates and planned speed. They are stored in passage data today, but should be treated as derived values. `manualDistToNext` can override the calculated distance for the leg starting at that waypoint, for example where a river route is longer than the straight-line waypoint distance.
 
 ## DppTemplateStore
 
@@ -549,7 +550,7 @@ When the manual Settings action sends a cloud backup, the app wraps this same pa
     format: "steeler-cloud-backup-record",
     version: 1,
     createdAt: "2026-05-03T12:00:00.000Z",
-    appVersion: "1.2.0-rc20",
+    appVersion: "1.2.0-rc21",
     deviceId: "device_...",
     backup: SteelerDataBackup
   }
@@ -564,7 +565,7 @@ The read-only cloud backup list is returned by `/v1/backups` and contains summar
 {
   recordId: "cloud_backup_...",
   createdAt: "2026-05-03T12:00:00.000Z",
-  appVersion: "1.2.0-rc20",
+  appVersion: "1.2.0-rc21",
   deviceId: "device_...",
   passageCount: 4,
   serverUpdatedAt: "2026-05-03 12:00:01",
@@ -583,7 +584,7 @@ The selected cloud backup download is returned by `/v1/backups/{recordId}`:
   backup: SteelerDataBackup,
   summary: {
     createdAt: "2026-05-03T12:00:00.000Z",
-    appVersion: "1.2.0-rc20",
+    appVersion: "1.2.0-rc21",
     deviceId: "device_...",
     serverUpdatedAt: "2026-05-03 12:00:01",
     serverRevision: 12
@@ -608,7 +609,7 @@ Manual Sync Preview builds local sync records, but does not upload or apply them
   payload: {
     format: "steeler-sync-record",
     version: 1,
-    appVersion: "1.2.0-rc20",
+    appVersion: "1.2.0-rc21",
     recordType: "passage",
     updatedAt: "2026-05-03T12:00:00.000Z",
     data: Passage

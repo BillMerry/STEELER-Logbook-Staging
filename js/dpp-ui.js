@@ -133,7 +133,7 @@ function renderDetailedPassagePlan(p){
               </td>
               <td><input type="text" class="dpp-name" value="${escapeHtml(wp.name || "")}" placeholder="Waypoint"></td>
               <td><input type="text" class="dpp-coords" value="${escapeHtml(wp.coordsText || formatDetailedWaypointCoords(wp.lat, wp.lon))}" placeholder="50º45.123'N, 001º18.456'W or 50.752, -1.308"></td>
-              <td>${wp.distToNext !== "" ? escapeHtml(String(wp.distToNext)) : "–"}</td>
+              <td><input type="number" step="0.1" inputmode="decimal" class="dpp-distance-override" value="${escapeHtml(wp.manualDistToNext || "")}" placeholder="${wp.distToNext !== "" ? escapeHtml(String(wp.distToNext)) : "NM"}" title="Override distance to next waypoint"></td>
               <td>${wp.cogToNext ? escapeHtml(wp.cogToNext) : "–"}</td>
               <td><input type="number" step="0.1" inputmode="decimal" class="dpp-speed" value="${escapeHtml(wp.plannedSpeed || "")}" placeholder="kt"></td>
               <td>${wp.timeToNext ? escapeHtml(wp.timeToNext) : "–"}</td>
@@ -361,6 +361,7 @@ function renderDetailedPassagePlan(p){
 
     const firstTime = arr[0]?.time || "";
     arr.reverse();
+    arr.forEach((wp) => { wp.manualDistToNext = ""; });
 
     if (arr.length) arr[0].time = firstTime;
     for (let i = 1; i < arr.length; i++) {
@@ -430,6 +431,12 @@ function renderDetailedPassagePlan(p){
     const dppSpeedEl = row.querySelector(".dpp-speed");
     dppSpeedEl?.addEventListener("input", () => {
       wp.plannedSpeed = (dppSpeedEl.value || "").trim();
+      savePassages();
+    });
+
+    const dppDistanceEl = row.querySelector(".dpp-distance-override");
+    dppDistanceEl?.addEventListener("input", () => {
+      wp.manualDistToNext = (dppDistanceEl.value || "").trim();
       savePassages();
     });
 
@@ -510,6 +517,7 @@ function readDetailedPassagePlanFromForm(){
       lat: parsed ? parsed.lat : null,
       lon: parsed ? parsed.lon : null,
       distToNext: "",
+      manualDistToNext: (row.querySelector(".dpp-distance-override")?.value || "").trim(),
       cogToNext: "",
       plannedSpeed: (row.querySelector(".dpp-speed")?.value || "").trim(),
       timeToNext: "",

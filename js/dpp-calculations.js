@@ -29,6 +29,7 @@ function cloneDetailedPassagePlan(detailed, { resetTimes=false, regenerateIds=fa
         lat: Number.isFinite(lat) ? lat : null,
         lon: Number.isFinite(lon) ? lon : null,
         distToNext: "",
+        manualDistToNext: wp.manualDistToNext || "",
         cogToNext: "",
         plannedSpeed: wp.plannedSpeed || "",
         timeToNext: "",
@@ -57,6 +58,7 @@ function reverseDetailedPassagePlanFromPrevious(prevDetailed){
   prev.waypoints.forEach((wp, idx) => {
     const sourceSpeedIdx = originalSpeeds.length - idx - 2;
     wp.plannedSpeed = sourceSpeedIdx >= 0 ? (originalSpeeds[sourceSpeedIdx] || "") : "";
+    wp.manualDistToNext = "";
   });
   return prev;
 }
@@ -304,8 +306,10 @@ function recalcDetailedPassagePlan(p, legIdx = null){
     wp.fuelToNext = "";
 
     if (next && Number.isFinite(wp.lat) && Number.isFinite(wp.lon) && Number.isFinite(next.lat) && Number.isFinite(next.lon)) {
-      const nm = nmBetween(wp.lat, wp.lon, next.lat, next.lon);
-      if (nm != null && Number.isFinite(nm)) {
+      const calculatedNm = nmBetween(wp.lat, wp.lon, next.lat, next.lon);
+      if (calculatedNm != null && Number.isFinite(calculatedNm)) {
+        const manualNm = parseFloat(wp.manualDistToNext);
+        const nm = Number.isFinite(manualNm) && manualNm > 0 ? manualNm : calculatedNm;
         wp.distToNext = Number(nm.toFixed(1));
 								wp.cogToNext = bearingDegBetween(wp.lat, wp.lon, next.lat, next.lon);
 
