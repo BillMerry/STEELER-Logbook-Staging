@@ -62,6 +62,7 @@ Test from a clean browser profile or an iPad where possible:
 - Edit a Detailed Passage Plan template in Settings and confirm applying it to a passage uses the edited waypoints, speeds and notes.
 - Confirm the destination device keeps its own `steeler_device_id_v1` after restoring a data backup.
 - Delete a log entry and confirm it disappears from normal Log view, CSV export and PDF/print export while remaining present in the full data backup with `deleted: true`.
+- Delete a passage on one device, run Full Sync on both devices, and confirm the passage stays deleted rather than reappearing from cloud.
 - Confirm Settings > Data & Backup shows local sync status, pending local changes, recoverable deleted entries, last local change time and a device ID.
 - Enter the staging Worker URL/token, tap Check Sync, and confirm it reports Worker OK without changing passage data.
 - Tap Preview Sync and confirm it reports local/cloud sync-record counts plus safe-send, safe-receive, and needs-review counts without uploading, downloading into the app, restoring, merging, or changing local passage data.

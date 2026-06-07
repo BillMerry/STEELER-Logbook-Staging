@@ -12,7 +12,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.2.0-rc15";
+const APP_VERSION = "1.2.0-rc16";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
@@ -208,6 +208,18 @@ function countRecoverableDeletedEntries(){
   return (Array.isArray(passages) ? passages : []).reduce((sum, p) => {
     return sum + (Array.isArray(p?.entries) ? p.entries.filter(isDeletedLogEntry).length : 0);
   }, 0);
+}
+
+function isDeletedPassage(passage){
+  return !!(passage && passage.deleted === true);
+}
+
+function activePassages(){
+  return (Array.isArray(passages) ? passages : []).filter((passage) => !isDeletedPassage(passage));
+}
+
+function getFirstActivePassage(){
+  return activePassages()[0] || null;
 }
 
 function recordLocalSyncChange(reason = "local-change", timestamp = nowIso()){
@@ -489,7 +501,7 @@ function createSyncRecord(recordId, recordType, payload, timestamp, lastChangedD
     schemaVersion: LOCAL_DATA_SCHEMA_VERSION,
     clientUpdatedAt: cleanTimestamp,
     lastChangedDeviceId,
-    deleted: false,
+    deleted: payload?.deleted === true,
     payload: {
       format: "steeler-sync-record",
       version: 1,
@@ -702,6 +714,11 @@ function compareLocalAndRemoteSyncRecords(localRecords, remoteRecords){
     const localDevice = String(local.lastChangedDeviceId || "");
     const remoteDevice = String(remote.lastChangedDeviceId || "");
     const differentDevice = !!(localDevice && remoteDevice && localDevice !== remoteDevice);
+    if (local.deleted !== remote.deleted && localTime !== remoteTime) {
+      if (localTime > remoteTime) wouldUpload.push({ record: local, reason: local.deleted ? "deleted on this device" : "restored on this device" });
+      if (remoteTime > localTime) wouldDownload.push({ record: remote, reason: remote.deleted ? "deleted in cloud" : "restored in cloud" });
+      return;
+    }
     if (localTime !== remoteTime && differentDevice) {
       conflicts.push({
         local,
@@ -3112,6 +3129,14 @@ function normalisePassageSyncFields(passage, deviceId){
     passage.lastModifiedDeviceId = deviceId;
     changed = true;
   }
+  if (passage.deleted === true && !isValidIsoString(passage.deletedAt)) {
+    passage.deletedAt = passage.updatedAt;
+    changed = true;
+  }
+  if (passage.deleted !== true && passage.deletedAt) {
+    passage.deletedAt = "";
+    changed = true;
+  }
   if (!Array.isArray(passage.entries)) {
     passage.entries = [];
     changed = true;
@@ -3365,7 +3390,8 @@ function getPortCoords(name){
 // --- Sunrise / sunset calculation (NOAA approximation, offline) ----------
 
 function getCurrentPassage() {
-  return passages.find(p => p.id === currentPassageId) || null;
+  const passage = passages.find(p => p.id === currentPassageId) || null;
+  return isDeletedPassage(passage) ? null : passage;
 }
 
 function normalisePassageTimeZone(value) {
@@ -4385,7 +4411,7 @@ function exportDppTemplatesBackup() {
 
 function refreshAfterDataRestore(){
   refreshHomePassageList();
-  currentPassageId = passages[0]?.id || null;
+  currentPassageId = getFirstActivePassage()?.id || null;
   loadPassageIntoUI();
   refreshPortUI();
   try { injectSafetyEmergencySettingsBlock(); } catch(e) {}
@@ -4694,13 +4720,16 @@ function deletePassageById(id) {
   if (idx < 0) return;
   const p = passages[idx];
   const label = `${p.plan.date || p.createdAt.slice(0,10)} – ${(p.plan.from||"?")} → ${(p.plan.to||"?")}`;
-  const ok = confirm(`Delete this passage?\n\n${label}\n\nThis cannot be undone (unless you’ve got a backup).`);
+  const ok = confirm(`Delete this passage?\n\n${label}\n\nIt will be hidden from the logbook and the deletion will sync to other devices.`);
   if (!ok) return;
 
-  passages.splice(idx, 1);
+  const timestamp = nowIso();
+  p.deleted = true;
+  p.deletedAt = timestamp;
+  markPassageDirty(p, timestamp, "passage-delete");
   savePassages();
 
-  if (currentPassageId === id) currentPassageId = passages[0]?.id || null;
+  if (currentPassageId === id) currentPassageId = getFirstActivePassage()?.id || null;
 
   refreshHomePassageList();
   loadPassageIntoUI();
@@ -4993,9 +5022,11 @@ function selectHomePassage(passage, { openLog = false } = {}) {
 
 function refreshHomePassageList() {
   homePassageList.innerHTML = "";
-  if (homeCopyPassageBtn) homeCopyPassageBtn.disabled = !currentPassageId || !passages.some(p => p.id === currentPassageId);
+  if (homeCopyPassageBtn) homeCopyPassageBtn.disabled = !currentPassageId || !passages.some(p => p.id === currentPassageId && !isDeletedPassage(p));
 
-  if (passages.length === 0) {
+  const visibleSourcePassages = activePassages();
+
+  if (visibleSourcePassages.length === 0) {
     const p = document.createElement("p");
     p.textContent = "No passages yet. Tap “+ New Passage” to get started.";
     p.className = "hint";
@@ -5004,7 +5035,7 @@ function refreshHomePassageList() {
     return;
   }
 
-  const visiblePassages = passages
+  const visiblePassages = visibleSourcePassages
     .filter(passage => passageMatchesHomeFilter(passage) && passageMatchesHomeSearch(passage))
     .slice()
     .sort((a, b) => {
@@ -5014,7 +5045,7 @@ function refreshHomePassageList() {
     });
 
   if (homePassageCount) {
-    const totalEntries = passages.reduce((sum, p) => sum + activeLogEntries(p).length, 0);
+    const totalEntries = visibleSourcePassages.reduce((sum, p) => sum + activeLogEntries(p).length, 0);
     homePassageCount.textContent = `${visiblePassages.length} passages • ${totalEntries} entries`;
   }
 
@@ -10196,7 +10227,7 @@ function loadPassageIntoUI() {
 // --- Create new passage -------------------------------------------
 
 homeNewPassageBtn.addEventListener("click", () => {
-  if (passages.length > 0) {
+  if (activePassages().length > 0) {
     const ok = confirm("Start a new passage? (Existing ones will remain in history.)");
     if (!ok) return;
   }
@@ -10991,7 +11022,7 @@ if (new URLSearchParams(location.search).has("reset")) {
 
   refreshHomePassageList();
 
-  if (!currentPassageId && passages.length > 0) currentPassageId = passages[0].id;
+  if (!currentPassageId && activePassages().length > 0) currentPassageId = getFirstActivePassage().id;
 
   loadPassageIntoUI();
   setupLogSplitDivider();

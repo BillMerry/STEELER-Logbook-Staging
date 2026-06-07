@@ -86,6 +86,8 @@ Stored inside `steeler_logbook_passages_v5`.
   updatedAt: "2026-05-03T08:00:00.000Z",
   schemaVersion: 1,
   lastModifiedDeviceId: "device_...",
+  deleted: false,
+  deletedAt: "",
   syncDirty: true,
   syncStatus: "pending",
   dirtyAt: "2026-05-03T08:00:00.000Z",
@@ -95,6 +97,8 @@ Stored inside `steeler_logbook_passages_v5`.
   legEnds: PassageLegEnd[]
 }
 ```
+
+Deleted passages are soft-deleted for sync safety. The app hides passages where `deleted === true` from normal Home and Log views, but keeps them in `steeler_logbook_passages_v5` and full data backups so the deletion can sync to other devices.
 
 ## PassagePlan
 
@@ -545,7 +549,7 @@ When the manual Settings action sends a cloud backup, the app wraps this same pa
     format: "steeler-cloud-backup-record",
     version: 1,
     createdAt: "2026-05-03T12:00:00.000Z",
-    appVersion: "1.2.0-rc15",
+    appVersion: "1.2.0-rc16",
     deviceId: "device_...",
     backup: SteelerDataBackup
   }
@@ -560,7 +564,7 @@ The read-only cloud backup list is returned by `/v1/backups` and contains summar
 {
   recordId: "cloud_backup_...",
   createdAt: "2026-05-03T12:00:00.000Z",
-  appVersion: "1.2.0-rc15",
+  appVersion: "1.2.0-rc16",
   deviceId: "device_...",
   passageCount: 4,
   serverUpdatedAt: "2026-05-03 12:00:01",
@@ -579,7 +583,7 @@ The selected cloud backup download is returned by `/v1/backups/{recordId}`:
   backup: SteelerDataBackup,
   summary: {
     createdAt: "2026-05-03T12:00:00.000Z",
-    appVersion: "1.2.0-rc15",
+    appVersion: "1.2.0-rc16",
     deviceId: "device_...",
     serverUpdatedAt: "2026-05-03 12:00:01",
     serverRevision: 12
@@ -604,7 +608,7 @@ Manual Sync Preview builds local sync records, but does not upload or apply them
   payload: {
     format: "steeler-sync-record",
     version: 1,
-    appVersion: "1.2.0-rc15",
+    appVersion: "1.2.0-rc16",
     recordType: "passage",
     updatedAt: "2026-05-03T12:00:00.000Z",
     data: Passage
