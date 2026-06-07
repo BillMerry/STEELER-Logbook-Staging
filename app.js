@@ -11,7 +11,7 @@ const DEVICE_ID_KEY = "steeler_device_id_v1";
 const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 
-const APP_VERSION = "1.2.0-rc7";
+const APP_VERSION = "1.2.0-rc8";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
@@ -412,6 +412,7 @@ function renderCloudBackups(backups){
               <span>${escapeHtml(`Device ${shortDeviceId}`)}</span>
               <span>${escapeHtml(`Revision ${backup.serverRevision || 0}`)}</span>
               <button type="button" class="btn btn-secondary sync-download-backup-btn" data-record-id="${escapeHtml(backup.recordId || "")}">Download Backup</button>
+              <button type="button" class="btn btn-danger sync-restore-backup-btn" data-record-id="${escapeHtml(backup.recordId || "")}">Restore Backup</button>
             </div>
           </div>
         `;
@@ -419,6 +420,7 @@ function renderCloudBackups(backups){
     </div>
   `;
   bindCloudBackupDownloadControls();
+  bindCloudBackupRestoreControls();
 }
 
 async function refreshCloudBackups(options = {}){
@@ -482,6 +484,14 @@ function bindCloudBackupDownloadControls(){
   });
 }
 
+function bindCloudBackupRestoreControls(){
+  document.querySelectorAll(".sync-restore-backup-btn").forEach((btn) => {
+    if (btn.dataset.bound === "1") return;
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", () => restoreCloudBackup(btn.dataset.recordId || "", btn));
+  });
+}
+
 async function downloadCloudBackup(recordId, btn){
   const cleanRecordId = String(recordId || "").trim();
   if (!cleanRecordId) {
@@ -531,6 +541,116 @@ async function downloadCloudBackup(recordId, btn){
       lastSyncError: e && e.message ? e.message : String(e || "Cloud backup download failed")
     });
     setSyncCheckMessage(`Cloud backup download failed: ${e && e.message ? e.message : e}`);
+  }finally{
+    if (btn) btn.disabled = false;
+  }
+}
+
+function describeDataBackupForRestore(backup, summary = {}){
+  const passagesCount = Array.isArray(backup?.data?.passages) ? backup.data.passages.length : 0;
+  const exportedAt = backup?.exportedAt || summary.createdAt || "";
+  const appVersion = backup?.appVersion || summary.appVersion || "Unknown version";
+  const deviceId = backup?.exportedByDeviceId || summary.deviceId || "Unknown device";
+  const latestPassage = Array.isArray(backup?.data?.passages)
+    ? backup.data.passages.reduce((latest, p) => {
+        const candidate = p?.updatedAt || p?.createdAt || p?.plan?.date || "";
+        if (!candidate) return latest;
+        return !latest || String(candidate) > String(latest) ? String(candidate) : latest;
+      }, "")
+    : "";
+  return [
+    `Backup date: ${formatSyncStatusTime(exportedAt)}`,
+    `App version: ${appVersion}`,
+    `Passages: ${passagesCount}`,
+    `Device: ${String(deviceId).slice(0, 24)}`,
+    latestPassage ? `Latest passage/change: ${latestPassage}` : ""
+  ].filter(Boolean).join("\n");
+}
+
+async function fetchCloudBackupRecord(recordId){
+  const cleanRecordId = String(recordId || "").trim();
+  if (!cleanRecordId) throw new Error("Cloud backup record id is missing.");
+
+  const connection = getSavedSyncConnection();
+  if (connection.error) throw new Error(connection.error);
+
+  const res = await fetch(`${connection.baseUrl}/v1/backups/${encodeURIComponent(cleanRecordId)}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${connection.config.token}`
+    },
+    cache: "no-store"
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.ok !== true || !data.backup) {
+    throw new Error(data.error || `Worker returned ${res.status}`);
+  }
+  return data;
+}
+
+async function restoreCloudBackup(recordId, btn){
+  const cleanRecordId = String(recordId || "").trim();
+  if (!cleanRecordId) {
+    setSyncCheckMessage("Cloud backup record id is missing.");
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+  setSyncCheckMessage("Fetching cloud backup for restore...");
+  const checkedAt = nowIso();
+
+  try{
+    const data = await fetchCloudBackupRecord(cleanRecordId);
+    const backup = data.backup;
+    if (!backup || backup.format !== DATA_BACKUP_FORMAT || !backup.data || !Array.isArray(backup.data.passages)) {
+      throw new Error("Cloud backup is not a valid STEELER data backup.");
+    }
+
+    const details = describeDataBackupForRestore(backup, data.summary || {});
+    const firstOk = confirm(
+      "Restore this cloud backup?\n\n" +
+      details + "\n\n" +
+      "This will replace passages, ports, Safety / Emergency Info, DPP templates, saved waypoints, weather abbreviations, fuel settings and app settings on this device.\n\n" +
+      "A safety backup of the current local data will download first."
+    );
+    if (!firstOk) {
+      setSyncCheckMessage("Cloud backup restore cancelled. Nothing was changed.");
+      return;
+    }
+
+    const secondOk = confirm(
+      "Final confirmation\n\n" +
+      "This is a restore, not a sync. Current local data will be replaced by the selected cloud backup.\n\n" +
+      "Continue?"
+    );
+    if (!secondOk) {
+      setSyncCheckMessage("Cloud backup restore cancelled. Nothing was changed.");
+      return;
+    }
+
+    downloadJsonPayload(createDataBackupPayload(), "STEELER-Before-cloud-restore-backup");
+    const restored = restoreDataBackupObject(backup, { skipConfirm: true, successMessage: "Cloud backup restored successfully." });
+    if (!restored) throw new Error("Cloud backup restore did not complete.");
+
+    saveLocalSyncStatus({
+      status: "cloud-backup-restore-ok",
+      lastRemoteStatus: "ok",
+      lastRemoteCheckAt: checkedAt,
+      lastRemoteRevision: data.summary?.serverRevision,
+      lastCloudBackupRestoreAt: checkedAt,
+      lastCloudBackupRestoreRecordId: cleanRecordId,
+      lastSyncError: ""
+    });
+    renderLocalSyncStatus();
+    setSyncCheckMessage("Cloud backup restored. A safety backup of the previous local data was downloaded first.");
+  }catch(e){
+    saveLocalSyncStatus({
+      status: "cloud-backup-restore-error",
+      lastRemoteStatus: "error",
+      lastRemoteCheckAt: checkedAt,
+      lastSyncError: e && e.message ? e.message : String(e || "Cloud backup restore failed")
+    });
+    setSyncCheckMessage(`Cloud backup restore failed: ${e && e.message ? e.message : e}`);
   }finally{
     if (btn) btn.disabled = false;
   }
@@ -3328,7 +3448,7 @@ function refreshAfterDataRestore(){
   try { renderLocalSyncStatus(); } catch(e) {}
 }
 
-function restoreDataBackupObject(obj){
+function restoreDataBackupObject(obj, options = {}){
   if (!obj || obj.format !== DATA_BACKUP_FORMAT || !obj.data) {
     alert("That file doesn’t look like a STEELER data backup.");
     return false;
@@ -3338,11 +3458,13 @@ function restoreDataBackupObject(obj){
     return false;
   }
 
-  const ok = confirm(
-    "Restore full STEELER data backup?\n\n" +
-    "This will replace passages, ports, Safety / Emergency Info, DPP templates, saved waypoints, weather abbreviations, fuel settings and app settings on this device."
-  );
-  if (!ok) return false;
+  if (!options.skipConfirm) {
+    const ok = confirm(
+      "Restore full STEELER data backup?\n\n" +
+      "This will replace passages, ports, Safety / Emergency Info, DPP templates, saved waypoints, weather abbreviations, fuel settings and app settings on this device."
+    );
+    if (!ok) return false;
+  }
 
   passages = obj.data.passages;
   normalisePassagesForSync(passages);
@@ -3373,7 +3495,7 @@ function restoreDataBackupObject(obj){
   }
   applyTheme(obj.data.theme || "day");
   refreshAfterDataRestore();
-  alert("Full STEELER data backup restored successfully.");
+  alert(options.successMessage || "Full STEELER data backup restored successfully.");
   return true;
 }
 

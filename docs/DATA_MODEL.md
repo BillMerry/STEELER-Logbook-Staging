@@ -545,7 +545,7 @@ When the manual Settings action sends a cloud backup, the app wraps this same pa
     format: "steeler-cloud-backup-record",
     version: 1,
     createdAt: "2026-05-03T12:00:00.000Z",
-    appVersion: "1.2.0-rc7",
+    appVersion: "1.2.0-rc8",
     deviceId: "device_...",
     backup: SteelerDataBackup
   }
@@ -560,7 +560,7 @@ The read-only cloud backup list is returned by `/v1/backups` and contains summar
 {
   recordId: "cloud_backup_...",
   createdAt: "2026-05-03T12:00:00.000Z",
-  appVersion: "1.2.0-rc7",
+  appVersion: "1.2.0-rc8",
   deviceId: "device_...",
   passageCount: 4,
   serverUpdatedAt: "2026-05-03 12:00:01",
@@ -579,7 +579,7 @@ The selected cloud backup download is returned by `/v1/backups/{recordId}`:
   backup: SteelerDataBackup,
   summary: {
     createdAt: "2026-05-03T12:00:00.000Z",
-    appVersion: "1.2.0-rc7",
+    appVersion: "1.2.0-rc8",
     deviceId: "device_...",
     serverUpdatedAt: "2026-05-03 12:00:01",
     serverRevision: 12
@@ -587,7 +587,7 @@ The selected cloud backup download is returned by `/v1/backups/{recordId}`:
 }
 ```
 
-The app writes `backup` to a downloaded JSON file. It does not restore the downloaded backup automatically.
+The app writes `backup` to a downloaded JSON file when Download Backup is used. Restore Backup uses the same response, downloads a local safety backup first, requires two confirmations, and then applies `backup` through the normal `steeler-data-backup` restore path. The destination device keeps its own `steeler_device_id_v1`.
 
 Legacy full logbook backup:
 

@@ -67,6 +67,7 @@ Test from a clean browser profile or an iPad where possible:
 - Tap Send Backup to Cloud, confirm the warning, and confirm it reports a server revision without pulling, merging, restoring, or changing local passage data.
 - Tap Refresh Cloud Backups and confirm it lists recent cloud backup summaries without downloading, restoring, or changing local passage data.
 - Tap Download Backup for a listed cloud backup and confirm a JSON file downloads without restoring or changing local passage data.
+- Tap Restore Backup for a listed cloud backup, confirm both warnings, confirm a safety backup downloads first, and confirm the selected backup restores while the device keeps its own `steeler_device_id_v1`.
 
 ## Data Safety / Recovery Checks
 
