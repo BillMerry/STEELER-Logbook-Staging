@@ -12,7 +12,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.2.0-rc14";
+const APP_VERSION = "1.2.0-rc15";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
@@ -1196,13 +1196,13 @@ async function fullManualSync(){
 
     let applied = 0;
     if (idsToReceive.size) {
-      downloadJsonPayload(createDataBackupPayload(), "STEELER-Before-full-sync-backup");
       setSyncCheckMessage(`Full Sync: receiving ${idsToReceive.size} safe record${idsToReceive.size === 1 ? "" : "s"}...`);
       const remoteFull = await fetchRemoteSyncRecords(connection);
       const recordsToApply = remoteFull.records.filter((record) => idsToReceive.has(record.recordId));
       if (recordsToApply.length !== idsToReceive.size) {
         throw new Error(`Found ${recordsToApply.length} of ${idsToReceive.size} expected cloud records.`);
       }
+      downloadJsonPayload(createDataBackupPayload(), "STEELER-Before-full-sync-backup");
       applied = applySyncRecords(recordsToApply);
       recordsToApply.forEach(rememberSyncRecordMeta);
       serverRevision = remoteFull.serverRevision;
@@ -1297,7 +1297,6 @@ async function receiveManualSyncRecords(){
       return;
     }
 
-    downloadJsonPayload(createDataBackupPayload(), "STEELER-Before-sync-receive-backup");
     setSyncCheckMessage(`Receiving ${idsToReceive.size} sync record${idsToReceive.size === 1 ? "" : "s"}...`);
 
     const remoteFull = await fetchRemoteSyncRecords(connection);
@@ -1306,6 +1305,7 @@ async function receiveManualSyncRecords(){
       throw new Error(`Found ${recordsToApply.length} of ${idsToReceive.size} expected cloud records.`);
     }
 
+    downloadJsonPayload(createDataBackupPayload(), "STEELER-Before-sync-receive-backup");
     const applied = applySyncRecords(recordsToApply);
     recordsToApply.forEach(rememberSyncRecordMeta);
     saveLocalSyncStatus({
