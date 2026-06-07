@@ -12,7 +12,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.2.0-rc13";
+const APP_VERSION = "1.2.0-rc14";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
@@ -280,6 +280,7 @@ function renderLocalSyncStatus(){
       <div class="st-action-row">
         <button type="button" id="syncCheckStatusBtn" class="btn btn-secondary">Check Sync</button>
         <button type="button" id="syncPreviewBtn" class="btn btn-secondary">Preview Sync</button>
+        <button type="button" id="syncFullBtn" class="btn">Full Sync</button>
         <button type="button" id="syncPushRecordsBtn" class="btn">Send Sync Records</button>
         <button type="button" id="syncReceiveRecordsBtn" class="btn btn-secondary">Receive Sync Records</button>
         <button type="button" id="syncSendBackupBtn" class="btn">Send Backup to Cloud</button>
@@ -325,6 +326,12 @@ function bindSyncStatusControls(){
   if (previewBtn && previewBtn.dataset.bound !== "1") {
     previewBtn.dataset.bound = "1";
     previewBtn.addEventListener("click", previewManualSync);
+  }
+
+  const fullBtn = document.getElementById("syncFullBtn");
+  if (fullBtn && fullBtn.dataset.bound !== "1") {
+    fullBtn.dataset.bound = "1";
+    fullBtn.addEventListener("click", fullManualSync);
   }
 
   const pushBtn = document.getElementById("syncPushRecordsBtn");
@@ -1103,6 +1110,134 @@ async function fetchRemoteSyncRecords(connection){
     records: Array.isArray(data.records) ? data.records.filter((record) => record.recordType !== "cloud-backup") : [],
     serverRevision: data.serverRevision
   };
+}
+
+async function fullManualSync(){
+  const btn = document.getElementById("syncFullBtn");
+  const connection = getSavedSyncConnection();
+  if (connection.error) {
+    setSyncCheckMessage(connection.error);
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+  setSyncCheckMessage("Checking what Full Sync can safely move...");
+  const syncedAt = nowIso();
+
+  try{
+    const localRecords = buildLocalSyncRecords();
+    const remote = await fetchRemoteSyncRecordSummary(connection);
+    const comparison = compareLocalAndRemoteSyncRecords(localRecords, remote.records);
+    renderSyncPreview(comparison, remote.serverRevision);
+
+    const recordsToPush = comparison.wouldUpload.map((item) => item.record);
+    const idsToReceive = new Set(comparison.wouldDownload.map((item) => item.record.recordId));
+    const conflictCount = (comparison.conflicts || []).length;
+
+    if (!recordsToPush.length && !idsToReceive.size) {
+      saveLocalSyncStatus({
+        status: "sync-full-noop",
+        lastRemoteStatus: "ok",
+        lastRemoteCheckAt: syncedAt,
+        lastRemoteRevision: remote.serverRevision,
+        lastSyncError: ""
+      });
+      setSyncCheckMessage(conflictCount
+        ? `No safe records to sync. ${conflictCount} need review. Nothing changed.`
+        : "Everything already looks in sync. Nothing changed.");
+      return;
+    }
+
+    const reviewText = conflictCount
+      ? `\n\n${conflictCount} review item${conflictCount === 1 ? "" : "s"} will be left untouched.`
+      : "";
+    const receiveText = idsToReceive.size
+      ? "\n\nA safety backup of current local data will download before cloud records are received."
+      : "";
+    const ok = confirm(
+      `Run Full Sync?\n\n` +
+      `This will send ${recordsToPush.length} safe record${recordsToPush.length === 1 ? "" : "s"} and receive ${idsToReceive.size} safe record${idsToReceive.size === 1 ? "" : "s"}.` +
+      reviewText + receiveText
+    );
+    if (!ok) {
+      setSyncCheckMessage("Full Sync cancelled. Nothing changed.");
+      return;
+    }
+
+    let accepted = [];
+    let serverRevision = remote.serverRevision;
+    if (recordsToPush.length) {
+      setSyncCheckMessage(`Full Sync: sending ${recordsToPush.length} safe record${recordsToPush.length === 1 ? "" : "s"}...`);
+      const res = await fetch(`${connection.baseUrl}/v1/records/push`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${connection.config.token}`
+        },
+        cache: "no-store",
+        body: JSON.stringify({
+          deviceId: getOrCreateDeviceId(),
+          records: recordsToPush
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok !== true) {
+        throw new Error(data.error || `Worker returned ${res.status}`);
+      }
+      accepted = Array.isArray(data.accepted) ? data.accepted : [];
+      const rejected = Array.isArray(data.rejected) ? data.rejected : [];
+      if (accepted.length !== recordsToPush.length || rejected.length) {
+        throw new Error(`Worker accepted ${accepted.length} of ${recordsToPush.length} records.`);
+      }
+      recordsToPush.forEach(rememberSyncRecordMeta);
+      clearSyncDirtyForRecordIds(accepted.map((record) => record.recordId));
+      serverRevision = data.serverRevision;
+    }
+
+    let applied = 0;
+    if (idsToReceive.size) {
+      downloadJsonPayload(createDataBackupPayload(), "STEELER-Before-full-sync-backup");
+      setSyncCheckMessage(`Full Sync: receiving ${idsToReceive.size} safe record${idsToReceive.size === 1 ? "" : "s"}...`);
+      const remoteFull = await fetchRemoteSyncRecords(connection);
+      const recordsToApply = remoteFull.records.filter((record) => idsToReceive.has(record.recordId));
+      if (recordsToApply.length !== idsToReceive.size) {
+        throw new Error(`Found ${recordsToApply.length} of ${idsToReceive.size} expected cloud records.`);
+      }
+      applied = applySyncRecords(recordsToApply);
+      recordsToApply.forEach(rememberSyncRecordMeta);
+      serverRevision = remoteFull.serverRevision;
+    }
+
+    const statusUpdate = {
+      status: "sync-full-ok",
+      lastRemoteStatus: "ok",
+      lastRemoteCheckAt: syncedAt,
+      lastRemoteRevision: serverRevision,
+      lastSyncAt: syncedAt,
+      lastSyncRecordPushCount: accepted.length,
+      lastSyncRecordReceiveCount: applied,
+      pendingLocalChanges: countPendingLocalChanges(),
+      lastSyncError: ""
+    };
+    if (accepted.length) statusUpdate.lastSyncRecordPushAt = syncedAt;
+    if (applied) statusUpdate.lastSyncRecordReceiveAt = syncedAt;
+    saveLocalSyncStatus(statusUpdate);
+    renderLocalSyncStatus();
+    await refreshManualSyncPreview(
+      connection,
+      `Full Sync complete. Sent ${accepted.length}, received ${applied}. `
+    );
+  }catch(e){
+    saveLocalSyncStatus({
+      status: "sync-full-error",
+      lastRemoteStatus: "error",
+      lastRemoteCheckAt: syncedAt,
+      lastSyncError: e && e.message ? e.message : String(e || "Full Sync failed")
+    });
+    setSyncCheckMessage(`Full Sync failed: ${e && e.message ? e.message : e}`);
+  }finally{
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function receiveManualSyncRecords(){
