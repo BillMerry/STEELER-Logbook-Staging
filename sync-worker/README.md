@@ -4,6 +4,12 @@ This folder contains the isolated Cloudflare Worker prototype for the v1.2.0 dat
 
 The browser app does not call this Worker yet. This is deliberately separate so the API, D1 schema, and authentication shape can be tested before any live logbook data is pushed or pulled.
 
+Staging Worker URL:
+
+```text
+https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev
+```
+
 ## Intended Shape
 
 - Cloudflare Worker exposes a small private JSON API.
