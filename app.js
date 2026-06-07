@@ -9,7 +9,7 @@ const FUEL_MANAGEMENT_KEY = "steeler_fuel_management_v1";
 const LOG_SPLIT_RATIO_KEY = "steeler_log_split_ratio_v1";
 const DEVICE_ID_KEY = "steeler_device_id_v1";
 
-const APP_VERSION = "1.2.0-rc1";
+const APP_VERSION = "1.2.0-rc2";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_PASSAGE_TIME_ZONE = "Europe/London";
@@ -1458,7 +1458,48 @@ function normaliseLogEntrySyncFields(entry, passage, fallbackDate, deviceId){
     entry.deletedAt = entry.updatedAt;
     changed = true;
   }
+  if (entry.deleted !== true && entry.deletedAt) {
+    entry.deletedAt = "";
+    changed = true;
+  }
   return changed;
+}
+
+function isDeletedLogEntry(entry){
+  return !!(entry && entry.deleted === true);
+}
+
+function activeLogEntries(p){
+  return (Array.isArray(p?.entries) ? p.entries : []).filter(entry => !isDeletedLogEntry(entry));
+}
+
+function markPassageDirty(p, timestamp = nowIso()){
+  if (!p || typeof p !== "object") return;
+  p.updatedAt = timestamp;
+  p.schemaVersion = LOCAL_DATA_SCHEMA_VERSION;
+  p.lastModifiedDeviceId = getOrCreateDeviceId();
+  p.syncDirty = true;
+  p.syncStatus = "pending";
+  p.dirtyAt = timestamp;
+}
+
+function markLogEntryDirty(entry, p, options = {}){
+  if (!entry || typeof entry !== "object") return;
+  const timestamp = options.at || nowIso();
+  const deviceId = getOrCreateDeviceId();
+  if (!entry.id) entry.id = makeStableId("e");
+  if (!isValidIsoString(entry.createdAt)) entry.createdAt = isValidIsoString(entry.time) ? new Date(entry.time).toISOString() : timestamp;
+  entry.updatedAt = timestamp;
+  entry.schemaVersion = LOCAL_DATA_SCHEMA_VERSION;
+  entry.lastModifiedDeviceId = deviceId;
+  entry.syncDirty = true;
+  entry.syncStatus = "pending";
+  entry.dirtyAt = timestamp;
+  if (options.deleted === true) {
+    entry.deleted = true;
+    entry.deletedAt = timestamp;
+  }
+  markPassageDirty(p, timestamp);
 }
 
 function normalisePassageSyncFields(passage, deviceId){
@@ -3375,7 +3416,7 @@ function refreshHomePassageList() {
     });
 
   if (homePassageCount) {
-    const totalEntries = passages.reduce((sum, p) => sum + (p.entries?.length || 0), 0);
+    const totalEntries = passages.reduce((sum, p) => sum + activeLogEntries(p).length, 0);
     homePassageCount.textContent = `${visiblePassages.length} passages • ${totalEntries} entries`;
   }
 
@@ -3394,7 +3435,7 @@ function refreshHomePassageList() {
     const date = getPassageDateValue(passage);
     const routeText = getRouteNames(passage).join(" → ") || "?";
     const status = getPassageDashboardStatus(passage);
-    const entriesCount = passage.entries?.length || 0;
+    const entriesCount = activeLogEntries(passage).length;
 
     const left = document.createElement("div");
     left.className = "passage-card-left";
@@ -3616,7 +3657,7 @@ function getLegCount(p) {
 }
 
 function countShutdowns(p) {
-  const entries = Array.isArray(p?.entries) ? p.entries : [];
+  const entries = activeLogEntries(p);
   return entries.filter(e => typeof e?.notes === "string" && e.notes.toLowerCase().startsWith("shutdown")).length;
 }
 
@@ -3628,8 +3669,9 @@ function getCurrentLegIndex(p) {
 
 function ensureEntryLegs(p) {
   if (!p || !Array.isArray(p.entries)) return;
-  if (p.entries.every(e => typeof e.leg === "number")) return;
-  const sorted = [...p.entries].sort((a, b) => String(a.time || "").localeCompare(String(b.time || "")));
+  const entries = activeLogEntries(p);
+  if (entries.every(e => typeof e.leg === "number")) return;
+  const sorted = entries.slice().sort((a, b) => String(a.time || "").localeCompare(String(b.time || "")));
   let leg = 0;
   for (const e of sorted) {
     if (typeof e.leg !== "number") e.leg = leg;
@@ -3641,7 +3683,7 @@ function ensureEntryLegs(p) {
 
 function hasSpecialForLeg(p, kind, legIdx) {
   ensureEntryLegs(p);
-  const entries = Array.isArray(p?.entries) ? p.entries : [];
+  const entries = activeLogEntries(p);
   const k = String(kind || "").toLowerCase();
   return entries.some(e => e.leg === legIdx && typeof e?.notes === "string" && e.notes.toLowerCase().startsWith(k));
 }
@@ -3670,7 +3712,7 @@ function updateLogStatusStrip() {
   const legCount = getLegCount(p);
   const route = getRouteLegNames(p, legIdx);
   const legSummary = computeLegLogSummary(p, legIdx);
-  const entries = Array.isArray(p.entries) ? p.entries : [];
+  const entries = activeLogEntries(p);
   const legEntries = entries.filter(e => (typeof e.leg === "number" ? e.leg : 0) === legIdx);
   const hasEngineStart = hasSpecialForLeg(p, "engine start", legIdx);
   const hasSlip = hasSpecialForLeg(p, "slipped lines", legIdx);
@@ -7051,6 +7093,7 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
         entry.notes = notes;
         if (!entry.wpReached && !entry.refuel) entry.entryType = 'manual';
 
+        markLogEntryDirty(entry, pForDialog);
         if (!isNew) {
           savePassages();
           renderLogEntries();
@@ -7280,6 +7323,7 @@ async function openEngineStartEntryDialog(p, legIdx, entry = null) {
             airPressureMb: vals.esAirPress, humidityPct: vals.esHumidity, airTempC: vals.esAirTemp,
             seaTempC: vals.esSeaTemp, windDir: vals.esWindDir, windBft: vals.esWindBft, notes: vals.esNotes
           });
+          markLogEntryDirty(entry, p);
           savePassages(); renderLogEntries(); refreshHomePassageList(); updateLogSummary(); updatePlanSummaryPanel();
           resolve(true); return;
         }
@@ -7303,6 +7347,7 @@ async function openEngineStartEntryDialog(p, legIdx, entry = null) {
 										notes: startNotes, entryType: 'engine-start', fuelStartPercentR: vals.esFuelR, fuelStartPercentC: vals.esFuelC,
 										engineHoursStart: vals.esEh, pob: vals.esPob, engineStartEnv: p.plan.engineStartEnv
 								};
+								markLogEntryDirty(newEntry, p);
 								p.entries.unshift(newEntry);
 								p.pob = vals.esPob;
 								p.flags.engineStart = true;
@@ -7419,14 +7464,17 @@ async function openShutdownEntryDialog(p, legIdx, isFinalLeg, entry = null) {
           entry.groundLog = vals.shGLog;
           entry.fuelUsed = vals.shFuelUsed;
           entry.shutdownNotes = vals.shNotes;
+          markLogEntryDirty(entry, p);
         } else {
-          p.entries.unshift({
+          const newEntry = {
             id: 'e_' + Date.now(), time: normalizeEntryTimeInput(vals.shTime, '', (p.plan?.date || '')), leg: legIdx,
             lat: '', lon: '', course: '', speed: '0', rpm: '', engTP: '',
             waterLog: vals.shWLog, groundLog: vals.shGLog, fuelUsed: vals.shFuelUsed,
             notes: builtNotes, entryType: 'shutdown', engineHoursEnd: vals.shEh,
             fuelEndPercentR: vals.shFuelR, fuelEndPercentC: vals.shFuelC, shutdownNotes: vals.shNotes
-          });
+          };
+          markLogEntryDirty(newEntry, p);
+          p.entries.unshift(newEntry);
         }
 								savePassages(); requestScrollToNewestLogEntry(); renderLogEntries(); refreshHomePassageList(); updatePassageHeader(); updateLogSummary();
 								
@@ -7461,6 +7509,7 @@ function openSimpleSpecialEntryDialog(p, entry) {
       const vals = getDialogFieldValues(['spTime','spNotes']);
       entry.time = normalizeEntryTimeInput(vals.spTime, entry.time, (p.plan?.date || ''));
       entry.notes = vals.spNotes;
+      markLogEntryDirty(entry, p);
       savePassages(); renderLogEntries(); refreshHomePassageList();
     }
   });
@@ -7504,6 +7553,7 @@ function addSpecialEntry(noteText, notesOverride = null) {
     notes: (notesOverride !== null ? notesOverride : (noteText || ""))
   };
 
+  markLogEntryDirty(entry, p);
   p.entries.unshift(entry);
   savePassages();
   requestScrollToNewestLogEntry();
@@ -7591,7 +7641,7 @@ function saveFuelManagementSettings(settings){
 }
 
 function getAllFuelRelevantEntries(){
-  return passages.flatMap(p => (Array.isArray(p.entries) ? p.entries : []).map(entry => ({ passage:p, entry })))
+  return passages.flatMap(p => activeLogEntries(p).map(entry => ({ passage:p, entry })))
     .filter(({ entry }) => entry && (entry.time || entry.refuel || entry.fuelUsed))
     .sort((a, b) => String(a.entry.time || "").localeCompare(String(b.entry.time || "")));
 }
@@ -7756,7 +7806,7 @@ async function addWaypointReachedEntry(p){
         const extraNotes = String(vals.wpReachedNotes || "").trim();
         const notes = extraNotes ? `WP reached: ${waypointName}\n${extraNotes}` : `WP reached: ${waypointName}`;
 
-        p.entries.unshift({
+        const newEntry = {
           id: newId("e"),
           time: entryTime,
           leg: legIdx,
@@ -7777,7 +7827,9 @@ async function addWaypointReachedEntry(p){
             waypointIndex: selected.waypointIndex,
             ata
           }
-        });
+        };
+        markLogEntryDirty(newEntry, p);
+        p.entries.unshift(newEntry);
 
         savePassages();
         requestScrollToNewestLogEntry();
@@ -7821,6 +7873,7 @@ async function addLogEntry(){
   const saved = await openManualEntryDialog(entry, { isNew: true, passage: p });
   if (!saved) return;
 
+  markLogEntryDirty(entry, p);
   p.entries.unshift(entry);
   savePassages();
   requestScrollToNewestLogEntry();
@@ -8006,12 +8059,12 @@ function attachSwipeToRow(tr, entryId) {
 function deleteLogEntryById(entryId) {
   const p = getCurrentPassage();
   if (!p) return;
-  const idx = p.entries.findIndex(e => e.id === entryId);
+  const idx = p.entries.findIndex(e => e.id === entryId && !isDeletedLogEntry(e));
   if (idx < 0) return;
 
   const deleted = p.entries[idx];
 
-  const ok = confirm("Delete this log entry?");
+  const ok = confirm("Delete this log entry?\n\nIt will be hidden from the log but kept in the backup data so it can be recovered later.");
   if (!ok) return;
 
   hideAllSwipeDeleteButtons();
@@ -8020,7 +8073,7 @@ function deleteLogEntryById(entryId) {
     el.style.removeProperty("--swipe-x");
   });
 
-  p.entries.splice(idx, 1);
+  markLogEntryDirty(deleted, p, { deleted: true });
 
   // If a Shutdown entry was deleted, we only clear the passage "finish" flag
   // when that deleted shutdown belonged to the FINAL leg.
@@ -8039,7 +8092,7 @@ function deleteLogEntryById(entryId) {
 
   // Recompute special-entry flags so deleted items can be re-added (CL-076-2)
   if (!p.flags) p.flags = {};
-  const entries = p.entries || [];
+  const entries = activeLogEntries(p);
   const hasEngineStart = entries.some(e => typeof e.notes === 'string' && e.notes.toLowerCase().startsWith('engine start'));
   const hasSlip = entries.some(e => typeof e.notes === 'string' && e.notes.toLowerCase().startsWith('slipped lines'));
   const hasDock = entries.some(e => typeof e.notes === 'string' && (e.notes.toLowerCase().startsWith('alongside') || e.notes.toLowerCase().startsWith('docked')));
@@ -8063,6 +8116,7 @@ function handlePositionEdit(entry) {
     const result = parseAndFormatPositionInput(val.trim(), entry.lat, entry.lon);
     entry.lat = result.lat;
     entry.lon = result.lon;
+    markLogEntryDirty(entry, getCurrentPassage());
     savePassages();
     renderLogEntries();
   }
@@ -8076,6 +8130,7 @@ function handlePositionEdit(entry) {
     (pos) => {
       entry.lat = formatLatFromDecimal(pos.coords.latitude);
       entry.lon = formatLonFromDecimal(pos.coords.longitude);
+      markLogEntryDirty(entry, getCurrentPassage());
       savePassages();
       requestScrollToNewestLogEntry();
       renderLogEntries();
@@ -8143,14 +8198,15 @@ function renderLogEntries() {
   logEntriesContainer.innerHTML = "";
   const showLegSummaries = p ? getLegCount(p) > 1 : false;
     
-  if (!p || (p.entries?.length || 0) === 0) {
+  const visibleEntries = activeLogEntries(p);
+  if (!p || visibleEntries.length === 0) {
     logEmptyMessage.style.display = "block";
     logSummaryPanel.textContent = "";
     return;
   }
   logEmptyMessage.style.display = "none";
 
-  const entries = p.entries.slice().sort((a, b) => (a.time > b.time ? 1 : -1));
+  const entries = visibleEntries.slice().sort((a, b) => (a.time > b.time ? 1 : -1));
 
   entries.forEach(entry => {
     const tr = document.createElement("tr");
@@ -8321,7 +8377,7 @@ function _fmtDurationFromMinutes(totalMinutes) {
 }
 
 function computeLegMetricsFromEntries(p, legIdx) {
-  const entries = Array.isArray(p?.entries) ? p.entries : [];
+  const entries = activeLogEntries(p);
   const legEntries = entries.filter(e => (e.leg ?? 0) === legIdx);
   const sorted = legEntries.slice().sort((a, b) => new Date(a.time || 0) - new Date(b.time || 0));
 
@@ -8379,7 +8435,7 @@ function computePassageLogSummary(p) {
     return { ehText: "–", fuelUsed: "–", fuelStart: "–", fuelEnd: "–", gLog: "–", durationText: "–" };
   }
 
-  const entries = Array.isArray(p.entries) ? p.entries : [];
+  const entries = activeLogEntries(p);
   const fuelStart = (p.plan && typeof p.plan.fuelStartPercent !== "undefined" && p.plan.fuelStartPercent !== null && p.plan.fuelStartPercent !== "")
     ? p.plan.fuelStartPercent
     : "–";
@@ -8444,7 +8500,7 @@ function computeLegLogSummary(p, legIdx) {
     return { ehText: "–", fuelUsed: "–", fuelStart: "–", fuelEnd: "–", gLog: "–", durationText: "–" };
   }
 
-  const entries = Array.isArray(p.entries) ? p.entries : [];
+  const entries = activeLogEntries(p);
   const legEntries = entries.filter(e => (e.leg ?? 0) === legIdx);
 
   const sorted = legEntries.slice().sort((a, b) => new Date(a.time || 0) - new Date(b.time || 0));

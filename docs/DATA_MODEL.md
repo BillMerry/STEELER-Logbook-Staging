@@ -84,6 +84,9 @@ Stored inside `steeler_logbook_passages_v5`.
   updatedAt: "2026-05-03T08:00:00.000Z",
   schemaVersion: 1,
   lastModifiedDeviceId: "device_...",
+  syncDirty: true,
+  syncStatus: "pending",
+  dirtyAt: "2026-05-03T08:00:00.000Z",
 
   // Optional fields added by later workflows
   pob: "4",
@@ -278,6 +281,9 @@ Stored separately from passages in `steeler_dpp_waypoints_v1`.
   lastModifiedDeviceId: "device_...",
   deleted: false,
   deletedAt: "",
+  syncDirty: true,
+  syncStatus: "pending",
+  dirtyAt: "2026-05-03T08:30:00.000Z",
 
   // Engine-start/shutdown workflows may also store typed copies.
   fuelStartPercentR: "",
@@ -293,6 +299,10 @@ Stored separately from passages in `steeler_dpp_waypoints_v1`.
 ```
 
 Manual log entries are the source of truth. Future live/NMEA values may prefill dialogs, but should not replace saved manual entries.
+
+Deleted log entries are soft-deleted for v1.2.0 sync safety. The app hides entries where `deleted === true` from normal log views, counts, summaries, CSV export and PDF/print export, but keeps them in `steeler_logbook_passages_v5` and full data backups. This lets a later sync stage distinguish "deleted intentionally" from "missing because this device is old".
+
+`syncDirty`, `syncStatus`, and `dirtyAt` are local sync-preparation fields. They mark records that have changed locally and need future sync processing. They do not currently contact a server.
 
 ## EngineStartEnvironment
 
@@ -490,7 +500,7 @@ Primary full data backup:
   version: 1,
   schemaVersion: 1,
   exportedAt: "2026-05-03T12:00:00.000Z",
-  appVersion: "1.2.0-rc1",
+  appVersion: "1.2.0-rc2",
   exportedByDeviceId: "device_...",
   data: {
     passages: Passage[],

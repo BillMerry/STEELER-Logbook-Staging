@@ -39,6 +39,7 @@ Modules should provide focused helpers for calculations, parsing, rendering or d
 - Backup/restore format changes must be backward compatible.
 - The primary v1.2.0 backup format is `steeler-data-backup`, which archives all local STEELER data on the device. Older logbook, ports, and DPP backup formats remain readable where supported.
 - A local `steeler_device_id_v1` value identifies this browser/device for future sync. It is created locally and must not be replaced by restoring a data backup.
+- Log-entry deletion is recoverable: deleted entries stay in local passage data with `deleted: true`, but are hidden from normal operational views and exports.
 
 ## Service Worker Release Rules
 

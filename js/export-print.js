@@ -169,7 +169,7 @@ function exportCurrentPassageToCsv() {
   lines.push("Log Entries");
   lines.push(["Time","Lat","Lon","COG/Heading","SOG (kn)","RPM","Eng T/P","WLog (NM)","GLog (NM)","Fuel used","Notes"].map(quote).join(","));
 
-  p.entries.slice().sort((a, b) => (a.time > b.time ? 1 : -1)).forEach(e => {
+  (p.entries || []).filter(e => e && e.deleted !== true).slice().sort((a, b) => (a.time > b.time ? 1 : -1)).forEach(e => {
     lines.push([
       e.time ? e.time.replace("T", " ") : "",
       e.lat, e.lon, e.course, e.speed, e.rpm, e.engTP, e.waterLog, e.groundLog, e.fuelUsed, e.notes
@@ -250,7 +250,7 @@ function exportCurrentPassageToPdf() {
       </thead>`;
 
   const esc = (s) => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-  const entries = (p.entries || []).slice().sort((a,b) => (a.time > b.time ? 1 : -1));
+  const entries = (p.entries || []).filter(e => e && e.deleted !== true).slice().sort((a,b) => (a.time > b.time ? 1 : -1));
   const rowsHtml = entries.map(e => {
     const t = e.time ? timeOnlyFromIso(e.time) : "";
     return `<tr>
