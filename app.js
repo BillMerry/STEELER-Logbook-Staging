@@ -11,7 +11,7 @@ const DEVICE_ID_KEY = "steeler_device_id_v1";
 const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 
-const APP_VERSION = "1.2.0-rc8";
+const APP_VERSION = "1.2.0-rc9";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
@@ -277,8 +277,12 @@ function renderLocalSyncStatus(){
       </label>
       <div class="st-action-row">
         <button type="button" id="syncCheckStatusBtn" class="btn btn-secondary">Check Sync</button>
+        <button type="button" id="syncPreviewBtn" class="btn btn-secondary">Preview Sync</button>
         <button type="button" id="syncSendBackupBtn" class="btn">Send Backup to Cloud</button>
         <button type="button" id="syncRefreshBackupsBtn" class="btn btn-secondary">Refresh Cloud Backups</button>
+      </div>
+      <div id="syncPreviewResults" class="sync-preview-results">
+        <p class="hint">Preview Sync compares local data with cloud sync records. It does not upload, download, restore, merge or change data.</p>
       </div>
       <div id="syncCloudBackups" class="sync-cloud-backups">
         <p class="hint">Refresh Cloud Backups shows recent backup copies stored in Cloudflare. It does not download, restore, merge or change local data.</p>
@@ -311,6 +315,12 @@ function bindSyncStatusControls(){
   if (refreshBtn && refreshBtn.dataset.bound !== "1") {
     refreshBtn.dataset.bound = "1";
     refreshBtn.addEventListener("click", () => refreshCloudBackups());
+  }
+
+  const previewBtn = document.getElementById("syncPreviewBtn");
+  if (previewBtn && previewBtn.dataset.bound !== "1") {
+    previewBtn.dataset.bound = "1";
+    previewBtn.addEventListener("click", previewManualSync);
   }
 }
 
@@ -380,6 +390,201 @@ async function checkSyncWorkerStatus(){
     });
     renderLocalSyncStatus();
     setSyncCheckMessage(`Sync check failed: ${e && e.message ? e.message : e}`);
+  }finally{
+    if (btn) btn.disabled = false;
+  }
+}
+
+function latestTimestampFromValues(values, fallback = ""){
+  return values.reduce((latest, value) => {
+    const candidate = String(value || "");
+    if (!isValidIsoString(candidate)) return latest;
+    return !latest || candidate > latest ? candidate : latest;
+  }, fallback || "");
+}
+
+function latestPassageTimestamp(p){
+  const entryTimes = (Array.isArray(p?.entries) ? p.entries : []).flatMap((entry) => [
+    entry?.updatedAt,
+    entry?.createdAt,
+    entry?.dirtyAt,
+    entry?.deletedAt,
+    entry?.time
+  ]);
+  return latestTimestampFromValues([
+    p?.updatedAt,
+    p?.createdAt,
+    p?.dirtyAt,
+    ...(Array.isArray(p?.legEnds) ? p.legEnds.map((leg) => leg?.updatedAt || leg?.endedAt) : []),
+    ...entryTimes
+  ], "");
+}
+
+function createSyncRecord(recordId, recordType, payload, timestamp){
+  const cleanTimestamp = isValidIsoString(timestamp) ? timestamp : nowIso();
+  return {
+    recordId,
+    recordType,
+    schemaVersion: LOCAL_DATA_SCHEMA_VERSION,
+    clientUpdatedAt: cleanTimestamp,
+    lastChangedDeviceId: getOrCreateDeviceId(),
+    deleted: false,
+    payload: {
+      format: "steeler-sync-record",
+      version: 1,
+      appVersion: APP_VERSION,
+      recordType,
+      updatedAt: cleanTimestamp,
+      data: payload
+    }
+  };
+}
+
+function buildLocalSyncRecords(){
+  normalisePassagesForSync(passages);
+  const status = getLocalSyncSummary();
+  const fallbackTime = status.lastLocalChangeAt || nowIso();
+  const records = [];
+
+  (Array.isArray(passages) ? passages : []).forEach((p) => {
+    if (!p?.id) return;
+    records.push(createSyncRecord(`passage:${p.id}`, "passage", p, latestPassageTimestamp(p) || fallbackTime));
+  });
+
+  records.push(createSyncRecord("global:ports", "ports", { all: knownPorts, recent: recentPorts }, fallbackTime));
+  records.push(createSyncRecord("global:safety-info", "safety-info", getSafetyInfo(), fallbackTime));
+  records.push(createSyncRecord("global:legacy-ec-settings", "legacy-ec-settings", loadEcSettings(), fallbackTime));
+  records.push(createSyncRecord("global:dpp-templates", "dpp-templates", loadDppTemplateStore(), fallbackTime));
+  records.push(createSyncRecord("global:dpp-waypoints", "dpp-waypoints", loadDppWaypointStore(), fallbackTime));
+  records.push(createSyncRecord("global:weather-abbreviations", "weather-abbreviations", loadAbbrDb(), fallbackTime));
+  records.push(createSyncRecord("global:fuel-management", "fuel-management", loadFuelManagementSettings(), fallbackTime));
+  records.push(createSyncRecord("global:app-settings", "app-settings", {
+    theme: storage.getItem(THEME_KEY) || "day",
+    logSplitRatio: storage.getItem(LOG_SPLIT_RATIO_KEY) || ""
+  }, fallbackTime));
+
+  return records;
+}
+
+function compareLocalAndRemoteSyncRecords(localRecords, remoteRecords){
+  const remoteById = new Map((Array.isArray(remoteRecords) ? remoteRecords : []).map((record) => [record.recordId, record]));
+  const localById = new Map((Array.isArray(localRecords) ? localRecords : []).map((record) => [record.recordId, record]));
+  const wouldUpload = [];
+  const wouldDownload = [];
+  const matched = [];
+
+  localRecords.forEach((local) => {
+    const remote = remoteById.get(local.recordId);
+    if (!remote) {
+      wouldUpload.push({ record: local, reason: "not in cloud yet" });
+      return;
+    }
+    matched.push(local.recordId);
+    const localTime = String(local.clientUpdatedAt || "");
+    const remoteTime = String(remote.clientUpdatedAt || "");
+    if (localTime > remoteTime) wouldUpload.push({ record: local, reason: "local is newer" });
+    if (remoteTime > localTime) wouldDownload.push({ record: remote, reason: "cloud is newer" });
+  });
+
+  remoteRecords.forEach((remote) => {
+    if (!localById.has(remote.recordId)) {
+      wouldDownload.push({ record: remote, reason: "not on this device" });
+    }
+  });
+
+  return {
+    localCount: localRecords.length,
+    remoteCount: remoteRecords.length,
+    matchedCount: matched.length,
+    wouldUpload,
+    wouldDownload
+  };
+}
+
+function syncRecordLabel(record){
+  const type = String(record?.recordType || "record");
+  const id = String(record?.recordId || "");
+  if (type === "passage") return id.replace(/^passage:/, "Passage ");
+  return type.replace(/-/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+function renderSyncPreview(comparison, remoteRevision){
+  const el = document.getElementById("syncPreviewResults");
+  if (!el) return;
+  const uploadItems = comparison.wouldUpload.slice(0, 8).map((item) => `<li>${escapeHtml(syncRecordLabel(item.record))} <span>${escapeHtml(item.reason)}</span></li>`).join("");
+  const downloadItems = comparison.wouldDownload.slice(0, 8).map((item) => `<li>${escapeHtml(syncRecordLabel(item.record))} <span>${escapeHtml(item.reason)}</span></li>`).join("");
+  el.innerHTML = `
+    <div class="sync-preview-panel">
+      <div class="sync-status-grid">
+        <div><span>Local sync records</span><strong>${comparison.localCount}</strong></div>
+        <div><span>Cloud sync records</span><strong>${comparison.remoteCount}</strong></div>
+        <div><span>Would upload</span><strong>${comparison.wouldUpload.length}</strong></div>
+        <div><span>Would receive</span><strong>${comparison.wouldDownload.length}</strong></div>
+        <div><span>Cloud revision</span><strong>${remoteRevision || 0}</strong></div>
+      </div>
+      <div class="sync-preview-lists">
+        <div>
+          <strong>Upload preview</strong>
+          <ul>${uploadItems || "<li>Nothing to upload</li>"}</ul>
+        </div>
+        <div>
+          <strong>Receive preview</strong>
+          <ul>${downloadItems || "<li>Nothing to receive</li>"}</ul>
+        </div>
+      </div>
+      <p class="hint">Preview only. No records were uploaded, downloaded into the app, merged or restored.</p>
+    </div>
+  `;
+}
+
+async function previewManualSync(){
+  const btn = document.getElementById("syncPreviewBtn");
+  const connection = getSavedSyncConnection();
+  if (connection.error) {
+    setSyncCheckMessage(connection.error);
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+  setSyncCheckMessage("Previewing sync...");
+  const checkedAt = nowIso();
+
+  try{
+    const localRecords = buildLocalSyncRecords();
+    const res = await fetch(`${connection.baseUrl}/v1/records/summary?includeBackups=0&limit=500`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${connection.config.token}`
+      },
+      cache: "no-store"
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok !== true) {
+      throw new Error(data.error || `Worker returned ${res.status}`);
+    }
+
+    const remoteRecords = Array.isArray(data.records) ? data.records : [];
+    const comparison = compareLocalAndRemoteSyncRecords(localRecords, remoteRecords);
+    renderSyncPreview(comparison, data.serverRevision);
+    saveLocalSyncStatus({
+      status: "sync-preview-ok",
+      lastRemoteStatus: "ok",
+      lastRemoteCheckAt: checkedAt,
+      lastRemoteRevision: data.serverRevision,
+      lastSyncPreviewAt: checkedAt,
+      lastSyncPreviewUploadCount: comparison.wouldUpload.length,
+      lastSyncPreviewDownloadCount: comparison.wouldDownload.length,
+      lastSyncError: ""
+    });
+    setSyncCheckMessage(`Sync preview complete. ${comparison.wouldUpload.length} would upload, ${comparison.wouldDownload.length} would receive. Nothing changed.`);
+  }catch(e){
+    saveLocalSyncStatus({
+      status: "sync-preview-error",
+      lastRemoteStatus: "error",
+      lastRemoteCheckAt: checkedAt,
+      lastSyncError: e && e.message ? e.message : String(e || "Sync preview failed")
+    });
+    setSyncCheckMessage(`Sync preview failed: ${e && e.message ? e.message : e}`);
   }finally{
     if (btn) btn.disabled = false;
   }

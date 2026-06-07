@@ -436,6 +436,23 @@ body[data-theme="night"] .daily-summary-row{border-color:#333}
 .sync-check-field{display:grid;gap:0.2rem}
 .sync-check-field span{font-size:0.8rem;color:var(--muted)}
 .sync-check-field input{width:100%}
+.sync-preview-results{margin-top:0.15rem}
+.sync-preview-panel{display:grid;gap:0.55rem}
+.sync-preview-lists{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));
+  gap:0.55rem;
+}
+.sync-preview-lists>div{
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:var(--panel);
+  padding:0.55rem 0.65rem;
+}
+.sync-preview-lists strong{display:block;font-size:0.85rem;margin-bottom:0.25rem}
+.sync-preview-lists ul{margin:0;padding-left:1rem}
+.sync-preview-lists li{font-size:0.8rem;line-height:1.35;margin:0.12rem 0}
+.sync-preview-lists li span{display:block;color:var(--muted);font-size:0.74rem}
 .sync-cloud-backups{margin-top:0.15rem}
 .sync-cloud-backup-list{display:grid;gap:0.4rem}
 .sync-cloud-backup-item{

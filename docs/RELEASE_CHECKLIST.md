@@ -64,6 +64,7 @@ Test from a clean browser profile or an iPad where possible:
 - Delete a log entry and confirm it disappears from normal Log view, CSV export and PDF/print export while remaining present in the full data backup with `deleted: true`.
 - Confirm Settings > Data & Backup shows local sync status, pending local changes, recoverable deleted entries, last local change time and a device ID.
 - Enter the staging Worker URL/token, tap Check Sync, and confirm it reports Worker OK without changing passage data.
+- Tap Preview Sync and confirm it reports local/cloud sync-record counts without uploading, downloading into the app, restoring, merging, or changing local passage data.
 - Tap Send Backup to Cloud, confirm the warning, and confirm it reports a server revision without pulling, merging, restoring, or changing local passage data.
 - Tap Refresh Cloud Backups and confirm it lists recent cloud backup summaries without downloading, restoring, or changing local passage data.
 - Tap Download Backup for a listed cloud backup and confirm a JSON file downloads without restoring or changing local passage data.

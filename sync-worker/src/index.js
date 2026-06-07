@@ -95,7 +95,7 @@ async function handleStatus(request, env) {
     serverRevision: Number(revisionRow?.revision || 0),
     recordCount: Number(recordCountRow?.count || 0),
     clientCount: Number(clientCountRow?.count || 0),
-    note: "Worker prototype only; manual backup upload/listing is connected, but automatic sync and restore are not enabled."
+    note: "Worker prototype only; manual sync preview and backup archive/restore are connected, but automatic sync is not enabled."
   });
 }
 
@@ -205,6 +205,49 @@ async function handlePull(request, env) {
   });
 }
 
+async function handleRecordsSummary(request, env) {
+  const ownerId = getOwnerId(env);
+  const url = new URL(request.url);
+  const includeBackups = url.searchParams.get("includeBackups") === "1";
+  const limit = Math.max(1, Math.min(1000, Number(url.searchParams.get("limit") || 500)));
+  const typeFilter = String(url.searchParams.get("type") || "").trim();
+
+  const clauses = ["owner_id = ?"];
+  const bindings = [ownerId];
+  if (!includeBackups) clauses.push("record_type != 'cloud-backup'");
+  if (typeFilter) {
+    clauses.push("record_type = ?");
+    bindings.push(typeFilter);
+  }
+  bindings.push(limit);
+
+  const result = await env.SYNC_DB.prepare(`
+    SELECT record_id, record_type, deleted, schema_version, client_updated_at,
+           server_updated_at, server_revision, last_changed_device_id
+    FROM sync_records
+    WHERE ${clauses.join(" AND ")}
+    ORDER BY server_revision ASC
+    LIMIT ?
+  `).bind(...bindings).all();
+
+  const records = (result.results || []).map((row) => ({
+    recordId: row.record_id,
+    recordType: row.record_type,
+    deleted: row.deleted === 1,
+    schemaVersion: row.schema_version,
+    clientUpdatedAt: row.client_updated_at,
+    serverUpdatedAt: row.server_updated_at,
+    serverRevision: row.server_revision,
+    lastChangedDeviceId: row.last_changed_device_id
+  }));
+
+  return jsonResponse({
+    ok: true,
+    records,
+    serverRevision: await getCurrentRevision(env)
+  });
+}
+
 async function handleBackups(request, env) {
   const ownerId = getOwnerId(env);
   const url = new URL(request.url);
@@ -310,6 +353,7 @@ export default {
     if (url.pathname.startsWith("/v1/backups/") && request.method === "GET") {
       return handleBackupDownload(request, env, decodeURIComponent(url.pathname.slice("/v1/backups/".length)));
     }
+    if (url.pathname === "/v1/records/summary" && request.method === "GET") return handleRecordsSummary(request, env);
     if (url.pathname === "/v1/records" && request.method === "GET") return handlePull(request, env);
     if (url.pathname === "/v1/records/push" && request.method === "POST") return handlePush(request, env);
 

@@ -2,7 +2,7 @@
 
 This folder contains the isolated Cloudflare Worker prototype for the v1.2.0 data sync stream.
 
-The browser app calls this Worker manually from Settings for staging checks, one-way cloud backup uploads, read-only backup listing, selected backup JSON download, and guarded cloud-backup restore. It is still deliberately conservative: there is no automatic sync or merge path yet.
+The browser app calls this Worker manually from Settings for staging checks, manual sync preview, one-way cloud backup uploads, read-only backup listing, selected backup JSON download, and guarded cloud-backup restore. It is still deliberately conservative: there is no automatic sync or merge path yet.
 
 Staging Worker URL:
 
@@ -22,6 +22,7 @@ https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev
 
 - `GET /health` is public and returns a simple health response.
 - `GET /v1/status` requires auth and returns record/client counts.
+- `GET /v1/records/summary?includeBackups=0&limit=500` requires auth and returns sync-record metadata only, without heavy payloads.
 - `GET /v1/backups?limit=5` requires auth and returns recent cloud backup summaries only.
 - `GET /v1/backups/{recordId}` requires auth and returns one complete backup JSON payload for download or guarded manual restore.
 - `GET /v1/records?since=0&limit=100` requires auth and pulls changed records by server revision.
@@ -58,4 +59,4 @@ The token should be stored as a Worker secret named `SYNC_API_TOKEN`.
 
 ## Important
 
-This prototype is connected only for manual staging checks, one-way backup upload, backup listing, backup JSON download, and guarded cloud-backup restore. Do not treat the Worker as a production sync authority until the next stages add conflict handling, client-side push/pull, and multi-device testing.
+This prototype is connected only for manual staging checks, manual sync preview, one-way backup upload, backup listing, backup JSON download, and guarded cloud-backup restore. Do not treat the Worker as a production sync authority until the next stages add client-side sync push/pull, conflict handling, and multi-device testing.
