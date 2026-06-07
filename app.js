@@ -12,7 +12,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.2.0-rc18";
+const APP_VERSION = "1.2.0-rc19";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
@@ -290,14 +290,19 @@ function renderLocalSyncStatus(){
         <input id="syncWorkerToken" type="password" value="${escapeHtml(config.token)}" autocomplete="off" spellcheck="false">
       </label>
       <div class="st-action-row">
-        <button type="button" id="syncCheckStatusBtn" class="btn btn-secondary">Check Sync</button>
         <button type="button" id="syncPreviewBtn" class="btn btn-secondary">Preview Sync</button>
         <button type="button" id="syncFullBtn" class="btn">Full Sync</button>
-        <button type="button" id="syncPushRecordsBtn" class="btn">Send Sync Records</button>
-        <button type="button" id="syncReceiveRecordsBtn" class="btn btn-secondary">Receive Sync Records</button>
-        <button type="button" id="syncSendBackupBtn" class="btn">Send Backup to Cloud</button>
-        <button type="button" id="syncRefreshBackupsBtn" class="btn btn-secondary">Refresh Cloud Backups</button>
       </div>
+      <details class="sync-advanced">
+        <summary>Advanced sync tools</summary>
+        <div class="st-action-row">
+          <button type="button" id="syncCheckStatusBtn" class="btn btn-secondary">Check Sync</button>
+          <button type="button" id="syncPushRecordsBtn" class="btn btn-secondary">Send Sync Records</button>
+          <button type="button" id="syncReceiveRecordsBtn" class="btn btn-secondary">Receive Sync Records</button>
+          <button type="button" id="syncSendBackupBtn" class="btn btn-secondary">Send Backup to Cloud</button>
+          <button type="button" id="syncRefreshBackupsBtn" class="btn btn-secondary">Refresh Cloud Backups</button>
+        </div>
+      </details>
       <div id="syncPreviewResults" class="sync-preview-results">
         <p class="hint">Preview Sync compares local data with cloud sync records. It does not upload, download, restore, merge or change data.</p>
       </div>
@@ -719,10 +724,10 @@ function compareLocalAndRemoteSyncRecords(localRecords, remoteRecords){
     const differentDevice = !!(localDevice && remoteDevice && localDevice !== remoteDevice);
     if (local.deleted !== remote.deleted) {
       if (local.deleted) {
-        wouldUpload.push({ record: local, reason: "deleted on this device" });
+        wouldUpload.push({ record: local, local, remote, reason: "deleted on this device" });
       }
       if (remote.deleted) {
-        wouldDownload.push({ record: remote, reason: "deleted in cloud" });
+        wouldDownload.push({ record: remote, local, remote, reason: "deleted in cloud" });
       }
       return;
     }
@@ -736,8 +741,8 @@ function compareLocalAndRemoteSyncRecords(localRecords, remoteRecords){
       });
       return;
     }
-    if (localTime > remoteTime) wouldUpload.push({ record: local, reason: "local is newer" });
-    if (remoteTime > localTime) wouldDownload.push({ record: remote, reason: "cloud is newer" });
+    if (localTime > remoteTime) wouldUpload.push({ record: local, local, remote, reason: "local is newer" });
+    if (remoteTime > localTime) wouldDownload.push({ record: remote, local, remote, reason: "cloud is newer" });
   });
 
   remoteRecords.forEach((remote) => {
@@ -763,17 +768,83 @@ function syncRecordLabel(record){
   return type.replace(/-/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
 
+function normalisePortComparisonName(port){
+  return portName(port).trim().toLowerCase();
+}
+
+function comparablePortValue(port){
+  if (!port || typeof port !== "object") return "";
+  return JSON.stringify({
+    name: portName(port).trim(),
+    lat: port.lat ?? "",
+    lon: port.lon ?? "",
+    commsPilotage: port.commsPilotage || "",
+    comments: port.comments || ""
+  });
+}
+
+function summarisePortsDifference(localRecord, remoteRecord){
+  const localPorts = Array.isArray(localRecord?.payload?.data?.all) ? localRecord.payload.data.all : [];
+  const remotePorts = Array.isArray(remoteRecord?.payload?.data?.all) ? remoteRecord.payload.data.all : [];
+  const localRecent = Array.isArray(localRecord?.payload?.data?.recent) ? localRecord.payload.data.recent : [];
+  const remoteRecent = Array.isArray(remoteRecord?.payload?.data?.recent) ? remoteRecord.payload.data.recent : [];
+  const localByName = new Map(localPorts.map((port) => [normalisePortComparisonName(port), port]).filter(([name]) => !!name));
+  const remoteByName = new Map(remotePorts.map((port) => [normalisePortComparisonName(port), port]).filter(([name]) => !!name));
+  const added = [];
+  const removed = [];
+  const changed = [];
+
+  localByName.forEach((localPort, name) => {
+    const remotePort = remoteByName.get(name);
+    if (!remotePort) {
+      added.push(portName(localPort));
+      return;
+    }
+    if (comparablePortValue(localPort) !== comparablePortValue(remotePort)) changed.push(portName(localPort));
+  });
+  remoteByName.forEach((remotePort, name) => {
+    if (!localByName.has(name)) removed.push(portName(remotePort));
+  });
+
+  const parts = [
+    `${added.length} added`,
+    `${changed.length} changed`,
+    `${removed.length} removed`
+  ];
+  const names = [...added, ...changed, ...removed].filter(Boolean).slice(0, 4);
+  if (!added.length && !changed.length && !removed.length && JSON.stringify(localRecent) !== JSON.stringify(remoteRecent)) {
+    return "Ports: saved ports match; recent ports list differs";
+  }
+  return `Ports: ${parts.join(", ")}${names.length ? ` (${names.join(", ")}${added.length + changed.length + removed.length > names.length ? ", ..." : ""})` : ""}`;
+}
+
+function syncRecordDetail(item){
+  const local = item?.local || item?.record || null;
+  const remote = item?.remote || null;
+  const recordType = String(local?.recordType || remote?.recordType || "");
+  if (recordType === "ports") return summarisePortsDifference(local, remote);
+  return "";
+}
+
 function renderSyncPreview(comparison, remoteRevision){
   const el = document.getElementById("syncPreviewResults");
   if (!el) return;
-  const uploadItems = comparison.wouldUpload.slice(0, 8).map((item) => `<li>${escapeHtml(syncRecordLabel(item.record))} <span>${escapeHtml(item.reason)}</span></li>`).join("");
-  const downloadItems = comparison.wouldDownload.slice(0, 8).map((item) => `<li>${escapeHtml(syncRecordLabel(item.record))} <span>${escapeHtml(item.reason)}</span></li>`).join("");
+  const uploadItems = comparison.wouldUpload.slice(0, 8).map((item) => {
+    const detail = syncRecordDetail(item);
+    return `<li>${escapeHtml(syncRecordLabel(item.record))} <span>${escapeHtml(item.reason)}</span>${detail ? `<span>${escapeHtml(detail)}</span>` : ""}</li>`;
+  }).join("");
+  const downloadItems = comparison.wouldDownload.slice(0, 8).map((item) => {
+    const detail = syncRecordDetail(item);
+    return `<li>${escapeHtml(syncRecordLabel(item.record))} <span>${escapeHtml(item.reason)}</span>${detail ? `<span>${escapeHtml(detail)}</span>` : ""}</li>`;
+  }).join("");
   const conflictItems = (comparison.conflicts || []).slice(0, 8).map((item) => {
     const recordId = item.local?.recordId || item.remote?.recordId || "";
+    const detail = syncRecordDetail(item);
     return `
       <li>
         ${escapeHtml(syncRecordLabel(item.local || item.remote))}
         <span>${escapeHtml(item.reason)}</span>
+        ${detail ? `<span>${escapeHtml(detail)}</span>` : ""}
         <div class="sync-conflict-actions">
           <button type="button" class="btn btn-secondary sync-conflict-choice-btn" data-record-id="${escapeHtml(recordId)}" data-choice="local">Keep this device</button>
           <button type="button" class="btn btn-secondary sync-conflict-choice-btn" data-record-id="${escapeHtml(recordId)}" data-choice="cloud">Use cloud</button>

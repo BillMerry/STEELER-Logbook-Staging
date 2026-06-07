@@ -436,6 +436,9 @@ body[data-theme="night"] .daily-summary-row{border-color:#333}
 .sync-check-field{display:grid;gap:0.2rem}
 .sync-check-field span{font-size:0.8rem;color:var(--muted)}
 .sync-check-field input{width:100%}
+.sync-advanced{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:0.45rem 0.6rem}
+.sync-advanced summary{cursor:pointer;font-weight:700;font-size:0.85rem}
+.sync-advanced .st-action-row{margin-top:0.45rem}
 .sync-preview-results{margin-top:0.15rem}
 .sync-preview-panel{display:grid;gap:0.55rem}
 .sync-preview-lists{
