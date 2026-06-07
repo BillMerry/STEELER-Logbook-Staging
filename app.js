@@ -11,7 +11,7 @@ const DEVICE_ID_KEY = "steeler_device_id_v1";
 const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 
-const APP_VERSION = "1.2.0-rc4";
+const APP_VERSION = "1.2.0-rc5";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
@@ -252,6 +252,7 @@ function renderLocalSyncStatus(){
   const config = loadSyncConfig();
   const shortDeviceId = String(summary.deviceId || "").slice(0, 18);
   const lastCheck = summary.lastRemoteCheckAt || "";
+  const lastCloudBackup = summary.lastCloudBackupAt || "";
   const remoteText = summary.lastRemoteStatus === "ok"
     ? `OK${summary.lastRemoteRevision != null ? ` · rev ${summary.lastRemoteRevision}` : ""}`
     : (summary.lastRemoteStatus === "error" ? "Error" : "Not checked");
@@ -262,6 +263,7 @@ function renderLocalSyncStatus(){
       <div><span>Recoverable deleted entries</span><strong>${summary.recoverableDeletedEntries}</strong></div>
       <div><span>Last local change</span><strong>${escapeHtml(formatSyncStatusTime(summary.lastLocalChangeAt))}</strong></div>
       <div><span>Last remote check</span><strong>${escapeHtml(formatSyncStatusTime(lastCheck))}</strong></div>
+      <div><span>Last cloud backup</span><strong>${escapeHtml(formatSyncStatusTime(lastCloudBackup))}</strong></div>
       <div><span>Device ID</span><strong>${escapeHtml(shortDeviceId || "Creating...")}</strong></div>
     </div>
     <div class="sync-check-panel">
@@ -275,8 +277,9 @@ function renderLocalSyncStatus(){
       </label>
       <div class="st-action-row">
         <button type="button" id="syncCheckStatusBtn" class="btn btn-secondary">Check Sync</button>
+        <button type="button" id="syncSendBackupBtn" class="btn">Send Backup to Cloud</button>
       </div>
-      <p id="syncCheckMessage" class="hint">${escapeHtml(summary.lastSyncError || "Checks the staging Worker only. No logbook data is uploaded or downloaded.")}</p>
+      <p id="syncCheckMessage" class="hint">${escapeHtml(summary.lastSyncError || "Check Sync tests the Worker. Send Backup uploads one backup copy only; it does not pull, merge or overwrite local data.")}</p>
     </div>
   `;
   bindSyncStatusControls();
@@ -288,14 +291,20 @@ function setSyncCheckMessage(message){
 }
 
 function bindSyncStatusControls(){
-  const btn = document.getElementById("syncCheckStatusBtn");
-  if (!btn || btn.dataset.bound === "1") return;
-  btn.dataset.bound = "1";
-  btn.addEventListener("click", checkSyncWorkerStatus);
+  const checkBtn = document.getElementById("syncCheckStatusBtn");
+  if (checkBtn && checkBtn.dataset.bound !== "1") {
+    checkBtn.dataset.bound = "1";
+    checkBtn.addEventListener("click", checkSyncWorkerStatus);
+  }
+
+  const backupBtn = document.getElementById("syncSendBackupBtn");
+  if (backupBtn && backupBtn.dataset.bound !== "1") {
+    backupBtn.dataset.bound = "1";
+    backupBtn.addEventListener("click", sendCloudBackup);
+  }
 }
 
-async function checkSyncWorkerStatus(){
-  const btn = document.getElementById("syncCheckStatusBtn");
+function getSavedSyncConnection(){
   const urlEl = document.getElementById("syncWorkerUrl");
   const tokenEl = document.getElementById("syncWorkerToken");
   const config = saveSyncConfig({
@@ -304,15 +313,25 @@ async function checkSyncWorkerStatus(){
   });
 
   if (!config.token) {
-    setSyncCheckMessage("Enter the staging sync token first.");
-    return;
+    return { error: "Enter the staging sync token first." };
   }
 
-  let baseUrl;
   try{
-    baseUrl = new URL(config.workerUrl);
+    const baseUrl = new URL(config.workerUrl);
+    return {
+      config,
+      baseUrl: baseUrl.toString().replace(/\/+$/g, "")
+    };
   }catch{
-    setSyncCheckMessage("The Worker URL is not valid.");
+    return { error: "The Worker URL is not valid." };
+  }
+}
+
+async function checkSyncWorkerStatus(){
+  const btn = document.getElementById("syncCheckStatusBtn");
+  const connection = getSavedSyncConnection();
+  if (connection.error) {
+    setSyncCheckMessage(connection.error);
     return;
   }
 
@@ -321,10 +340,10 @@ async function checkSyncWorkerStatus(){
   const checkedAt = nowIso();
 
   try{
-    const res = await fetch(`${baseUrl.toString().replace(/\/+$/g, "")}/v1/status`, {
+    const res = await fetch(`${connection.baseUrl}/v1/status`, {
       method: "GET",
       headers: {
-        Authorization: `Bearer ${config.token}`
+        Authorization: `Bearer ${connection.config.token}`
       },
       cache: "no-store"
     });
@@ -351,6 +370,93 @@ async function checkSyncWorkerStatus(){
     });
     renderLocalSyncStatus();
     setSyncCheckMessage(`Sync check failed: ${e && e.message ? e.message : e}`);
+  }finally{
+    if (btn) btn.disabled = false;
+  }
+}
+
+function createCloudBackupRecord(backupPayload){
+  const timestamp = nowIso();
+  const deviceId = getOrCreateDeviceId();
+  return {
+    recordId: makeStableId("cloud_backup"),
+    recordType: "cloud-backup",
+    schemaVersion: LOCAL_DATA_SCHEMA_VERSION,
+    clientUpdatedAt: timestamp,
+    lastChangedDeviceId: deviceId,
+    payload: {
+      format: "steeler-cloud-backup-record",
+      version: 1,
+      createdAt: timestamp,
+      appVersion: APP_VERSION,
+      deviceId,
+      backup: backupPayload
+    }
+  };
+}
+
+async function sendCloudBackup(){
+  const btn = document.getElementById("syncSendBackupBtn");
+  const connection = getSavedSyncConnection();
+  if (connection.error) {
+    setSyncCheckMessage(connection.error);
+    return;
+  }
+
+  const ok = confirm("Send one full STEELER data backup to Cloudflare?\n\nThis uploads a backup copy only. It will not pull, merge, restore or overwrite anything on this device.");
+  if (!ok) return;
+
+  if (btn) btn.disabled = true;
+  setSyncCheckMessage("Sending one backup copy to Cloudflare...");
+  const sentAt = nowIso();
+
+  try{
+    const backup = createDataBackupPayload();
+    const record = createCloudBackupRecord(backup);
+    const res = await fetch(`${connection.baseUrl}/v1/records/push`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${connection.config.token}`
+      },
+      cache: "no-store",
+      body: JSON.stringify({
+        deviceId: getOrCreateDeviceId(),
+        records: [record]
+      })
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok !== true) {
+      throw new Error(data.error || `Worker returned ${res.status}`);
+    }
+
+    const accepted = Array.isArray(data.accepted) ? data.accepted[0] : null;
+    if (!accepted || accepted.recordId !== record.recordId) {
+      throw new Error("Worker did not accept the backup record.");
+    }
+
+    saveLocalSyncStatus({
+      status: "cloud-backup-ok",
+      lastRemoteStatus: "ok",
+      lastRemoteCheckAt: sentAt,
+      lastRemoteRevision: data.serverRevision,
+      lastCloudBackupAt: sentAt,
+      lastCloudBackupRecordId: record.recordId,
+      lastCloudBackupRevision: accepted.serverRevision,
+      lastSyncError: ""
+    });
+    renderLocalSyncStatus();
+    setSyncCheckMessage(`Cloud backup sent. Server revision ${accepted.serverRevision || data.serverRevision || 0}. No data was pulled or merged.`);
+  }catch(e){
+    saveLocalSyncStatus({
+      status: "cloud-backup-error",
+      lastRemoteStatus: "error",
+      lastRemoteCheckAt: sentAt,
+      lastSyncError: e && e.message ? e.message : String(e || "Cloud backup failed")
+    });
+    renderLocalSyncStatus();
+    setSyncCheckMessage(`Cloud backup failed: ${e && e.message ? e.message : e}`);
   }finally{
     if (btn) btn.disabled = false;
   }

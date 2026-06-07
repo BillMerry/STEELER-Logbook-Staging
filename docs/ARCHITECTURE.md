@@ -32,7 +32,7 @@ Modules should provide focused helpers for calculations, parsing, rendering or d
 
 ## Sync Worker Prototype
 
-`sync-worker/` contains an isolated Cloudflare Worker + D1 prototype for the v1.2.0 sync stream. The browser app does not call it yet.
+`sync-worker/` contains an isolated Cloudflare Worker + D1 prototype for the v1.2.0 sync stream. The browser app can now call it manually from Settings for staging-only checks and one-way backup uploads.
 
 The prototype uses:
 
@@ -41,7 +41,7 @@ The prototype uses:
 - Record payloads stored as JSON plus indexed metadata.
 - Server revisions for future pull-by-change workflows.
 
-It is deliberately separate from the PWA shell until conflict handling, client push/pull, and multi-device safety testing are ready.
+It remains deliberately conservative until conflict handling, client push/pull, and multi-device safety testing are ready. The current browser connection can send a complete cloud backup record, but it does not pull, merge, restore, or overwrite any local data.
 
 ## Storage And Data Safety Rules
 
@@ -53,8 +53,9 @@ It is deliberately separate from the PWA shell until conflict handling, client p
 - The primary v1.2.0 backup format is `steeler-data-backup`, which archives all local STEELER data on the device. Older logbook, ports, and DPP backup formats remain readable where supported.
 - A local `steeler_device_id_v1` value identifies this browser/device for future sync. It is created locally and must not be replaced by restoring a data backup.
 - Log-entry deletion is recoverable: deleted entries stay in local passage data with `deleted: true`, but are hidden from normal operational views and exports.
-- `steeler_sync_status_v1` stores local-only sync preparation status, including pending local change counts and last local change time. It does not connect to Cloudflare or any remote service yet.
-- `steeler_sync_config_v1` stores the staging Worker URL and token locally so Settings can test `/v1/status`. This status check does not upload or download logbook records, and the token is not included in full data backups.
+- `steeler_sync_status_v1` stores local sync preparation status, including pending local change counts, last local change time, Worker check results, and the last one-way cloud backup result.
+- `steeler_sync_config_v1` stores the staging Worker URL and token locally so Settings can test `/v1/status` and send a one-way cloud backup. The token is not included in full data backups.
+- The manual cloud backup uses `/v1/records/push` with record type `cloud-backup`. It uploads one complete `steeler-data-backup` copy and does not pull or merge remote records.
 
 ## Service Worker Release Rules
 
