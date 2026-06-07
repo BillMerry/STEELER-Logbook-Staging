@@ -30,6 +30,19 @@ Modules should provide focused helpers for calculations, parsing, rendering or d
 - `js/safety-emergency.js`: Safety/Emergency data defaults, storage access, contact normalization and legacy EC migration.
 - `js/live-data.js`: no-op future boundary for liveData/NMEA integration.
 
+## Sync Worker Prototype
+
+`sync-worker/` contains an isolated Cloudflare Worker + D1 prototype for the v1.2.0 sync stream. The browser app does not call it yet.
+
+The prototype uses:
+
+- A small token-protected JSON API.
+- D1 as the structured sync record store.
+- Record payloads stored as JSON plus indexed metadata.
+- Server revisions for future pull-by-change workflows.
+
+It is deliberately separate from the PWA shell until conflict handling, client push/pull, and multi-device safety testing are ready.
+
 ## Storage And Data Safety Rules
 
 - Existing localStorage keys and data shapes must not change without an explicit migration plan.

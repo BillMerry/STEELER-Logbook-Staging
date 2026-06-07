@@ -1,0 +1,11 @@
+name = "steeler-logbook-sync-staging"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+[[d1_databases]]
+binding = "SYNC_DB"
+database_name = "steeler_logbook_sync_staging"
+database_id = "replace-with-cloudflare-d1-database-id"
+
+[vars]
+SYNC_OWNER_ID = "steeler"

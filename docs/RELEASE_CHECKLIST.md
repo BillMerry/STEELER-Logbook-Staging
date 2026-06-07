@@ -17,10 +17,12 @@ Before release, confirm these all describe the same intended release:
 ## Pre-Release Code Checks
 
 - Run JavaScript syntax checks for `app.js`, `service-worker.js`, and every `js/*.js` module.
+- Run JavaScript syntax checks for `sync-worker/src/index.js` when the sync Worker changes.
 - Confirm `git status` is clean except for intentional release changes.
 - Review the diff for accidental storage-key, service-worker, data-shape, or core-flow changes.
 - Confirm `docs/DATA_MODEL.md` still matches any intentional storage/data additions.
 - Confirm `docs/ARCHITECTURE.md` still matches the module list loaded by `index.html`.
+- If `sync-worker/` changes, review `sync-worker/migrations/` and confirm the browser app is not connected to remote sync unless that is intentional.
 
 ## PWA / Offline Checks
 
