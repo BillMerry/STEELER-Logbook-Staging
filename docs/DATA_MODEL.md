@@ -545,7 +545,7 @@ When the manual Settings action sends a cloud backup, the app wraps this same pa
     format: "steeler-cloud-backup-record",
     version: 1,
     createdAt: "2026-05-03T12:00:00.000Z",
-    appVersion: "1.2.0-rc10",
+    appVersion: "1.2.0-rc11",
     deviceId: "device_...",
     backup: SteelerDataBackup
   }
@@ -560,7 +560,7 @@ The read-only cloud backup list is returned by `/v1/backups` and contains summar
 {
   recordId: "cloud_backup_...",
   createdAt: "2026-05-03T12:00:00.000Z",
-  appVersion: "1.2.0-rc10",
+  appVersion: "1.2.0-rc11",
   deviceId: "device_...",
   passageCount: 4,
   serverUpdatedAt: "2026-05-03 12:00:01",
@@ -579,7 +579,7 @@ The selected cloud backup download is returned by `/v1/backups/{recordId}`:
   backup: SteelerDataBackup,
   summary: {
     createdAt: "2026-05-03T12:00:00.000Z",
-    appVersion: "1.2.0-rc10",
+    appVersion: "1.2.0-rc11",
     deviceId: "device_...",
     serverUpdatedAt: "2026-05-03 12:00:01",
     serverRevision: 12
@@ -604,7 +604,7 @@ Manual Sync Preview builds local sync records, but does not upload or apply them
   payload: {
     format: "steeler-sync-record",
     version: 1,
-    appVersion: "1.2.0-rc10",
+    appVersion: "1.2.0-rc11",
     recordType: "passage",
     updatedAt: "2026-05-03T12:00:00.000Z",
     data: Passage
@@ -617,6 +617,8 @@ Global record ids currently include `global:ports`, `global:safety-info`, `globa
 The Worker summary endpoint `/v1/records/summary` returns record metadata only. It is used to preview how many records would upload or be received without moving the actual record payloads.
 
 Send Sync Records posts selected local sync records to `/v1/records/push`. After the Worker accepts every selected record, local `syncDirty` flags are cleared for the accepted passages, log entries, and ports. This marks those local changes as sent, but does not receive or merge remote records.
+
+Receive Sync Records uses `/v1/records` to fetch full cloud records, filters them to the records shown in the Receive preview, downloads a local safety backup, and applies only those selected records. It can receive passages and the global record types listed above. It does not send local records.
 
 Legacy full logbook backup:
 

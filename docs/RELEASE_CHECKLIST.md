@@ -67,6 +67,7 @@ Test from a clean browser profile or an iPad where possible:
 - Tap Preview Sync and confirm it reports local/cloud sync-record counts without uploading, downloading into the app, restoring, merging, or changing local passage data.
 - Tap Send Sync Records, confirm the warning, and confirm the sync records upload without receiving, merging, restoring, or changing local passage data beyond clearing local pending-sync flags.
 - Tap Preview Sync again and confirm it reports no records needing upload or receive.
+- On another device, tap Preview Sync, then Receive Sync Records. Confirm a safety backup downloads first, local records are not sent, and only the Receive preview records are applied.
 - Tap Send Backup to Cloud, confirm the warning, and confirm it reports a server revision without pulling, merging, restoring, or changing local passage data.
 - Tap Refresh Cloud Backups and confirm it lists recent cloud backup summaries without downloading, restoring, or changing local passage data.
 - Tap Download Backup for a listed cloud backup and confirm a JSON file downloads without restoring or changing local passage data.

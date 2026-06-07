@@ -11,7 +11,7 @@ const DEVICE_ID_KEY = "steeler_device_id_v1";
 const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 
-const APP_VERSION = "1.2.0-rc10";
+const APP_VERSION = "1.2.0-rc11";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
@@ -279,6 +279,7 @@ function renderLocalSyncStatus(){
         <button type="button" id="syncCheckStatusBtn" class="btn btn-secondary">Check Sync</button>
         <button type="button" id="syncPreviewBtn" class="btn btn-secondary">Preview Sync</button>
         <button type="button" id="syncPushRecordsBtn" class="btn">Send Sync Records</button>
+        <button type="button" id="syncReceiveRecordsBtn" class="btn btn-secondary">Receive Sync Records</button>
         <button type="button" id="syncSendBackupBtn" class="btn">Send Backup to Cloud</button>
         <button type="button" id="syncRefreshBackupsBtn" class="btn btn-secondary">Refresh Cloud Backups</button>
       </div>
@@ -328,6 +329,12 @@ function bindSyncStatusControls(){
   if (pushBtn && pushBtn.dataset.bound !== "1") {
     pushBtn.dataset.bound = "1";
     pushBtn.addEventListener("click", pushManualSyncRecords);
+  }
+
+  const receiveBtn = document.getElementById("syncReceiveRecordsBtn");
+  if (receiveBtn && receiveBtn.dataset.bound !== "1") {
+    receiveBtn.dataset.bound = "1";
+    receiveBtn.addEventListener("click", receiveManualSyncRecords);
   }
 }
 
@@ -516,6 +523,107 @@ function clearSyncDirtyForRecordIds(recordIds){
   }
 
   return { passagesChanged, portsChanged };
+}
+
+function markReceivedRecordClean(record){
+  const data = record?.payload?.data;
+  if (record?.recordType === "passage" && data && typeof data === "object") {
+    data.syncDirty = false;
+    data.syncStatus = "synced";
+    data.dirtyAt = "";
+    (Array.isArray(data.entries) ? data.entries : []).forEach((entry) => {
+      if (!entry || typeof entry !== "object") return;
+      entry.syncDirty = false;
+      entry.syncStatus = "synced";
+      entry.dirtyAt = "";
+    });
+  }
+  if (record?.recordType === "ports" && data && typeof data === "object") {
+    (Array.isArray(data.all) ? data.all : []).forEach((port) => {
+      if (!port || typeof port !== "object") return;
+      port.syncDirty = false;
+      port.syncStatus = "synced";
+      port.dirtyAt = "";
+    });
+  }
+  return record;
+}
+
+function applySyncRecord(record){
+  const type = String(record?.recordType || "");
+  const data = record?.payload?.data;
+  if (!type || data === undefined) return false;
+
+  markReceivedRecordClean(record);
+
+  if (type === "passage") {
+    if (!data || typeof data !== "object" || !data.id) return false;
+    const idx = (Array.isArray(passages) ? passages : []).findIndex((p) => p?.id === data.id);
+    if (idx >= 0) passages[idx] = data;
+    else passages.unshift(data);
+    normalisePassagesForSync(passages);
+    saveLocalStorageItem(STORAGE_KEY, JSON.stringify(passages), "passages");
+    return true;
+  }
+
+  if (type === "ports") {
+    knownPorts = Array.isArray(data?.all) ? data.all : [];
+    recentPorts = Array.isArray(data?.recent) ? data.recent : [];
+    cleanPortsInPlace();
+    saveLocalStorageItem(PORTS_KEY, JSON.stringify({ all: knownPorts, recent: recentPorts }), "ports");
+    return true;
+  }
+
+  if (type === "safety-info") {
+    saveLocalStorageItem(SAFETY_INFO_KEY, JSON.stringify(data), "Safety / Emergency Info");
+    return true;
+  }
+
+  if (type === "legacy-ec-settings") {
+    saveLocalStorageItem(EC_SETTINGS_KEY, JSON.stringify(data), "legacy emergency contact settings");
+    return true;
+  }
+
+  if (type === "dpp-templates") {
+    saveDppTemplateStore(data);
+    return true;
+  }
+
+  if (type === "dpp-waypoints") {
+    saveDppWaypointStore(data);
+    return true;
+  }
+
+  if (type === "weather-abbreviations") {
+    saveLocalStorageItem(ABBR_DB_KEY, JSON.stringify(data), "weather abbreviations");
+    return true;
+  }
+
+  if (type === "fuel-management") {
+    saveFuelManagementSettings(data);
+    return true;
+  }
+
+  if (type === "app-settings") {
+    if (data && typeof data === "object") {
+      if (data.theme) applyTheme(data.theme);
+      if (data.logSplitRatio !== undefined && data.logSplitRatio !== null) {
+        storage.setItem(LOG_SPLIT_RATIO_KEY, String(data.logSplitRatio));
+      }
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function applySyncRecords(records){
+  let applied = 0;
+  (Array.isArray(records) ? records : []).forEach((record) => {
+    if (applySyncRecord(record)) applied += 1;
+  });
+  if (applied > 0) refreshAfterDataRestore();
+  return applied;
 }
 
 function compareLocalAndRemoteSyncRecords(localRecords, remoteRecords){
@@ -747,6 +855,114 @@ async function pushManualSyncRecords(){
       lastSyncError: e && e.message ? e.message : String(e || "Sync record upload failed")
     });
     setSyncCheckMessage(`Send Sync Records failed: ${e && e.message ? e.message : e}`);
+  }finally{
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function fetchRemoteSyncRecords(connection){
+  const res = await fetch(`${connection.baseUrl}/v1/records?since=0&limit=500`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${connection.config.token}`
+    },
+    cache: "no-store"
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.ok !== true) {
+    throw new Error(data.error || `Worker returned ${res.status}`);
+  }
+  return {
+    records: Array.isArray(data.records) ? data.records.filter((record) => record.recordType !== "cloud-backup") : [],
+    serverRevision: data.serverRevision
+  };
+}
+
+async function receiveManualSyncRecords(){
+  const btn = document.getElementById("syncReceiveRecordsBtn");
+  const connection = getSavedSyncConnection();
+  if (connection.error) {
+    setSyncCheckMessage(connection.error);
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+  setSyncCheckMessage("Checking which sync records can be received...");
+  const receivedAt = nowIso();
+
+  try{
+    const localRecords = buildLocalSyncRecords();
+    const remote = await fetchRemoteSyncRecordSummary(connection);
+    const comparison = compareLocalAndRemoteSyncRecords(localRecords, remote.records);
+    renderSyncPreview(comparison, remote.serverRevision);
+
+    const idsToReceive = new Set(comparison.wouldDownload.map((item) => item.record.recordId));
+    if (!idsToReceive.size) {
+      saveLocalSyncStatus({
+        status: "sync-receive-noop",
+        lastRemoteStatus: "ok",
+        lastRemoteCheckAt: receivedAt,
+        lastRemoteRevision: remote.serverRevision,
+        lastSyncError: ""
+      });
+      setSyncCheckMessage("No sync records need receiving. Nothing changed.");
+      return;
+    }
+
+    const caution = comparison.wouldUpload.length
+      ? `\n\nThis device also has ${comparison.wouldUpload.length} local sync record${comparison.wouldUpload.length === 1 ? "" : "s"} that would upload. Receive Sync Records will NOT send them.`
+      : "";
+    const ok = confirm(
+      `Receive ${idsToReceive.size} sync record${idsToReceive.size === 1 ? "" : "s"} from Cloudflare?` +
+      caution + "\n\n" +
+      "A safety backup of current local data will download first. This will apply only the cloud records shown in the Receive preview."
+    );
+    if (!ok) {
+      setSyncCheckMessage("Receive Sync Records cancelled. Nothing changed.");
+      return;
+    }
+
+    const secondOk = confirm(
+      "Final confirmation\n\n" +
+      "This will apply received cloud sync records to this device. It will not send MacBook-local records to Cloudflare.\n\n" +
+      "Continue?"
+    );
+    if (!secondOk) {
+      setSyncCheckMessage("Receive Sync Records cancelled. Nothing changed.");
+      return;
+    }
+
+    downloadJsonPayload(createDataBackupPayload(), "STEELER-Before-sync-receive-backup");
+    setSyncCheckMessage(`Receiving ${idsToReceive.size} sync record${idsToReceive.size === 1 ? "" : "s"}...`);
+
+    const remoteFull = await fetchRemoteSyncRecords(connection);
+    const recordsToApply = remoteFull.records.filter((record) => idsToReceive.has(record.recordId));
+    if (recordsToApply.length !== idsToReceive.size) {
+      throw new Error(`Found ${recordsToApply.length} of ${idsToReceive.size} expected cloud records.`);
+    }
+
+    const applied = applySyncRecords(recordsToApply);
+    saveLocalSyncStatus({
+      status: "sync-receive-ok",
+      lastRemoteStatus: "ok",
+      lastRemoteCheckAt: receivedAt,
+      lastRemoteRevision: remoteFull.serverRevision,
+      lastSyncAt: receivedAt,
+      lastSyncRecordReceiveAt: receivedAt,
+      lastSyncRecordReceiveCount: applied,
+      pendingLocalChanges: countPendingLocalChanges(),
+      lastSyncError: ""
+    });
+    renderLocalSyncStatus();
+    setSyncCheckMessage(`Received ${applied} sync record${applied === 1 ? "" : "s"} from Cloudflare. No local records were sent.`);
+  }catch(e){
+    saveLocalSyncStatus({
+      status: "sync-receive-error",
+      lastRemoteStatus: "error",
+      lastRemoteCheckAt: receivedAt,
+      lastSyncError: e && e.message ? e.message : String(e || "Sync receive failed")
+    });
+    setSyncCheckMessage(`Receive Sync Records failed: ${e && e.message ? e.message : e}`);
   }finally{
     if (btn) btn.disabled = false;
   }
