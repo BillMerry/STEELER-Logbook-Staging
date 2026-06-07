@@ -12,7 +12,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.2.0-rc19";
+const APP_VERSION = "1.2.0-rc20";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
@@ -818,11 +818,86 @@ function summarisePortsDifference(localRecord, remoteRecord){
   return `Ports: ${parts.join(", ")}${names.length ? ` (${names.join(", ")}${added.length + changed.length + removed.length > names.length ? ", ..." : ""})` : ""}`;
 }
 
+function stableComparableJson(value){
+  if (Array.isArray(value)) return `[${value.map(stableComparableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableComparableJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value ?? "");
+}
+
+function summariseNamedListDifference(label, localItems, remoteItems, options = {}){
+  const keyField = options.keyField || "id";
+  const nameField = options.nameField || "name";
+  const keyFor = (item) => String(item?.[keyField] || item?.[nameField] || "").trim().toLowerCase();
+  const nameFor = (item) => String(item?.[nameField] || item?.[keyField] || "").trim();
+  const localByKey = new Map((Array.isArray(localItems) ? localItems : []).map((item) => [keyFor(item), item]).filter(([key]) => !!key));
+  const remoteByKey = new Map((Array.isArray(remoteItems) ? remoteItems : []).map((item) => [keyFor(item), item]).filter(([key]) => !!key));
+  const added = [];
+  const changed = [];
+  const removed = [];
+
+  localByKey.forEach((localItem, key) => {
+    const remoteItem = remoteByKey.get(key);
+    if (!remoteItem) {
+      added.push(nameFor(localItem));
+      return;
+    }
+    if (stableComparableJson(localItem) !== stableComparableJson(remoteItem)) changed.push(nameFor(localItem));
+  });
+  remoteByKey.forEach((remoteItem, key) => {
+    if (!localByKey.has(key)) removed.push(nameFor(remoteItem));
+  });
+
+  const names = [...added, ...changed, ...removed].filter(Boolean).slice(0, 4);
+  return `${label}: ${added.length} added, ${changed.length} changed, ${removed.length} removed${names.length ? ` (${names.join(", ")}${added.length + changed.length + removed.length > names.length ? ", ..." : ""})` : ""}`;
+}
+
+function flattenDiffPaths(value, prefix = ""){
+  if (!value || typeof value !== "object") return [];
+  if (Array.isArray(value)) return [prefix || "list"];
+  return Object.keys(value).flatMap((key) => {
+    const next = prefix ? `${prefix}.${key}` : key;
+    const child = value[key];
+    if (child && typeof child === "object" && !Array.isArray(child)) return flattenDiffPaths(child, next);
+    return [next];
+  });
+}
+
+function summariseObjectDifference(label, localData, remoteData){
+  const localPaths = new Set(flattenDiffPaths(localData));
+  const remotePaths = new Set(flattenDiffPaths(remoteData));
+  const allPaths = Array.from(new Set([...localPaths, ...remotePaths])).sort();
+  const changed = allPaths.filter((path) => {
+    const getPath = (obj) => path.split(".").reduce((value, part) => value && typeof value === "object" ? value[part] : undefined, obj);
+    return stableComparableJson(getPath(localData)) !== stableComparableJson(getPath(remoteData));
+  });
+  const shown = changed.slice(0, 4).map((path) => path.replace(/\./g, " / "));
+  return `${label}: ${changed.length} field${changed.length === 1 ? "" : "s"} differ${shown.length ? ` (${shown.join(", ")}${changed.length > shown.length ? ", ..." : ""})` : ""}`;
+}
+
+function summariseWeatherAbbreviationsDifference(localRecord, remoteRecord){
+  const localRules = Array.isArray(localRecord?.payload?.data?.rules) ? localRecord.payload.data.rules : [];
+  const remoteRules = Array.isArray(remoteRecord?.payload?.data?.rules) ? remoteRecord.payload.data.rules : [];
+  return summariseNamedListDifference("Weather abbreviations", localRules, remoteRules, { keyField: "id", nameField: "abbr" });
+}
+
 function syncRecordDetail(item){
   const local = item?.local || item?.record || null;
   const remote = item?.remote || null;
   const recordType = String(local?.recordType || remote?.recordType || "");
   if (recordType === "ports") return summarisePortsDifference(local, remote);
+  if (recordType === "dpp-templates") {
+    return summariseNamedListDifference("DPP templates", local?.payload?.data?.templates, remote?.payload?.data?.templates);
+  }
+  if (recordType === "dpp-waypoints") {
+    return summariseNamedListDifference("DPP waypoints", local?.payload?.data?.waypoints, remote?.payload?.data?.waypoints);
+  }
+  if (recordType === "weather-abbreviations") return summariseWeatherAbbreviationsDifference(local, remote);
+  if (recordType === "safety-info") return summariseObjectDifference("Safety info", local?.payload?.data, remote?.payload?.data);
+  if (recordType === "legacy-ec-settings") return summariseObjectDifference("Legacy emergency contacts", local?.payload?.data, remote?.payload?.data);
+  if (recordType === "fuel-management") return summariseObjectDifference("Fuel settings", local?.payload?.data, remote?.payload?.data);
+  if (recordType === "app-settings") return summariseObjectDifference("App settings", local?.payload?.data, remote?.payload?.data);
   return "";
 }
 
