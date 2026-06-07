@@ -453,6 +453,7 @@ body[data-theme="night"] .daily-summary-row{border-color:#333}
 .sync-preview-lists ul{margin:0;padding-left:1rem}
 .sync-preview-lists li{font-size:0.8rem;line-height:1.35;margin:0.12rem 0}
 .sync-preview-lists li span{display:block;color:var(--muted);font-size:0.74rem}
+.sync-conflict-list{border-color:#d8a33a !important;background:rgba(216,163,58,0.08) !important}
 .sync-cloud-backups{margin-top:0.15rem}
 .sync-cloud-backup-list{display:grid;gap:0.4rem}
 .sync-cloud-backup-item{

@@ -41,7 +41,7 @@ The prototype uses:
 - Record payloads stored as JSON plus indexed metadata.
 - Server revisions for future pull-by-change workflows.
 
-It remains deliberately conservative until conflict handling and broader multi-device safety testing are ready. The current browser connection can build a local sync-record preview, ask the Worker for remote sync-record summaries, manually upload local sync records, receive and apply previewed cloud sync records, send a complete cloud backup record, list recent cloud backup summaries, download a selected backup JSON file, and manually restore a selected cloud backup after confirmations and a local safety-backup download. It does not yet run automatic background sync or conflict resolution.
+It remains deliberately conservative until broader multi-device safety testing is ready. The current browser connection can build a local sync-record preview, ask the Worker for remote sync-record summaries, manually upload safe local sync records, receive and apply safe previewed cloud sync records, send a complete cloud backup record, list recent cloud backup summaries, download a selected backup JSON file, and manually restore a selected cloud backup after confirmations and a local safety-backup download. It does not yet run automatic background sync.
 
 ## Storage And Data Safety Rules
 
@@ -56,8 +56,9 @@ It remains deliberately conservative until conflict handling and broader multi-d
 - `steeler_sync_status_v1` stores local sync preparation status, including pending local change counts, last local change time, Worker check results, and the last one-way cloud backup result.
 - `steeler_sync_config_v1` stores the staging Worker URL and token locally so Settings can test `/v1/status`, preview sync, send sync records, receive sync records, send a one-way cloud backup, list recent cloud backup summaries, download a selected backup JSON file, and manually restore a selected cloud backup. The token is not included in full data backups.
 - Manual Sync Preview builds local `steeler-sync-record` payloads for passages, ports, Safety/Emergency, legacy emergency-contact settings, DPP templates, DPP waypoints, weather abbreviations, fuel settings, and app settings. It compares them with `/v1/records/summary` and does not upload or apply records.
-- Send Sync Records sends only the records that Preview Sync marks as needing upload via `/v1/records/push`. After every selected record is accepted, local sync-dirty flags are cleared. It does not receive, merge, restore, or overwrite local data.
-- Receive Sync Records fetches only the cloud records that Preview Sync marks as needing receive. It downloads a local safety backup first, warns if this device also has local records waiting to upload, and applies only the selected received records. It does not send local records.
+- Preview Sync separates records into safe to send, safe to receive, and needs review. A record needs review when local and cloud versions both exist, differ, and appear to have been last changed by different devices.
+- Send Sync Records sends only the records that Preview Sync marks as safe to send via `/v1/records/push`. After every selected record is accepted, local sync-dirty flags are cleared. Records needing review are left untouched. It does not receive, merge, restore, or overwrite local data.
+- Receive Sync Records fetches only the cloud records that Preview Sync marks as safe to receive. It downloads a local safety backup first, warns if this device also has local records waiting to upload, and applies only the selected received records. Records needing review are left untouched. It does not send local records.
 - The manual cloud backup uses `/v1/records/push` with record type `cloud-backup`. The read-only backup list uses `/v1/backups`; selected backup download/restore uses `/v1/backups/{recordId}`. Restore first downloads a local safety backup and requires two confirmations. These workflows do not pull or merge sync records into the app.
 
 ## Service Worker Release Rules

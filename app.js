@@ -11,7 +11,7 @@ const DEVICE_ID_KEY = "steeler_device_id_v1";
 const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 
-const APP_VERSION = "1.2.0-rc11";
+const APP_VERSION = "1.2.0-rc12";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
@@ -631,6 +631,7 @@ function compareLocalAndRemoteSyncRecords(localRecords, remoteRecords){
   const localById = new Map((Array.isArray(localRecords) ? localRecords : []).map((record) => [record.recordId, record]));
   const wouldUpload = [];
   const wouldDownload = [];
+  const conflicts = [];
   const matched = [];
 
   localRecords.forEach((local) => {
@@ -642,6 +643,19 @@ function compareLocalAndRemoteSyncRecords(localRecords, remoteRecords){
     matched.push(local.recordId);
     const localTime = String(local.clientUpdatedAt || "");
     const remoteTime = String(remote.clientUpdatedAt || "");
+    const localDevice = String(local.lastChangedDeviceId || "");
+    const remoteDevice = String(remote.lastChangedDeviceId || "");
+    const differentDevice = !!(localDevice && remoteDevice && localDevice !== remoteDevice);
+    if (localTime !== remoteTime && differentDevice) {
+      conflicts.push({
+        local,
+        remote,
+        reason: localTime > remoteTime
+          ? "local is newer, but cloud was changed by another device"
+          : "cloud is newer, but local data differs"
+      });
+      return;
+    }
     if (localTime > remoteTime) wouldUpload.push({ record: local, reason: "local is newer" });
     if (remoteTime > localTime) wouldDownload.push({ record: remote, reason: "cloud is newer" });
   });
@@ -657,7 +671,8 @@ function compareLocalAndRemoteSyncRecords(localRecords, remoteRecords){
     remoteCount: remoteRecords.length,
     matchedCount: matched.length,
     wouldUpload,
-    wouldDownload
+    wouldDownload,
+    conflicts
   };
 }
 
@@ -673,23 +688,29 @@ function renderSyncPreview(comparison, remoteRevision){
   if (!el) return;
   const uploadItems = comparison.wouldUpload.slice(0, 8).map((item) => `<li>${escapeHtml(syncRecordLabel(item.record))} <span>${escapeHtml(item.reason)}</span></li>`).join("");
   const downloadItems = comparison.wouldDownload.slice(0, 8).map((item) => `<li>${escapeHtml(syncRecordLabel(item.record))} <span>${escapeHtml(item.reason)}</span></li>`).join("");
+  const conflictItems = (comparison.conflicts || []).slice(0, 8).map((item) => `<li>${escapeHtml(syncRecordLabel(item.local || item.remote))} <span>${escapeHtml(item.reason)}</span></li>`).join("");
   el.innerHTML = `
     <div class="sync-preview-panel">
       <div class="sync-status-grid">
         <div><span>Local sync records</span><strong>${comparison.localCount}</strong></div>
         <div><span>Cloud sync records</span><strong>${comparison.remoteCount}</strong></div>
-        <div><span>Would upload</span><strong>${comparison.wouldUpload.length}</strong></div>
-        <div><span>Would receive</span><strong>${comparison.wouldDownload.length}</strong></div>
+        <div><span>Safe to send</span><strong>${comparison.wouldUpload.length}</strong></div>
+        <div><span>Safe to receive</span><strong>${comparison.wouldDownload.length}</strong></div>
+        <div><span>Needs review</span><strong>${(comparison.conflicts || []).length}</strong></div>
         <div><span>Cloud revision</span><strong>${remoteRevision || 0}</strong></div>
       </div>
       <div class="sync-preview-lists">
         <div>
-          <strong>Upload preview</strong>
+          <strong>Safe send preview</strong>
           <ul>${uploadItems || "<li>Nothing to upload</li>"}</ul>
         </div>
         <div>
-          <strong>Receive preview</strong>
+          <strong>Safe receive preview</strong>
           <ul>${downloadItems || "<li>Nothing to receive</li>"}</ul>
+        </div>
+        <div class="${conflictItems ? "sync-conflict-list" : ""}">
+          <strong>Needs review</strong>
+          <ul>${conflictItems || "<li>No possible conflicts</li>"}</ul>
         </div>
       </div>
       <p class="hint">Preview only. No records were uploaded, downloaded into the app, merged or restored.</p>
@@ -734,9 +755,10 @@ async function previewManualSync(){
       lastSyncPreviewAt: checkedAt,
       lastSyncPreviewUploadCount: comparison.wouldUpload.length,
       lastSyncPreviewDownloadCount: comparison.wouldDownload.length,
+      lastSyncPreviewConflictCount: (comparison.conflicts || []).length,
       lastSyncError: ""
     });
-    setSyncCheckMessage(`Sync preview complete. ${comparison.wouldUpload.length} would upload, ${comparison.wouldDownload.length} would receive. Nothing changed.`);
+    setSyncCheckMessage(`Sync preview complete. ${comparison.wouldUpload.length} safe to send, ${comparison.wouldDownload.length} safe to receive, ${(comparison.conflicts || []).length} need review. Nothing changed.`);
   }catch(e){
     saveLocalSyncStatus({
       status: "sync-preview-error",
@@ -787,6 +809,9 @@ async function pushManualSyncRecords(){
     renderSyncPreview(comparison, remote.serverRevision);
 
     const recordsToPush = comparison.wouldUpload.map((item) => item.record);
+    if ((comparison.conflicts || []).length) {
+      setSyncCheckMessage(`${comparison.conflicts.length} possible conflict${comparison.conflicts.length === 1 ? "" : "s"} need review. Safe records can still be sent, but conflicted records will be left alone.`);
+    }
     if (!recordsToPush.length) {
       saveLocalSyncStatus({
         status: "sync-push-noop",
@@ -801,7 +826,7 @@ async function pushManualSyncRecords(){
 
     const ok = confirm(
       `Send ${recordsToPush.length} sync record${recordsToPush.length === 1 ? "" : "s"} to Cloudflare?\n\n` +
-      "This uploads local sync records only. It will not receive, merge, restore or overwrite anything on this device."
+      "This uploads safe local sync records only. Possible conflicts are left alone. It will not receive, merge, restore or overwrite anything on this device."
     );
     if (!ok) {
       setSyncCheckMessage("Send Sync Records cancelled. Nothing changed.");
@@ -897,6 +922,9 @@ async function receiveManualSyncRecords(){
     renderSyncPreview(comparison, remote.serverRevision);
 
     const idsToReceive = new Set(comparison.wouldDownload.map((item) => item.record.recordId));
+    if ((comparison.conflicts || []).length) {
+      setSyncCheckMessage(`${comparison.conflicts.length} possible conflict${comparison.conflicts.length === 1 ? "" : "s"} need review. Safe receive records can still be applied, but conflicted records will be left alone.`);
+    }
     if (!idsToReceive.size) {
       saveLocalSyncStatus({
         status: "sync-receive-noop",
@@ -915,7 +943,7 @@ async function receiveManualSyncRecords(){
     const ok = confirm(
       `Receive ${idsToReceive.size} sync record${idsToReceive.size === 1 ? "" : "s"} from Cloudflare?` +
       caution + "\n\n" +
-      "A safety backup of current local data will download first. This will apply only the cloud records shown in the Receive preview."
+      "A safety backup of current local data will download first. This will apply only the cloud records shown in the Safe receive preview. Possible conflicts are left alone."
     );
     if (!ok) {
       setSyncCheckMessage("Receive Sync Records cancelled. Nothing changed.");
