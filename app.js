@@ -11,7 +11,7 @@ const DEVICE_ID_KEY = "steeler_device_id_v1";
 const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 
-const APP_VERSION = "1.2.0-rc9";
+const APP_VERSION = "1.2.0-rc10";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
@@ -278,6 +278,7 @@ function renderLocalSyncStatus(){
       <div class="st-action-row">
         <button type="button" id="syncCheckStatusBtn" class="btn btn-secondary">Check Sync</button>
         <button type="button" id="syncPreviewBtn" class="btn btn-secondary">Preview Sync</button>
+        <button type="button" id="syncPushRecordsBtn" class="btn">Send Sync Records</button>
         <button type="button" id="syncSendBackupBtn" class="btn">Send Backup to Cloud</button>
         <button type="button" id="syncRefreshBackupsBtn" class="btn btn-secondary">Refresh Cloud Backups</button>
       </div>
@@ -321,6 +322,12 @@ function bindSyncStatusControls(){
   if (previewBtn && previewBtn.dataset.bound !== "1") {
     previewBtn.dataset.bound = "1";
     previewBtn.addEventListener("click", previewManualSync);
+  }
+
+  const pushBtn = document.getElementById("syncPushRecordsBtn");
+  if (pushBtn && pushBtn.dataset.bound !== "1") {
+    pushBtn.dataset.bound = "1";
+    pushBtn.addEventListener("click", pushManualSyncRecords);
   }
 }
 
@@ -466,6 +473,51 @@ function buildLocalSyncRecords(){
   return records;
 }
 
+function clearSyncDirtyForRecordIds(recordIds){
+  const ids = new Set(Array.isArray(recordIds) ? recordIds : []);
+  let passagesChanged = false;
+  let portsChanged = false;
+
+  (Array.isArray(passages) ? passages : []).forEach((p) => {
+    if (!p?.id || !ids.has(`passage:${p.id}`)) return;
+    if (p.syncDirty || p.syncStatus || p.dirtyAt) {
+      p.syncDirty = false;
+      p.syncStatus = "synced";
+      p.dirtyAt = "";
+      passagesChanged = true;
+    }
+    (Array.isArray(p.entries) ? p.entries : []).forEach((entry) => {
+      if (!entry || typeof entry !== "object") return;
+      if (entry.syncDirty || entry.syncStatus || entry.dirtyAt) {
+        entry.syncDirty = false;
+        entry.syncStatus = "synced";
+        entry.dirtyAt = "";
+        passagesChanged = true;
+      }
+    });
+  });
+
+  if (ids.has("global:ports")) {
+    (Array.isArray(knownPorts) ? knownPorts : []).forEach((port) => {
+      if (!port || typeof port !== "object") return;
+      if (port.syncDirty || port.syncStatus || port.dirtyAt) {
+        port.syncDirty = false;
+        port.syncStatus = "synced";
+        port.dirtyAt = "";
+        portsChanged = true;
+      }
+    });
+  }
+
+  if (passagesChanged) savePassages();
+  if (portsChanged) {
+    saveLocalStorageItem(PORTS_KEY, JSON.stringify({ all: knownPorts, recent: recentPorts }), "ports");
+    refreshPortUI();
+  }
+
+  return { passagesChanged, portsChanged };
+}
+
 function compareLocalAndRemoteSyncRecords(localRecords, remoteRecords){
   const remoteById = new Map((Array.isArray(remoteRecords) ? remoteRecords : []).map((record) => [record.recordId, record]));
   const localById = new Map((Array.isArray(localRecords) ? localRecords : []).map((record) => [record.recordId, record]));
@@ -585,6 +637,116 @@ async function previewManualSync(){
       lastSyncError: e && e.message ? e.message : String(e || "Sync preview failed")
     });
     setSyncCheckMessage(`Sync preview failed: ${e && e.message ? e.message : e}`);
+  }finally{
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function fetchRemoteSyncRecordSummary(connection){
+  const res = await fetch(`${connection.baseUrl}/v1/records/summary?includeBackups=0&limit=500`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${connection.config.token}`
+    },
+    cache: "no-store"
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.ok !== true) {
+    throw new Error(data.error || `Worker returned ${res.status}`);
+  }
+  return {
+    records: Array.isArray(data.records) ? data.records : [],
+    serverRevision: data.serverRevision
+  };
+}
+
+async function pushManualSyncRecords(){
+  const btn = document.getElementById("syncPushRecordsBtn");
+  const connection = getSavedSyncConnection();
+  if (connection.error) {
+    setSyncCheckMessage(connection.error);
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+  setSyncCheckMessage("Checking which sync records need sending...");
+  const pushedAt = nowIso();
+
+  try{
+    const localRecords = buildLocalSyncRecords();
+    const remote = await fetchRemoteSyncRecordSummary(connection);
+    const comparison = compareLocalAndRemoteSyncRecords(localRecords, remote.records);
+    renderSyncPreview(comparison, remote.serverRevision);
+
+    const recordsToPush = comparison.wouldUpload.map((item) => item.record);
+    if (!recordsToPush.length) {
+      saveLocalSyncStatus({
+        status: "sync-push-noop",
+        lastRemoteStatus: "ok",
+        lastRemoteCheckAt: pushedAt,
+        lastRemoteRevision: remote.serverRevision,
+        lastSyncError: ""
+      });
+      setSyncCheckMessage("No sync records need sending. Nothing changed.");
+      return;
+    }
+
+    const ok = confirm(
+      `Send ${recordsToPush.length} sync record${recordsToPush.length === 1 ? "" : "s"} to Cloudflare?\n\n` +
+      "This uploads local sync records only. It will not receive, merge, restore or overwrite anything on this device."
+    );
+    if (!ok) {
+      setSyncCheckMessage("Send Sync Records cancelled. Nothing changed.");
+      return;
+    }
+
+    setSyncCheckMessage(`Sending ${recordsToPush.length} sync record${recordsToPush.length === 1 ? "" : "s"}...`);
+    const res = await fetch(`${connection.baseUrl}/v1/records/push`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${connection.config.token}`
+      },
+      cache: "no-store",
+      body: JSON.stringify({
+        deviceId: getOrCreateDeviceId(),
+        records: recordsToPush
+      })
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok !== true) {
+      throw new Error(data.error || `Worker returned ${res.status}`);
+    }
+
+    const accepted = Array.isArray(data.accepted) ? data.accepted : [];
+    const rejected = Array.isArray(data.rejected) ? data.rejected : [];
+    if (accepted.length !== recordsToPush.length || rejected.length) {
+      throw new Error(`Worker accepted ${accepted.length} of ${recordsToPush.length} records.`);
+    }
+
+    clearSyncDirtyForRecordIds(accepted.map((record) => record.recordId));
+    saveLocalSyncStatus({
+      status: "sync-push-ok",
+      lastRemoteStatus: "ok",
+      lastRemoteCheckAt: pushedAt,
+      lastRemoteRevision: data.serverRevision,
+      lastSyncAt: pushedAt,
+      lastSyncRecordPushAt: pushedAt,
+      lastSyncRecordPushCount: accepted.length,
+      pendingLocalChanges: countPendingLocalChanges(),
+      lastSyncError: ""
+    });
+    renderLocalSyncStatus();
+    setSyncCheckMessage(`Sent ${accepted.length} sync record${accepted.length === 1 ? "" : "s"} to Cloudflare. No records were received or merged.`);
+  }catch(e){
+    saveLocalSyncStatus({
+      status: "sync-push-error",
+      lastRemoteStatus: "error",
+      lastRemoteCheckAt: pushedAt,
+      lastSyncError: e && e.message ? e.message : String(e || "Sync record upload failed")
+    });
+    setSyncCheckMessage(`Send Sync Records failed: ${e && e.message ? e.message : e}`);
   }finally{
     if (btn) btn.disabled = false;
   }

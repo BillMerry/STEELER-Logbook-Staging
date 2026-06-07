@@ -32,7 +32,7 @@ Modules should provide focused helpers for calculations, parsing, rendering or d
 
 ## Sync Worker Prototype
 
-`sync-worker/` contains an isolated Cloudflare Worker + D1 prototype for the v1.2.0 sync stream. The browser app can now call it manually from Settings for staging-only checks, manual sync preview, one-way backup uploads, read-only backup listing, backup JSON download, and guarded cloud-backup restore.
+`sync-worker/` contains an isolated Cloudflare Worker + D1 prototype for the v1.2.0 sync stream. The browser app can now call it manually from Settings for staging-only checks, manual sync preview, manual sync-record upload, one-way backup uploads, read-only backup listing, backup JSON download, and guarded cloud-backup restore.
 
 The prototype uses:
 
@@ -41,7 +41,7 @@ The prototype uses:
 - Record payloads stored as JSON plus indexed metadata.
 - Server revisions for future pull-by-change workflows.
 
-It remains deliberately conservative until conflict handling, client push/pull, and multi-device safety testing are ready. The current browser connection can build a local sync-record preview, ask the Worker for remote sync-record summaries, send a complete cloud backup record, list recent cloud backup summaries, download a selected backup JSON file, and manually restore a selected cloud backup after confirmations and a local safety-backup download. It does not yet upload sync records, automatically pull sync records, or merge remote sync records into local data.
+It remains deliberately conservative until conflict handling, client pull/apply, and multi-device safety testing are ready. The current browser connection can build a local sync-record preview, ask the Worker for remote sync-record summaries, manually upload local sync records, send a complete cloud backup record, list recent cloud backup summaries, download a selected backup JSON file, and manually restore a selected cloud backup after confirmations and a local safety-backup download. It does not yet automatically pull sync records or merge remote sync records into local data.
 
 ## Storage And Data Safety Rules
 
@@ -54,8 +54,9 @@ It remains deliberately conservative until conflict handling, client push/pull, 
 - A local `steeler_device_id_v1` value identifies this browser/device for future sync. It is created locally and must not be replaced by restoring a data backup.
 - Log-entry deletion is recoverable: deleted entries stay in local passage data with `deleted: true`, but are hidden from normal operational views and exports.
 - `steeler_sync_status_v1` stores local sync preparation status, including pending local change counts, last local change time, Worker check results, and the last one-way cloud backup result.
-- `steeler_sync_config_v1` stores the staging Worker URL and token locally so Settings can test `/v1/status`, preview sync, send a one-way cloud backup, list recent cloud backup summaries, download a selected backup JSON file, and manually restore a selected cloud backup. The token is not included in full data backups.
+- `steeler_sync_config_v1` stores the staging Worker URL and token locally so Settings can test `/v1/status`, preview sync, send sync records, send a one-way cloud backup, list recent cloud backup summaries, download a selected backup JSON file, and manually restore a selected cloud backup. The token is not included in full data backups.
 - Manual Sync Preview builds local `steeler-sync-record` payloads for passages, ports, Safety/Emergency, legacy emergency-contact settings, DPP templates, DPP waypoints, weather abbreviations, fuel settings, and app settings. It compares them with `/v1/records/summary` and does not upload or apply records.
+- Send Sync Records sends only the records that Preview Sync marks as needing upload via `/v1/records/push`. After every selected record is accepted, local sync-dirty flags are cleared. It does not receive, merge, restore, or overwrite local data.
 - The manual cloud backup uses `/v1/records/push` with record type `cloud-backup`. The read-only backup list uses `/v1/backups`; selected backup download/restore uses `/v1/backups/{recordId}`. Restore first downloads a local safety backup and requires two confirmations. These workflows do not pull or merge sync records into the app.
 
 ## Service Worker Release Rules
