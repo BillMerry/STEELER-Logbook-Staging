@@ -12,7 +12,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.2.0-rc17";
+const APP_VERSION = "1.2.0-rc18";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
@@ -718,11 +718,11 @@ function compareLocalAndRemoteSyncRecords(localRecords, remoteRecords){
     const remoteDevice = String(remote.lastChangedDeviceId || "");
     const differentDevice = !!(localDevice && remoteDevice && localDevice !== remoteDevice);
     if (local.deleted !== remote.deleted) {
-      if (localTime > remoteTime || (localTime === remoteTime && local.deleted)) {
-        wouldUpload.push({ record: local, reason: local.deleted ? "deleted on this device" : "restored on this device" });
+      if (local.deleted) {
+        wouldUpload.push({ record: local, reason: "deleted on this device" });
       }
-      if (remoteTime > localTime || (localTime === remoteTime && remote.deleted)) {
-        wouldDownload.push({ record: remote, reason: remote.deleted ? "deleted in cloud" : "restored in cloud" });
+      if (remote.deleted) {
+        wouldDownload.push({ record: remote, reason: "deleted in cloud" });
       }
       return;
     }
