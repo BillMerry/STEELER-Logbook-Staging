@@ -60,6 +60,7 @@ Test from a clean browser profile or an iPad where possible:
 - Edit a Detailed Passage Plan template in Settings and confirm applying it to a passage uses the edited waypoints, speeds and notes.
 - Confirm the destination device keeps its own `steeler_device_id_v1` after restoring a data backup.
 - Delete a log entry and confirm it disappears from normal Log view, CSV export and PDF/print export while remaining present in the full data backup with `deleted: true`.
+- Confirm Settings > Data & Backup shows local sync status, pending local changes, recoverable deleted entries, last local change time and a device ID.
 
 ## Data Safety / Recovery Checks
 

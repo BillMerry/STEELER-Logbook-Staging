@@ -421,6 +421,11 @@ body[data-theme="night"] .daily-summary-row{border-color:#333}
 }
 
 .backup-row{display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.25rem}
+.sync-status-summary{margin-top:0.65rem}
+.sync-status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:0.45rem}
+.sync-status-grid>div{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:0.55rem 0.65rem;min-width:0}
+.sync-status-grid span{display:block;color:var(--muted);font-size:0.78rem;line-height:1.2}
+.sync-status-grid strong{display:block;margin-top:0.18rem;font-size:0.92rem;line-height:1.2;overflow-wrap:anywhere}
 .hint{opacity:0.75;font-size:0.8rem;margin:0.35rem 0 0}
 
 /* Log layout */

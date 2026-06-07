@@ -19,6 +19,7 @@ The app is an offline-first browser PWA. User data is stored in `localStorage` a
 | `steeler_fuel_management_v1` | Fuel tank/reset settings | JSON fuel management object |
 | `steeler_log_split_ratio_v1` | Log/plan split layout preference | Plain string number |
 | `steeler_device_id_v1` | Local device/client identity for future sync | Plain string generated locally; not restored from data backups |
+| `steeler_sync_status_v1` | Local sync status summary | JSON object; local-only, not used to contact a server yet |
 
 ## Safety Mirror Keys
 
@@ -500,7 +501,7 @@ Primary full data backup:
   version: 1,
   schemaVersion: 1,
   exportedAt: "2026-05-03T12:00:00.000Z",
-  appVersion: "1.2.0-rc2",
+  appVersion: "1.2.0-rc3",
   exportedByDeviceId: "device_...",
   data: {
     passages: Passage[],
@@ -517,12 +518,22 @@ Primary full data backup:
     fuelManagement: FuelManagementSettings,
     settings: {
       logSplitRatio: "42"
+    },
+    localSyncStatus: {
+      version: 1,
+      deviceId: "device_...",
+      syncEnabled: false,
+      status: "local-pending",
+      lastLocalChangeAt: "2026-05-03T12:00:00.000Z",
+      lastSyncAt: "",
+      lastSyncError: "",
+      pendingLocalChanges: 4
     }
   }
 }
 ```
 
-The primary data backup is the preferred v1.2.0 archive/restore format. It includes all local STEELER data needed for a full-device restore, but it does not restore the destination device's `steeler_device_id_v1`.
+The primary data backup is the preferred v1.2.0 archive/restore format. It includes all local STEELER data needed for a full-device restore. `localSyncStatus` is included for diagnostics, but restore does not replace the destination device's `steeler_device_id_v1` or use the backup's sync status as a cloud authority.
 
 Legacy full logbook backup:
 

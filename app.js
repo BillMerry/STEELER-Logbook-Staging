@@ -8,8 +8,9 @@ const DPP_WAYPOINTS_KEY = "steeler_dpp_waypoints_v1";
 const FUEL_MANAGEMENT_KEY = "steeler_fuel_management_v1";
 const LOG_SPLIT_RATIO_KEY = "steeler_log_split_ratio_v1";
 const DEVICE_ID_KEY = "steeler_device_id_v1";
+const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 
-const APP_VERSION = "1.2.0-rc2";
+const APP_VERSION = "1.2.0-rc3";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_PASSAGE_TIME_ZONE = "Europe/London";
@@ -106,6 +107,123 @@ function getOrCreateDeviceId(){
     id = id || makeStableId("device");
   }
   return id;
+}
+
+function loadLocalSyncStatus(){
+  const fallback = {
+    version: 1,
+    deviceId: getOrCreateDeviceId(),
+    syncEnabled: false,
+    status: "local-only",
+    lastLocalChangeAt: "",
+    lastSyncAt: "",
+    lastSyncError: "",
+    pendingLocalChanges: 0,
+    updatedAt: nowIso()
+  };
+  const stored = loadLocalStorageJsonItem(
+    SYNC_STATUS_KEY,
+    "sync status",
+    fallback,
+    value => value && typeof value === "object" && !Array.isArray(value)
+  );
+  return {
+    ...fallback,
+    ...stored,
+    version: 1,
+    deviceId: getOrCreateDeviceId(),
+    syncEnabled: false
+  };
+}
+
+function saveLocalSyncStatus(status){
+  try{
+    const clean = {
+      ...loadLocalSyncStatus(),
+      ...(status || {}),
+      version: 1,
+      deviceId: getOrCreateDeviceId(),
+      syncEnabled: false,
+      updatedAt: nowIso()
+    };
+    storage.setItem(SYNC_STATUS_KEY, JSON.stringify(clean));
+    return clean;
+  }catch(e){
+    console.warn("Could not save sync status", e);
+    return status || null;
+  }
+}
+
+function countPendingLocalChanges(){
+  let count = 0;
+  (Array.isArray(passages) ? passages : []).forEach((p) => {
+    if (p?.syncDirty) count += 1;
+    (Array.isArray(p?.entries) ? p.entries : []).forEach((entry) => {
+      if (entry?.syncDirty) count += 1;
+    });
+  });
+  (Array.isArray(knownPorts) ? knownPorts : []).forEach((port) => {
+    if (port?.syncDirty) count += 1;
+  });
+  return count;
+}
+
+function countRecoverableDeletedEntries(){
+  return (Array.isArray(passages) ? passages : []).reduce((sum, p) => {
+    return sum + (Array.isArray(p?.entries) ? p.entries.filter(isDeletedLogEntry).length : 0);
+  }, 0);
+}
+
+function recordLocalSyncChange(reason = "local-change", timestamp = nowIso()){
+  const pending = countPendingLocalChanges();
+  saveLocalSyncStatus({
+    status: pending > 0 ? "local-pending" : "local-only",
+    lastLocalChangeAt: timestamp,
+    lastLocalChangeReason: reason,
+    pendingLocalChanges: pending
+  });
+  renderLocalSyncStatus();
+}
+
+function getLocalSyncSummary(){
+  const status = loadLocalSyncStatus();
+  const pending = countPendingLocalChanges();
+  const deleted = countRecoverableDeletedEntries();
+  if (status.pendingLocalChanges !== pending) {
+    status.pendingLocalChanges = pending;
+    status.status = pending > 0 ? "local-pending" : "local-only";
+    saveLocalSyncStatus(status);
+  }
+  return {
+    ...status,
+    pendingLocalChanges: pending,
+    recoverableDeletedEntries: deleted
+  };
+}
+
+function formatSyncStatusTime(value){
+  if (!isValidIsoString(value)) return "Never";
+  try{
+    return new Date(value).toLocaleString([], { dateStyle: "short", timeStyle: "short" });
+  }catch{
+    return value;
+  }
+}
+
+function renderLocalSyncStatus(){
+  const el = document.getElementById("syncStatusSummary");
+  if (!el) return;
+  const summary = getLocalSyncSummary();
+  const shortDeviceId = String(summary.deviceId || "").slice(0, 18);
+  el.innerHTML = `
+    <div class="sync-status-grid">
+      <div><span>Sync</span><strong>Not connected yet</strong></div>
+      <div><span>Pending local changes</span><strong>${summary.pendingLocalChanges}</strong></div>
+      <div><span>Recoverable deleted entries</span><strong>${summary.recoverableDeletedEntries}</strong></div>
+      <div><span>Last local change</span><strong>${escapeHtml(formatSyncStatusTime(summary.lastLocalChangeAt))}</strong></div>
+      <div><span>Device ID</span><strong>${escapeHtml(shortDeviceId || "Creating...")}</strong></div>
+    </div>
+  `;
 }
 
 function downloadJsonPayload(payload, filenamePrefix){
@@ -1473,7 +1591,7 @@ function activeLogEntries(p){
   return (Array.isArray(p?.entries) ? p.entries : []).filter(entry => !isDeletedLogEntry(entry));
 }
 
-function markPassageDirty(p, timestamp = nowIso()){
+function markPassageDirty(p, timestamp = nowIso(), reason = "passage-change"){
   if (!p || typeof p !== "object") return;
   p.updatedAt = timestamp;
   p.schemaVersion = LOCAL_DATA_SCHEMA_VERSION;
@@ -1481,6 +1599,7 @@ function markPassageDirty(p, timestamp = nowIso()){
   p.syncDirty = true;
   p.syncStatus = "pending";
   p.dirtyAt = timestamp;
+  recordLocalSyncChange(reason, timestamp);
 }
 
 function markLogEntryDirty(entry, p, options = {}){
@@ -1499,7 +1618,7 @@ function markLogEntryDirty(entry, p, options = {}){
     entry.deleted = true;
     entry.deletedAt = timestamp;
   }
-  markPassageDirty(p, timestamp);
+  markPassageDirty(p, timestamp, options.deleted === true ? "log-entry-delete" : "log-entry-change");
 }
 
 function normalisePassageSyncFields(passage, deviceId){
@@ -1612,6 +1731,7 @@ function savePorts() {
   try {
     const deviceId = getOrCreateDeviceId();
     const now = nowIso();
+    let syncTouched = false;
     (knownPorts || []).forEach((p) => {
       if (!p || typeof p !== "object") return;
       ensurePortId(p);
@@ -1619,9 +1739,16 @@ function savePorts() {
       if (!isValidIsoString(p.updatedAt)) p.updatedAt = now;
       if (!p.schemaVersion) p.schemaVersion = LOCAL_DATA_SCHEMA_VERSION;
       if (!p.lastModifiedDeviceId) p.lastModifiedDeviceId = deviceId;
+      if (!p.syncDirty) {
+        p.syncDirty = true;
+        p.syncStatus = "pending";
+        p.dirtyAt = now;
+        syncTouched = true;
+      }
     });
     const payload = { all: knownPorts, recent: recentPorts };
     saveLocalStorageItem(PORTS_KEY, JSON.stringify(payload), "ports");
+    if (syncTouched) recordLocalSyncChange("ports-change", now);
     // If Plan comms is empty, auto-fill from updated port data
     try { updatePlanCommsFromPorts(); } catch(e) {}
     try { updatePlanSummaryPanel(); } catch(e) {}
@@ -2715,7 +2842,8 @@ function createDataBackupPayload(){
       fuelManagement: loadFuelManagementSettings(),
       settings: {
         logSplitRatio: storage.getItem(LOG_SPLIT_RATIO_KEY) || ""
-      }
+      },
+      localSyncStatus: getLocalSyncSummary()
     }
   };
   return payload;
@@ -2799,6 +2927,7 @@ function refreshAfterDataRestore(){
   renderDppTemplatesManager();
   renderDppWaypointsManager();
   try { updatePlanSummaryPanel(); } catch(e) {}
+  try { renderLocalSyncStatus(); } catch(e) {}
 }
 
 function restoreDataBackupObject(obj){
@@ -9389,6 +9518,7 @@ if (new URLSearchParams(location.search).has("reset")) {
 		try { injectSafetyEmergencySettingsBlock(); } catch (e) { console.warn('injectSafetyEmergencySettingsBlock failed', e); }
 		try { injectFuelManagementSettingsBlock(); } catch (e) { console.warn('injectFuelManagementSettingsBlock failed', e); }
 		try { setupSettingsCardToggles(); } catch (e) { console.warn('setupSettingsCardToggles failed', e); }
+  try { renderLocalSyncStatus(); } catch (e) { console.warn('renderLocalSyncStatus failed', e); }
 
   refreshHomePassageList();
 
