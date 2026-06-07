@@ -65,6 +65,7 @@ Test from a clean browser profile or an iPad where possible:
 - Confirm Settings > Data & Backup shows local sync status, pending local changes, recoverable deleted entries, last local change time and a device ID.
 - Enter the staging Worker URL/token, tap Check Sync, and confirm it reports Worker OK without changing passage data.
 - Tap Preview Sync and confirm it reports local/cloud sync-record counts plus safe-send, safe-receive, and needs-review counts without uploading, downloading into the app, restoring, merging, or changing local passage data.
+- For one needs-review item, choose either Keep this device or Use cloud. Confirm only that one item is resolved and the other needs-review items are left alone. If using cloud, confirm a safety backup downloads first.
 - Tap Send Sync Records, confirm the warning, and confirm safe sync records upload while any needs-review records are left untouched.
 - Tap Preview Sync again and confirm it reports no records needing upload or receive.
 - On another device, tap Preview Sync, then Receive Sync Records. Confirm a safety backup downloads first, local records are not sent, needs-review records are left untouched, and only safe-receive records are applied.

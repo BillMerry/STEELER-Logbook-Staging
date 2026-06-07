@@ -10,8 +10,9 @@ const LOG_SPLIT_RATIO_KEY = "steeler_log_split_ratio_v1";
 const DEVICE_ID_KEY = "steeler_device_id_v1";
 const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
+const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.2.0-rc12";
+const APP_VERSION = "1.2.0-rc13";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
@@ -210,6 +211,7 @@ function countRecoverableDeletedEntries(){
 }
 
 function recordLocalSyncChange(reason = "local-change", timestamp = nowIso()){
+  if (reason === "ports-change") forgetSyncRecordMeta("global:ports");
   const pending = countPendingLocalChanges();
   saveLocalSyncStatus({
     status: pending > 0 ? "local-pending" : "local-only",
@@ -434,14 +436,52 @@ function latestPassageTimestamp(p){
   ], "");
 }
 
-function createSyncRecord(recordId, recordType, payload, timestamp){
+function loadSyncRecordMeta(){
+  try{
+    const parsed = JSON.parse(storage.getItem(SYNC_RECORD_META_KEY) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  }catch{
+    return {};
+  }
+}
+
+function saveSyncRecordMeta(meta){
+  try{
+    storage.setItem(SYNC_RECORD_META_KEY, JSON.stringify(meta && typeof meta === "object" ? meta : {}));
+  }catch(e){
+    console.warn("Could not save sync record metadata", e);
+  }
+}
+
+function rememberSyncRecordMeta(record){
+  const recordId = String(record?.recordId || "");
+  const clientUpdatedAt = String(record?.clientUpdatedAt || "");
+  if (!recordId || !isValidIsoString(clientUpdatedAt)) return;
+  const meta = loadSyncRecordMeta();
+  meta[recordId] = {
+    clientUpdatedAt,
+    lastChangedDeviceId: String(record?.lastChangedDeviceId || "")
+  };
+  saveSyncRecordMeta(meta);
+}
+
+function forgetSyncRecordMeta(recordId){
+  const cleanRecordId = String(recordId || "");
+  if (!cleanRecordId) return;
+  const meta = loadSyncRecordMeta();
+  if (!meta[cleanRecordId]) return;
+  delete meta[cleanRecordId];
+  saveSyncRecordMeta(meta);
+}
+
+function createSyncRecord(recordId, recordType, payload, timestamp, lastChangedDeviceId = getOrCreateDeviceId()){
   const cleanTimestamp = isValidIsoString(timestamp) ? timestamp : nowIso();
   return {
     recordId,
     recordType,
     schemaVersion: LOCAL_DATA_SCHEMA_VERSION,
     clientUpdatedAt: cleanTimestamp,
-    lastChangedDeviceId: getOrCreateDeviceId(),
+    lastChangedDeviceId,
     deleted: false,
     payload: {
       format: "steeler-sync-record",
@@ -454,10 +494,19 @@ function createSyncRecord(recordId, recordType, payload, timestamp){
   };
 }
 
+function createGlobalSyncRecord(recordId, recordType, payload, fallbackTime, meta){
+  const saved = meta?.[recordId];
+  if (saved && isValidIsoString(saved.clientUpdatedAt)) {
+    return createSyncRecord(recordId, recordType, payload, saved.clientUpdatedAt, saved.lastChangedDeviceId || getOrCreateDeviceId());
+  }
+  return createSyncRecord(recordId, recordType, payload, fallbackTime);
+}
+
 function buildLocalSyncRecords(){
   normalisePassagesForSync(passages);
   const status = getLocalSyncSummary();
   const fallbackTime = status.lastLocalChangeAt || nowIso();
+  const syncMeta = loadSyncRecordMeta();
   const records = [];
 
   (Array.isArray(passages) ? passages : []).forEach((p) => {
@@ -465,17 +514,17 @@ function buildLocalSyncRecords(){
     records.push(createSyncRecord(`passage:${p.id}`, "passage", p, latestPassageTimestamp(p) || fallbackTime));
   });
 
-  records.push(createSyncRecord("global:ports", "ports", { all: knownPorts, recent: recentPorts }, fallbackTime));
-  records.push(createSyncRecord("global:safety-info", "safety-info", getSafetyInfo(), fallbackTime));
-  records.push(createSyncRecord("global:legacy-ec-settings", "legacy-ec-settings", loadEcSettings(), fallbackTime));
-  records.push(createSyncRecord("global:dpp-templates", "dpp-templates", loadDppTemplateStore(), fallbackTime));
-  records.push(createSyncRecord("global:dpp-waypoints", "dpp-waypoints", loadDppWaypointStore(), fallbackTime));
-  records.push(createSyncRecord("global:weather-abbreviations", "weather-abbreviations", loadAbbrDb(), fallbackTime));
-  records.push(createSyncRecord("global:fuel-management", "fuel-management", loadFuelManagementSettings(), fallbackTime));
-  records.push(createSyncRecord("global:app-settings", "app-settings", {
+  records.push(createGlobalSyncRecord("global:ports", "ports", { all: knownPorts, recent: recentPorts }, fallbackTime, syncMeta));
+  records.push(createGlobalSyncRecord("global:safety-info", "safety-info", getSafetyInfo(), fallbackTime, syncMeta));
+  records.push(createGlobalSyncRecord("global:legacy-ec-settings", "legacy-ec-settings", loadEcSettings(), fallbackTime, syncMeta));
+  records.push(createGlobalSyncRecord("global:dpp-templates", "dpp-templates", loadDppTemplateStore(), fallbackTime, syncMeta));
+  records.push(createGlobalSyncRecord("global:dpp-waypoints", "dpp-waypoints", loadDppWaypointStore(), fallbackTime, syncMeta));
+  records.push(createGlobalSyncRecord("global:weather-abbreviations", "weather-abbreviations", loadAbbrDb(), fallbackTime, syncMeta));
+  records.push(createGlobalSyncRecord("global:fuel-management", "fuel-management", loadFuelManagementSettings(), fallbackTime, syncMeta));
+  records.push(createGlobalSyncRecord("global:app-settings", "app-settings", {
     theme: storage.getItem(THEME_KEY) || "day",
     logSplitRatio: storage.getItem(LOG_SPLIT_RATIO_KEY) || ""
-  }, fallbackTime));
+  }, fallbackTime, syncMeta));
 
   return records;
 }
@@ -677,8 +726,8 @@ function compareLocalAndRemoteSyncRecords(localRecords, remoteRecords){
 }
 
 function syncRecordLabel(record){
-  const type = String(record?.recordType || "record");
   const id = String(record?.recordId || "");
+  const type = String(record?.recordType || (id.startsWith("passage:") ? "passage" : id.replace(/^global:/, "")) || "record");
   if (type === "passage") return id.replace(/^passage:/, "Passage ");
   return type.replace(/-/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
@@ -688,7 +737,19 @@ function renderSyncPreview(comparison, remoteRevision){
   if (!el) return;
   const uploadItems = comparison.wouldUpload.slice(0, 8).map((item) => `<li>${escapeHtml(syncRecordLabel(item.record))} <span>${escapeHtml(item.reason)}</span></li>`).join("");
   const downloadItems = comparison.wouldDownload.slice(0, 8).map((item) => `<li>${escapeHtml(syncRecordLabel(item.record))} <span>${escapeHtml(item.reason)}</span></li>`).join("");
-  const conflictItems = (comparison.conflicts || []).slice(0, 8).map((item) => `<li>${escapeHtml(syncRecordLabel(item.local || item.remote))} <span>${escapeHtml(item.reason)}</span></li>`).join("");
+  const conflictItems = (comparison.conflicts || []).slice(0, 8).map((item) => {
+    const recordId = item.local?.recordId || item.remote?.recordId || "";
+    return `
+      <li>
+        ${escapeHtml(syncRecordLabel(item.local || item.remote))}
+        <span>${escapeHtml(item.reason)}</span>
+        <div class="sync-conflict-actions">
+          <button type="button" class="btn btn-secondary sync-conflict-choice-btn" data-record-id="${escapeHtml(recordId)}" data-choice="local">Keep this device</button>
+          <button type="button" class="btn btn-secondary sync-conflict-choice-btn" data-record-id="${escapeHtml(recordId)}" data-choice="cloud">Use cloud</button>
+        </div>
+      </li>
+    `;
+  }).join("");
   el.innerHTML = `
     <div class="sync-preview-panel">
       <div class="sync-status-grid">
@@ -716,6 +777,146 @@ function renderSyncPreview(comparison, remoteRevision){
       <p class="hint">Preview only. No records were uploaded, downloaded into the app, merged or restored.</p>
     </div>
   `;
+  bindSyncConflictControls();
+}
+
+function bindSyncConflictControls(){
+  document.querySelectorAll(".sync-conflict-choice-btn").forEach((btn) => {
+    if (btn.dataset.bound === "1") return;
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", () => resolveSyncConflict(btn.dataset.recordId || "", btn.dataset.choice || "", btn));
+  });
+}
+
+function setSyncConflictButtonsDisabled(disabled){
+  document.querySelectorAll(".sync-conflict-choice-btn").forEach((btn) => {
+    btn.disabled = disabled;
+  });
+}
+
+async function refreshManualSyncPreview(connection, messagePrefix = ""){
+  const checkedAt = nowIso();
+  const localRecords = buildLocalSyncRecords();
+  const remote = await fetchRemoteSyncRecordSummary(connection);
+  const comparison = compareLocalAndRemoteSyncRecords(localRecords, remote.records);
+  renderSyncPreview(comparison, remote.serverRevision);
+  saveLocalSyncStatus({
+    status: "sync-preview-ok",
+    lastRemoteStatus: "ok",
+    lastRemoteCheckAt: checkedAt,
+    lastRemoteRevision: remote.serverRevision,
+    lastSyncPreviewAt: checkedAt,
+    lastSyncPreviewUploadCount: comparison.wouldUpload.length,
+    lastSyncPreviewDownloadCount: comparison.wouldDownload.length,
+    lastSyncPreviewConflictCount: (comparison.conflicts || []).length,
+    lastSyncError: ""
+  });
+  setSyncCheckMessage(`${messagePrefix}${comparison.wouldUpload.length} safe to send, ${comparison.wouldDownload.length} safe to receive, ${(comparison.conflicts || []).length} need review.`);
+  return { comparison, remote };
+}
+
+async function resolveSyncConflict(recordId, choice, btn){
+  const cleanRecordId = String(recordId || "").trim();
+  const cleanChoice = String(choice || "");
+  const connection = getSavedSyncConnection();
+  if (connection.error) {
+    setSyncCheckMessage(connection.error);
+    return;
+  }
+  if (!cleanRecordId || !["local", "cloud"].includes(cleanChoice)) {
+    setSyncCheckMessage("Could not identify the review item. Please run Preview Sync again.");
+    return;
+  }
+
+  const label = syncRecordLabel({ recordId: cleanRecordId });
+  const actionText = cleanChoice === "local" ? "keep this device's version" : "use the cloud version";
+  const ok = confirm(
+    `Resolve ${label}?\n\n` +
+    `This will ${actionText} for this one review item only. Other review items will be left alone.`
+  );
+  if (!ok) {
+    setSyncCheckMessage("Review item left unchanged.");
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+  setSyncConflictButtonsDisabled(true);
+  const resolvedAt = nowIso();
+
+  try{
+    const localRecords = buildLocalSyncRecords();
+    const localRecord = localRecords.find((record) => record.recordId === cleanRecordId);
+    if (cleanChoice === "local") {
+      if (!localRecord) throw new Error("This device no longer has that local record.");
+      setSyncCheckMessage(`Sending ${label} from this device...`);
+      const res = await fetch(`${connection.baseUrl}/v1/records/push`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${connection.config.token}`
+        },
+        cache: "no-store",
+        body: JSON.stringify({
+          deviceId: getOrCreateDeviceId(),
+          records: [localRecord]
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok !== true) {
+        throw new Error(data.error || `Worker returned ${res.status}`);
+      }
+      const accepted = Array.isArray(data.accepted) ? data.accepted : [];
+      if (accepted.length !== 1 || accepted[0]?.recordId !== cleanRecordId) {
+        throw new Error("The Worker did not accept the selected review item.");
+      }
+      rememberSyncRecordMeta(localRecord);
+      clearSyncDirtyForRecordIds([cleanRecordId]);
+      saveLocalSyncStatus({
+        status: "sync-conflict-local-ok",
+        lastRemoteStatus: "ok",
+        lastRemoteCheckAt: resolvedAt,
+        lastRemoteRevision: data.serverRevision,
+        lastSyncAt: resolvedAt,
+        pendingLocalChanges: countPendingLocalChanges(),
+        lastSyncError: ""
+      });
+      renderLocalSyncStatus();
+      await refreshManualSyncPreview(connection, `${label} resolved by keeping this device. `);
+      return;
+    }
+
+    setSyncCheckMessage(`Receiving ${label} from cloud...`);
+    const remoteFull = await fetchRemoteSyncRecords(connection);
+    const remoteRecord = remoteFull.records.find((record) => record.recordId === cleanRecordId);
+    if (!remoteRecord) throw new Error("Cloud no longer has that record.");
+
+    downloadJsonPayload(createDataBackupPayload(), "STEELER-Before-sync-review-backup");
+    const applied = applySyncRecords([remoteRecord]);
+    if (applied !== 1) throw new Error("Could not apply the selected cloud record.");
+    rememberSyncRecordMeta(remoteRecord);
+    saveLocalSyncStatus({
+      status: "sync-conflict-cloud-ok",
+      lastRemoteStatus: "ok",
+      lastRemoteCheckAt: resolvedAt,
+      lastRemoteRevision: remoteFull.serverRevision,
+      lastSyncAt: resolvedAt,
+      lastSyncRecordReceiveAt: resolvedAt,
+      lastSyncRecordReceiveCount: applied,
+      pendingLocalChanges: countPendingLocalChanges(),
+      lastSyncError: ""
+    });
+    renderLocalSyncStatus();
+    await refreshManualSyncPreview(connection, `${label} resolved by using cloud. `);
+  }catch(e){
+    saveLocalSyncStatus({
+      status: "sync-conflict-error",
+      lastRemoteStatus: "error",
+      lastRemoteCheckAt: resolvedAt,
+      lastSyncError: e && e.message ? e.message : String(e || "Review item failed")
+    });
+    setSyncCheckMessage(`Review item failed: ${e && e.message ? e.message : e}`);
+    setSyncConflictButtonsDisabled(false);
+  }
 }
 
 async function previewManualSync(){
@@ -858,6 +1059,7 @@ async function pushManualSyncRecords(){
       throw new Error(`Worker accepted ${accepted.length} of ${recordsToPush.length} records.`);
     }
 
+    recordsToPush.forEach(rememberSyncRecordMeta);
     clearSyncDirtyForRecordIds(accepted.map((record) => record.recordId));
     saveLocalSyncStatus({
       status: "sync-push-ok",
@@ -970,6 +1172,7 @@ async function receiveManualSyncRecords(){
     }
 
     const applied = applySyncRecords(recordsToApply);
+    recordsToApply.forEach(rememberSyncRecordMeta);
     saveLocalSyncStatus({
       status: "sync-receive-ok",
       lastRemoteStatus: "ok",
