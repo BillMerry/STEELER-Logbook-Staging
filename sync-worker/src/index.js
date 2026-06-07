@@ -95,7 +95,7 @@ async function handleStatus(request, env) {
     serverRevision: Number(revisionRow?.revision || 0),
     recordCount: Number(recordCountRow?.count || 0),
     clientCount: Number(clientCountRow?.count || 0),
-    note: "Worker prototype only; browser app is not connected yet."
+    note: "Worker prototype only; manual backup upload/listing is connected, but automatic sync and restore are not enabled."
   });
 }
 
