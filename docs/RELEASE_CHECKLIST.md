@@ -63,6 +63,7 @@ Test from a clean browser profile or an iPad where possible:
 - Confirm the destination device keeps its own `steeler_device_id_v1` after restoring a data backup.
 - Delete a log entry and confirm it disappears from normal Log view, CSV export and PDF/print export while remaining present in the full data backup with `deleted: true`.
 - Confirm Settings > Data & Backup shows local sync status, pending local changes, recoverable deleted entries, last local change time and a device ID.
+- Enter the staging Worker URL/token, tap Check Sync, and confirm it reports Worker OK without changing passage data.
 
 ## Data Safety / Recovery Checks
 

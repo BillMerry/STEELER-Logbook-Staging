@@ -54,6 +54,7 @@ It is deliberately separate from the PWA shell until conflict handling, client p
 - A local `steeler_device_id_v1` value identifies this browser/device for future sync. It is created locally and must not be replaced by restoring a data backup.
 - Log-entry deletion is recoverable: deleted entries stay in local passage data with `deleted: true`, but are hidden from normal operational views and exports.
 - `steeler_sync_status_v1` stores local-only sync preparation status, including pending local change counts and last local change time. It does not connect to Cloudflare or any remote service yet.
+- `steeler_sync_config_v1` stores the staging Worker URL and token locally so Settings can test `/v1/status`. This status check does not upload or download logbook records, and the token is not included in full data backups.
 
 ## Service Worker Release Rules
 

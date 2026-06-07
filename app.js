@@ -9,10 +9,12 @@ const FUEL_MANAGEMENT_KEY = "steeler_fuel_management_v1";
 const LOG_SPLIT_RATIO_KEY = "steeler_log_split_ratio_v1";
 const DEVICE_ID_KEY = "steeler_device_id_v1";
 const SYNC_STATUS_KEY = "steeler_sync_status_v1";
+const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 
-const APP_VERSION = "1.2.0-rc3";
+const APP_VERSION = "1.2.0-rc4";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
+const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
 const DEFAULT_PASSAGE_TIME_ZONE = "Europe/London";
 const PASSAGE_TIME_ZONES = {
   "Europe/London": "BST",
@@ -107,6 +109,39 @@ function getOrCreateDeviceId(){
     id = id || makeStableId("device");
   }
   return id;
+}
+
+function loadSyncConfig(){
+  const fallback = {
+    version: 1,
+    workerUrl: DEFAULT_SYNC_WORKER_URL,
+    token: ""
+  };
+  const stored = loadLocalStorageJsonItem(
+    SYNC_CONFIG_KEY,
+    "sync config",
+    fallback,
+    value => value && typeof value === "object" && !Array.isArray(value)
+  );
+  return {
+    ...fallback,
+    ...stored,
+    version: 1,
+    workerUrl: String(stored?.workerUrl || fallback.workerUrl).trim(),
+    token: String(stored?.token || "")
+  };
+}
+
+function saveSyncConfig(config){
+  const clean = {
+    ...loadSyncConfig(),
+    ...(config || {}),
+    version: 1
+  };
+  clean.workerUrl = String(clean.workerUrl || DEFAULT_SYNC_WORKER_URL).trim().replace(/\/+$/g, "");
+  clean.token = String(clean.token || "");
+  storage.setItem(SYNC_CONFIG_KEY, JSON.stringify(clean));
+  return clean;
 }
 
 function loadLocalSyncStatus(){
@@ -214,16 +249,111 @@ function renderLocalSyncStatus(){
   const el = document.getElementById("syncStatusSummary");
   if (!el) return;
   const summary = getLocalSyncSummary();
+  const config = loadSyncConfig();
   const shortDeviceId = String(summary.deviceId || "").slice(0, 18);
+  const lastCheck = summary.lastRemoteCheckAt || "";
+  const remoteText = summary.lastRemoteStatus === "ok"
+    ? `OK${summary.lastRemoteRevision != null ? ` · rev ${summary.lastRemoteRevision}` : ""}`
+    : (summary.lastRemoteStatus === "error" ? "Error" : "Not checked");
   el.innerHTML = `
     <div class="sync-status-grid">
-      <div><span>Sync</span><strong>Not connected yet</strong></div>
+      <div><span>Sync</span><strong>${escapeHtml(remoteText)}</strong></div>
       <div><span>Pending local changes</span><strong>${summary.pendingLocalChanges}</strong></div>
       <div><span>Recoverable deleted entries</span><strong>${summary.recoverableDeletedEntries}</strong></div>
       <div><span>Last local change</span><strong>${escapeHtml(formatSyncStatusTime(summary.lastLocalChangeAt))}</strong></div>
+      <div><span>Last remote check</span><strong>${escapeHtml(formatSyncStatusTime(lastCheck))}</strong></div>
       <div><span>Device ID</span><strong>${escapeHtml(shortDeviceId || "Creating...")}</strong></div>
     </div>
+    <div class="sync-check-panel">
+      <label class="sync-check-field">
+        <span>Worker URL</span>
+        <input id="syncWorkerUrl" type="url" value="${escapeHtml(config.workerUrl)}" autocomplete="off" spellcheck="false">
+      </label>
+      <label class="sync-check-field">
+        <span>Sync token</span>
+        <input id="syncWorkerToken" type="password" value="${escapeHtml(config.token)}" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="st-action-row">
+        <button type="button" id="syncCheckStatusBtn" class="btn btn-secondary">Check Sync</button>
+      </div>
+      <p id="syncCheckMessage" class="hint">${escapeHtml(summary.lastSyncError || "Checks the staging Worker only. No logbook data is uploaded or downloaded.")}</p>
+    </div>
   `;
+  bindSyncStatusControls();
+}
+
+function setSyncCheckMessage(message){
+  const el = document.getElementById("syncCheckMessage");
+  if (el) el.textContent = message || "";
+}
+
+function bindSyncStatusControls(){
+  const btn = document.getElementById("syncCheckStatusBtn");
+  if (!btn || btn.dataset.bound === "1") return;
+  btn.dataset.bound = "1";
+  btn.addEventListener("click", checkSyncWorkerStatus);
+}
+
+async function checkSyncWorkerStatus(){
+  const btn = document.getElementById("syncCheckStatusBtn");
+  const urlEl = document.getElementById("syncWorkerUrl");
+  const tokenEl = document.getElementById("syncWorkerToken");
+  const config = saveSyncConfig({
+    workerUrl: urlEl?.value || DEFAULT_SYNC_WORKER_URL,
+    token: tokenEl?.value || ""
+  });
+
+  if (!config.token) {
+    setSyncCheckMessage("Enter the staging sync token first.");
+    return;
+  }
+
+  let baseUrl;
+  try{
+    baseUrl = new URL(config.workerUrl);
+  }catch{
+    setSyncCheckMessage("The Worker URL is not valid.");
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+  setSyncCheckMessage("Checking staging Worker...");
+  const checkedAt = nowIso();
+
+  try{
+    const res = await fetch(`${baseUrl.toString().replace(/\/+$/g, "")}/v1/status`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${config.token}`
+      },
+      cache: "no-store"
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok !== true) {
+      throw new Error(data.error || `Worker returned ${res.status}`);
+    }
+
+    saveLocalSyncStatus({
+      status: "remote-check-ok",
+      lastRemoteStatus: "ok",
+      lastRemoteCheckAt: checkedAt,
+      lastRemoteRevision: data.serverRevision,
+      lastSyncError: ""
+    });
+    renderLocalSyncStatus();
+    setSyncCheckMessage(`Worker OK. Server revision ${data.serverRevision || 0}. No data transferred.`);
+  }catch(e){
+    saveLocalSyncStatus({
+      status: "remote-check-error",
+      lastRemoteStatus: "error",
+      lastRemoteCheckAt: checkedAt,
+      lastSyncError: e && e.message ? e.message : String(e || "Sync check failed")
+    });
+    renderLocalSyncStatus();
+    setSyncCheckMessage(`Sync check failed: ${e && e.message ? e.message : e}`);
+  }finally{
+    if (btn) btn.disabled = false;
+  }
 }
 
 function downloadJsonPayload(payload, filenamePrefix){
