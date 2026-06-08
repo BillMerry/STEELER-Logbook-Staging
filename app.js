@@ -12,7 +12,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.2.0-rc23";
+const APP_VERSION = "1.2.0-rc24";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
@@ -3649,8 +3649,16 @@ function openNoteLinkFromEvent(ev){
   ev.stopImmediatePropagation?.();
   const href = link.href || link.getAttribute("href") || "";
   if (!href) return;
-  const opened = window.open(href, "_blank", "noopener,noreferrer");
-  if (!opened) window.location.assign(href);
+  const externalLink = document.createElement("a");
+  externalLink.href = href;
+  externalLink.target = "_blank";
+  externalLink.rel = "noopener noreferrer external";
+  externalLink.style.position = "fixed";
+  externalLink.style.left = "-9999px";
+  externalLink.style.top = "-9999px";
+  document.body.appendChild(externalLink);
+  externalLink.click();
+  externalLink.remove();
 }
 
 
