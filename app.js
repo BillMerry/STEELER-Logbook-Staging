@@ -12,7 +12,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.2.0-rc24";
+const APP_VERSION = "1.2.0-rc25";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
@@ -3640,27 +3640,6 @@ function holdNoteLinkTap(ev){
   if (!link) return;
   ev.stopPropagation();
 }
-
-function openNoteLinkFromEvent(ev){
-  const link = getNoteLinkFromEvent(ev);
-  if (!link) return;
-  ev.preventDefault();
-  ev.stopPropagation();
-  ev.stopImmediatePropagation?.();
-  const href = link.href || link.getAttribute("href") || "";
-  if (!href) return;
-  const externalLink = document.createElement("a");
-  externalLink.href = href;
-  externalLink.target = "_blank";
-  externalLink.rel = "noopener noreferrer external";
-  externalLink.style.position = "fixed";
-  externalLink.style.left = "-9999px";
-  externalLink.style.top = "-9999px";
-  document.body.appendChild(externalLink);
-  externalLink.click();
-  externalLink.remove();
-}
-
 
 function getPortCommsPilotageText(portNameStr){
   const name = (portNameStr || "").trim();
@@ -8482,7 +8461,6 @@ function setupPlanSummaryIndependentScroll(){
 
 planSummaryPanel.addEventListener("pointerdown", holdNoteLinkTap, true);
 planSummaryPanel.addEventListener("touchstart", holdNoteLinkTap, true);
-planSummaryPanel.addEventListener("click", openNoteLinkFromEvent, true);
 planSummaryPanel.addEventListener("click", (e) => {
   if (e.target.closest("a")) return;
   const target = e.target.closest(".plan-link");
@@ -8500,8 +8478,6 @@ planSummaryPanel.addEventListener("click", (e) => {
   const el = document.getElementById(fieldId);
   if (el) setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
 });
-
-document.addEventListener("click", openNoteLinkFromEvent, true);
 
 // --- Log entries ----------------------------------------------------
 
