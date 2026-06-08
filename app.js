@@ -12,7 +12,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.2.0-rc26";
+const APP_VERSION = "1.2.0-rc27";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
@@ -3600,21 +3600,6 @@ function escapeHtml(str) {
     .replace(/'/g, "&#039;");
 }
 
-function isIosStandaloneWebApp(){
-  const platform = navigator.platform || "";
-  const ua = navigator.userAgent || "";
-  const isIpadOsDesktopMode = platform === "MacIntel" && navigator.maxTouchPoints > 1;
-  const isIos = /iPad|iPhone|iPod/.test(ua) || isIpadOsDesktopMode;
-  return isIos && (window.navigator.standalone === true || window.matchMedia?.("(display-mode: standalone)")?.matches);
-}
-
-function getExternalNoteHref(href){
-  if (!href) return "";
-  return isIosStandaloneWebApp() && /^https?:\/\//i.test(href)
-    ? `com-apple-mobilesafari-tab:${href}`
-    : href;
-}
-
 function linkifyNoteHtml(value){
   const text = String(value || "");
   if (!text) return "";
@@ -3627,8 +3612,7 @@ function linkifyNoteHtml(value){
     const clean = trailing ? match.slice(0, -trailing.length) : match;
     const lower = clean.toLowerCase();
     const href = lower.startsWith("http://") || lower.startsWith("https://") ? clean : `https://${clean}`;
-    const externalHref = getExternalNoteHref(href);
-    html += `<a href="${escapeHtml(externalHref)}" target="_blank" rel="noopener noreferrer" data-note-link="true" data-note-href="${escapeHtml(href)}">${escapeHtml(clean)}</a>${escapeHtml(trailing)}`;
+    html += `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" data-note-link="true">${escapeHtml(clean)}</a>${escapeHtml(trailing)}`;
     lastIndex = offset + match.length;
     return match;
   });
