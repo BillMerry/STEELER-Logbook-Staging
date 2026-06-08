@@ -8361,7 +8361,7 @@ function updatePlanSummaryPanel() {
 
         <div class="block plan-link" data-goto="planComms">
           <p class="section-title">COMMS / PILOTAGE</p>
-          <p>${comms ? escapeHtml(comms).replace(/\n/g, "<br>") : "<em>–</em>"}</p>
+          <p>${comms ? linkifyNoteHtml(comms) : "<em>–</em>"}</p>
         </div>
 
         <div class="block plan-link" data-goto="planTidalCoeff">
