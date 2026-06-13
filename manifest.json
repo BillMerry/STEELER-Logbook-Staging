@@ -1,7 +1,7 @@
 {
-  "name": "STEELER Logbook",
-  "short_name": "STEELER Log",
-  "description": "Passage planning and deck log for STEELER.",
+  "name": "STEELER Logbook Testbed",
+  "short_name": "STEELER Test",
+  "description": "Staging testbed for STEELER passage planning and deck log.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

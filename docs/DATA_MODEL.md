@@ -1,6 +1,6 @@
 # STEELER Logbook Data Model
 
-This document records the local data shapes used by the v1.2.0 sync-foundation build. It began as the v0.11.5 baseline documentation and has been updated as the architecture foundation work added safety mirrors, modules, v0.20.x sea-use tweaks, reusable Detailed Passage Plan templates, and the first offline-first sync preparation fields.
+This document records the local data shapes used by the v1.2.4 sync-foundation build. It began as the v0.11.5 baseline documentation and has been updated as the architecture foundation work added safety mirrors, modules, v0.20.x sea-use tweaks, reusable Detailed Passage Plan templates, and the first offline-first sync preparation fields.
 
 The app is an offline-first browser PWA. User data is stored in `localStorage` as JSON strings, except for the theme value. Storage keys and data shapes must not be changed without an explicit migration plan and backup/restore testing.
 
@@ -307,7 +307,7 @@ Stored separately from passages in `steeler_dpp_waypoints_v1`.
 
 Manual log entries are the source of truth. Future live/NMEA values may prefill dialogs, but should not replace saved manual entries.
 
-Deleted log entries are soft-deleted for v1.2.0 sync safety. The app hides entries where `deleted === true` from normal log views, counts, summaries, CSV export and PDF/print export, but keeps them in `steeler_logbook_passages_v5` and full data backups. This lets a later sync stage distinguish "deleted intentionally" from "missing because this device is old".
+Deleted log entries are soft-deleted for v1.2.4 sync safety. The app hides entries where `deleted === true` from normal log views, counts, summaries, CSV export and PDF/print export, but keeps them in `steeler_logbook_passages_v5` and full data backups. This lets a later sync stage distinguish "deleted intentionally" from "missing because this device is old".
 
 `syncDirty`, `syncStatus`, and `dirtyAt` are local sync-preparation fields. They mark records that have changed locally and need future sync processing. They do not currently contact a server.
 
@@ -507,7 +507,7 @@ Primary full data backup:
   version: 1,
   schemaVersion: 1,
   exportedAt: "2026-05-03T12:00:00.000Z",
-  appVersion: "1.2.0-rc5",
+  appVersion: "1.2.4",
   exportedByDeviceId: "device_...",
   data: {
     passages: Passage[],
@@ -539,7 +539,7 @@ Primary full data backup:
 }
 ```
 
-The primary data backup is the preferred v1.2.0 archive/restore format. It includes all local STEELER data needed for a full-device restore. `localSyncStatus` is included for diagnostics, but restore does not replace the destination device's `steeler_device_id_v1` or use the backup's sync status as a cloud authority.
+The primary data backup is the preferred v1.2.4 archive/restore format. It includes all local STEELER data needed for a full-device restore. `localSyncStatus` is included for diagnostics, but restore does not replace the destination device's `steeler_device_id_v1` or use the backup's sync status as a cloud authority.
 
 When the manual Settings action sends a cloud backup, the app wraps this same payload in a sync Worker record:
 
@@ -550,7 +550,7 @@ When the manual Settings action sends a cloud backup, the app wraps this same pa
     format: "steeler-cloud-backup-record",
     version: 1,
     createdAt: "2026-05-03T12:00:00.000Z",
-    appVersion: "1.2.0-rc27",
+    appVersion: "1.2.4",
     deviceId: "device_...",
     backup: SteelerDataBackup
   }
@@ -565,7 +565,7 @@ The read-only cloud backup list is returned by `/v1/backups` and contains summar
 {
   recordId: "cloud_backup_...",
   createdAt: "2026-05-03T12:00:00.000Z",
-  appVersion: "1.2.0-rc27",
+  appVersion: "1.2.4",
   deviceId: "device_...",
   passageCount: 4,
   serverUpdatedAt: "2026-05-03 12:00:01",
@@ -584,7 +584,7 @@ The selected cloud backup download is returned by `/v1/backups/{recordId}`:
   backup: SteelerDataBackup,
   summary: {
     createdAt: "2026-05-03T12:00:00.000Z",
-    appVersion: "1.2.0-rc27",
+    appVersion: "1.2.4",
     deviceId: "device_...",
     serverUpdatedAt: "2026-05-03 12:00:01",
     serverRevision: 12
@@ -609,7 +609,7 @@ Manual Sync Preview builds local sync records, but does not upload or apply them
   payload: {
     format: "steeler-sync-record",
     version: 1,
-    appVersion: "1.2.0-rc27",
+    appVersion: "1.2.4",
     recordType: "passage",
     updatedAt: "2026-05-03T12:00:00.000Z",
     data: Passage
@@ -617,19 +617,29 @@ Manual Sync Preview builds local sync records, but does not upload or apply them
 }
 ```
 
-Global record ids currently include `global:ports`, `global:safety-info`, `global:legacy-ec-settings`, `global:dpp-templates`, `global:dpp-waypoints`, `global:weather-abbreviations`, `global:fuel-management`, and `global:app-settings`.
+The previous per-record sync shape is retained only as historical compatibility data. v1.3.0-rc1 uses one current full-data cloud record instead:
 
-The Worker summary endpoint `/v1/records/summary` returns record metadata only. It is used to preview how many records are safe to send, safe to receive, or need review without moving the actual record payloads.
+```js
+{
+  recordId: "global:full-data-sync",
+  recordType: "full-data-sync",
+  schemaVersion: 1,
+  clientUpdatedAt: "2026-06-13T12:00:00.000Z",
+  lastChangedDeviceId: "device_...",
+  deleted: false,
+  payload: {
+    format: "steeler-full-data-sync-record",
+    version: 1,
+    appVersion: "1.3.0-rc1",
+    deviceId: "device_...",
+    backup: DataBackupPayload
+  }
+}
+```
 
-A record needs review when the same record exists locally and in cloud, the timestamps differ, and the last-changed device ids differ. Manual send/receive leaves these records untouched.
+Sync Now compares the current cloud record revision with `steeler_sync_status_v1.lastFullSyncRevision`. If the cloud record changed since this device last synced, the user chooses either this device's full backup or the cloud full backup. When this device replaces an existing cloud copy, the previous cloud backup is preserved as a `cloud-backup` recovery record.
 
-Review items are resolved one at a time. Choosing "Keep this device" posts the selected local sync record to `/v1/records/push`. Choosing "Use cloud" first downloads a safety backup, then applies only the selected cloud sync record locally.
-
-Full Sync combines the existing safe send and safe receive operations. It does not resolve needs-review records automatically.
-
-Send Sync Records posts selected local sync records to `/v1/records/push`. After the Worker accepts every selected record, local `syncDirty` flags are cleared for the accepted passages, log entries, and ports. This marks those local changes as sent, but does not receive or merge remote records.
-
-Receive Sync Records uses `/v1/records` to fetch full cloud records, filters them to the records shown in the Receive preview, downloads a local safety backup, and applies only those selected records. It can receive passages and the global record types listed above. It does not send local records.
+Using the cloud copy downloads a local safety backup first, then restores the cloud `steeler-data-backup`. The device id key remains local-only and is not restored from the backup.
 
 Legacy full logbook backup:
 

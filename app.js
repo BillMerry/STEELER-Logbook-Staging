@@ -12,10 +12,12 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.2.0-rc27";
+const APP_VERSION = "1.3.0-rc1";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
+const FULL_DATA_SYNC_RECORD_ID = "global:full-data-sync";
+const FULL_DATA_SYNC_RECORD_TYPE = "full-data-sync";
 const DEFAULT_PASSAGE_TIME_ZONE = "Europe/London";
 const PASSAGE_TIME_ZONES = {
   "Europe/London": "BST",
@@ -265,20 +267,26 @@ function renderLocalSyncStatus(){
   const summary = getLocalSyncSummary();
   const config = loadSyncConfig();
   const shortDeviceId = String(summary.deviceId || "").slice(0, 18);
-  const lastCheck = summary.lastRemoteCheckAt || "";
-  const lastCloudBackup = summary.lastCloudBackupAt || "";
-  const remoteText = summary.lastRemoteStatus === "ok"
-    ? `OK${summary.lastRemoteRevision != null ? ` · rev ${summary.lastRemoteRevision}` : ""}`
-    : (summary.lastRemoteStatus === "error" ? "Error" : "Not checked");
+  const displayedCloudRevision = summary.lastObservedFullSyncRevision || summary.lastFullSyncRevision || "";
+  const displayedCloudAt = summary.lastObservedFullSyncAt || summary.lastFullSyncAt || "";
+  const lastCloudDevice = summary.lastObservedFullSyncDeviceId || summary.lastFullSyncDeviceId || summary.lastCloudBackupDeviceId || "";
+  const shortCloudDevice = String(lastCloudDevice || "").slice(0, 18);
+  const cloudText = summary.lastRemoteStatus === "error"
+    ? "Error"
+    : (displayedCloudRevision ? `Revision ${displayedCloudRevision}` : "Not checked");
+  const statusText = summary.status === "full-sync-ok"
+    ? "Up to date"
+    : (summary.pendingLocalChanges > 0 ? "Local changes" : "Ready");
   el.innerHTML = `
     <div class="sync-status-grid">
-      <div><span>Sync</span><strong>${escapeHtml(remoteText)}</strong></div>
-      <div><span>Pending local changes</span><strong>${summary.pendingLocalChanges}</strong></div>
+      <div><span>Status</span><strong>${escapeHtml(statusText)}</strong></div>
+      <div><span>Cloud copy</span><strong>${escapeHtml(cloudText)}</strong></div>
+      <div><span>Cloud updated</span><strong>${escapeHtml(formatSyncStatusTime(displayedCloudAt))}</strong></div>
+      <div><span>Cloud device</span><strong>${escapeHtml(shortCloudDevice || "Unknown")}</strong></div>
+      <div><span>This device</span><strong>${escapeHtml(shortDeviceId || "Creating...")}</strong></div>
+      <div><span>Last sync</span><strong>${escapeHtml(formatSyncStatusTime(summary.lastSyncAt))}</strong></div>
+      <div><span>Local changes</span><strong>${summary.pendingLocalChanges}</strong></div>
       <div><span>Recoverable deleted entries</span><strong>${summary.recoverableDeletedEntries}</strong></div>
-      <div><span>Last local change</span><strong>${escapeHtml(formatSyncStatusTime(summary.lastLocalChangeAt))}</strong></div>
-      <div><span>Last remote check</span><strong>${escapeHtml(formatSyncStatusTime(lastCheck))}</strong></div>
-      <div><span>Last cloud backup</span><strong>${escapeHtml(formatSyncStatusTime(lastCloudBackup))}</strong></div>
-      <div><span>Device ID</span><strong>${escapeHtml(shortDeviceId || "Creating...")}</strong></div>
     </div>
     <div class="sync-check-panel">
       <label class="sync-check-field">
@@ -290,26 +298,22 @@ function renderLocalSyncStatus(){
         <input id="syncWorkerToken" type="password" value="${escapeHtml(config.token)}" autocomplete="off" spellcheck="false">
       </label>
       <div class="st-action-row">
-        <button type="button" id="syncPreviewBtn" class="btn btn-secondary">Preview Sync</button>
-        <button type="button" id="syncFullBtn" class="btn">Full Sync</button>
+        <button type="button" id="syncPreviewBtn" class="btn btn-secondary">Check Cloud</button>
+        <button type="button" id="syncFullBtn" class="btn">Sync Now</button>
       </div>
       <details class="sync-advanced">
-        <summary>Advanced sync tools</summary>
+        <summary>Recovery backups</summary>
         <div class="st-action-row">
-          <button type="button" id="syncCheckStatusBtn" class="btn btn-secondary">Check Sync</button>
-          <button type="button" id="syncPushRecordsBtn" class="btn btn-secondary">Send Sync Records</button>
-          <button type="button" id="syncReceiveRecordsBtn" class="btn btn-secondary">Receive Sync Records</button>
-          <button type="button" id="syncSendBackupBtn" class="btn btn-secondary">Send Backup to Cloud</button>
           <button type="button" id="syncRefreshBackupsBtn" class="btn btn-secondary">Refresh Cloud Backups</button>
         </div>
       </details>
       <div id="syncPreviewResults" class="sync-preview-results">
-        <p class="hint">Preview Sync compares local data with cloud sync records. It does not upload, download, restore, merge or change data.</p>
+        <p class="hint">Sync Now stores one complete STEELER data copy in Cloudflare. If another device changed the cloud copy, you choose which complete copy to keep.</p>
       </div>
       <div id="syncCloudBackups" class="sync-cloud-backups">
-        <p class="hint">Refresh Cloud Backups shows recent backup copies stored in Cloudflare. It does not download, restore, merge or change local data.</p>
+        <p class="hint">Recovery backups are kept when the cloud copy is replaced. They can be downloaded or restored manually.</p>
       </div>
-      <p id="syncCheckMessage" class="hint">${escapeHtml(summary.lastSyncError || "Check Sync tests the Worker. Send Backup uploads one backup copy only; it does not pull, merge or overwrite local data.")}</p>
+      <p id="syncCheckMessage" class="hint">${escapeHtml(summary.lastSyncError || "Ready to sync the full logbook data package.")}</p>
     </div>
   `;
   bindSyncStatusControls();
@@ -321,18 +325,6 @@ function setSyncCheckMessage(message){
 }
 
 function bindSyncStatusControls(){
-  const checkBtn = document.getElementById("syncCheckStatusBtn");
-  if (checkBtn && checkBtn.dataset.bound !== "1") {
-    checkBtn.dataset.bound = "1";
-    checkBtn.addEventListener("click", checkSyncWorkerStatus);
-  }
-
-  const backupBtn = document.getElementById("syncSendBackupBtn");
-  if (backupBtn && backupBtn.dataset.bound !== "1") {
-    backupBtn.dataset.bound = "1";
-    backupBtn.addEventListener("click", sendCloudBackup);
-  }
-
   const refreshBtn = document.getElementById("syncRefreshBackupsBtn");
   if (refreshBtn && refreshBtn.dataset.bound !== "1") {
     refreshBtn.dataset.bound = "1";
@@ -342,25 +334,13 @@ function bindSyncStatusControls(){
   const previewBtn = document.getElementById("syncPreviewBtn");
   if (previewBtn && previewBtn.dataset.bound !== "1") {
     previewBtn.dataset.bound = "1";
-    previewBtn.addEventListener("click", previewManualSync);
+    previewBtn.addEventListener("click", checkFullDataCloudSync);
   }
 
   const fullBtn = document.getElementById("syncFullBtn");
   if (fullBtn && fullBtn.dataset.bound !== "1") {
     fullBtn.dataset.bound = "1";
-    fullBtn.addEventListener("click", fullManualSync);
-  }
-
-  const pushBtn = document.getElementById("syncPushRecordsBtn");
-  if (pushBtn && pushBtn.dataset.bound !== "1") {
-    pushBtn.dataset.bound = "1";
-    pushBtn.addEventListener("click", pushManualSyncRecords);
-  }
-
-  const receiveBtn = document.getElementById("syncReceiveRecordsBtn");
-  if (receiveBtn && receiveBtn.dataset.bound !== "1") {
-    receiveBtn.dataset.bound = "1";
-    receiveBtn.addEventListener("click", receiveManualSyncRecords);
+    fullBtn.addEventListener("click", runFullDataCloudSync);
   }
 }
 
@@ -451,8 +431,7 @@ function latestPassageTimestamp(p){
     entry?.updatedAt,
     entry?.createdAt,
     entry?.dirtyAt,
-    entry?.deletedAt,
-    entry?.time
+    entry?.deletedAt
   ]);
   return latestTimestampFromValues([
     p?.updatedAt,
@@ -625,6 +604,55 @@ function markReceivedRecordClean(record){
   return record;
 }
 
+function cloneDailySummaries(days){
+  return (Array.isArray(days) ? days : []).map((day) => ({ ...day }));
+}
+
+function dailySummaryContentScore(days){
+  return (Array.isArray(days) ? days : []).reduce((score, day) => {
+    const date = String(day?.date || "").trim();
+    const fee = String(day?.fee || "").trim();
+    const notes = String(day?.notes || "").trim();
+    return score + (date ? 1 : 0) + (fee ? 2 : 0) + (notes ? 3 + Math.min(notes.length, 200) : 0);
+  }, 0);
+}
+
+function localDailySummariesAreRicher(localDailySummaries, remoteDailySummaries){
+  if (!localDailySummaries.length) return false;
+  if (!remoteDailySummaries.length) return true;
+  return dailySummaryContentScore(localDailySummaries) > dailySummaryContentScore(remoteDailySummaries)
+    && localDailySummaries.length >= remoteDailySummaries.length;
+}
+
+function mergeReceivedPassageWithLocal(remotePassage, localPassage){
+  if (!remotePassage || typeof remotePassage !== "object") return remotePassage;
+  if (!localPassage || typeof localPassage !== "object") return remotePassage;
+
+  const merged = {
+    ...remotePassage,
+    plan: {
+      ...(remotePassage.plan || {})
+    }
+  };
+  const remoteDailySummaries = Array.isArray(remotePassage.plan?.dailySummaries)
+    ? remotePassage.plan.dailySummaries
+    : [];
+  const localDailySummaries = Array.isArray(localPassage.plan?.dailySummaries)
+    ? localPassage.plan.dailySummaries
+    : [];
+
+  if (localDailySummariesAreRicher(localDailySummaries, remoteDailySummaries)) {
+    const changedAt = nowIso();
+    merged.plan.dailySummaries = cloneDailySummaries(localDailySummaries);
+    merged.updatedAt = changedAt;
+    merged.dirtyAt = changedAt;
+    merged.syncDirty = true;
+    merged.syncStatus = "dirty";
+  }
+
+  return merged;
+}
+
 function applySyncRecord(record){
   const type = String(record?.recordType || "");
   const data = record?.payload?.data;
@@ -635,7 +663,7 @@ function applySyncRecord(record){
   if (type === "passage") {
     if (!data || typeof data !== "object" || !data.id) return false;
     const idx = (Array.isArray(passages) ? passages : []).findIndex((p) => p?.id === data.id);
-    if (idx >= 0) passages[idx] = data;
+    if (idx >= 0) passages[idx] = mergeReceivedPassageWithLocal(data, passages[idx]);
     else passages.unshift(data);
     normalisePassagesForSync(passages);
     saveLocalStorageItem(STORAGE_KEY, JSON.stringify(passages), "passages");
@@ -761,10 +789,23 @@ function compareLocalAndRemoteSyncRecords(localRecords, remoteRecords){
   };
 }
 
+function passageSyncRecordLabel(record){
+  const id = String(record?.recordId || "").replace(/^passage:/, "");
+  const passage = record?.payload?.data || {};
+  const plan = passage?.plan || {};
+  const from = String(plan.from || "").trim();
+  const to = String(plan.to || "").trim();
+  const date = String(passage.date || plan.date || "").trim();
+  const route = from && to ? `${from} -> ${to}` : from || to || "";
+  if (route && date) return `${route} (${date})`;
+  if (route) return route;
+  return id ? `Passage ${id}` : "Passage";
+}
+
 function syncRecordLabel(record){
   const id = String(record?.recordId || "");
   const type = String(record?.recordType || (id.startsWith("passage:") ? "passage" : id.replace(/^global:/, "")) || "record");
-  if (type === "passage") return id.replace(/^passage:/, "Passage ");
+  if (type === "passage") return passageSyncRecordLabel(record);
   return type.replace(/-/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
 
@@ -886,6 +927,14 @@ function syncRecordDetail(item){
   const local = item?.local || item?.record || null;
   const remote = item?.remote || null;
   const recordType = String(local?.recordType || remote?.recordType || "");
+  if (recordType === "passage") {
+    const localDays = local?.payload?.data?.plan?.dailySummaries;
+    const remoteDays = remote?.payload?.data?.plan?.dailySummaries;
+    const parts = [];
+    if (Array.isArray(localDays)) parts.push(`this device Daily Summary rows: ${localDays.length}`);
+    if (Array.isArray(remoteDays)) parts.push(`cloud Daily Summary rows: ${remoteDays.length}`);
+    return parts.join("; ");
+  }
   if (recordType === "ports") return summarisePortsDifference(local, remote);
   if (recordType === "dpp-templates") {
     return summariseNamedListDifference("DPP templates", local?.payload?.data?.templates, remote?.payload?.data?.templates);
@@ -906,11 +955,11 @@ function renderSyncPreview(comparison, remoteRevision){
   if (!el) return;
   const uploadItems = comparison.wouldUpload.slice(0, 8).map((item) => {
     const detail = syncRecordDetail(item);
-    return `<li>${escapeHtml(syncRecordLabel(item.record))} <span>${escapeHtml(item.reason)}</span>${detail ? `<span>${escapeHtml(detail)}</span>` : ""}</li>`;
+    return `<li>${escapeHtml(syncRecordLabel(item.local || item.record))} <span>${escapeHtml(item.reason)}</span>${detail ? `<span>${escapeHtml(detail)}</span>` : ""}</li>`;
   }).join("");
   const downloadItems = comparison.wouldDownload.slice(0, 8).map((item) => {
     const detail = syncRecordDetail(item);
-    return `<li>${escapeHtml(syncRecordLabel(item.record))} <span>${escapeHtml(item.reason)}</span>${detail ? `<span>${escapeHtml(detail)}</span>` : ""}</li>`;
+    return `<li>${escapeHtml(syncRecordLabel(item.local || item.record))} <span>${escapeHtml(item.reason)}</span>${detail ? `<span>${escapeHtml(detail)}</span>` : ""}</li>`;
   }).join("");
   const conflictItems = (comparison.conflicts || []).slice(0, 8).map((item) => {
     const recordId = item.local?.recordId || item.remote?.recordId || "";
@@ -969,6 +1018,374 @@ function setSyncConflictButtonsDisabled(disabled){
   document.querySelectorAll(".sync-conflict-choice-btn").forEach((btn) => {
     btn.disabled = disabled;
   });
+}
+
+function getFullDataBackupFromRecord(record){
+  const payload = record?.payload || {};
+  const backup = payload.backup || payload.data?.backup || null;
+  return backup && backup.format === DATA_BACKUP_FORMAT ? backup : null;
+}
+
+function createFullDataSyncRecord(backupPayload, timestamp = nowIso()){
+  const deviceId = getOrCreateDeviceId();
+  return {
+    recordId: FULL_DATA_SYNC_RECORD_ID,
+    recordType: FULL_DATA_SYNC_RECORD_TYPE,
+    schemaVersion: LOCAL_DATA_SCHEMA_VERSION,
+    clientUpdatedAt: timestamp,
+    lastChangedDeviceId: deviceId,
+    deleted: false,
+    payload: {
+      format: "steeler-full-data-sync-record",
+      version: 1,
+      createdAt: timestamp,
+      appVersion: APP_VERSION,
+      deviceId,
+      backup: backupPayload
+    }
+  };
+}
+
+async function pushCloudSyncRecords(connection, records){
+  const cleanRecords = (Array.isArray(records) ? records : []).filter(Boolean);
+  if (!cleanRecords.length) return { accepted: [], serverRevision: null };
+  const res = await fetch(`${connection.baseUrl}/v1/records/push`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${connection.config.token}`
+    },
+    cache: "no-store",
+    body: JSON.stringify({
+      deviceId: getOrCreateDeviceId(),
+      records: cleanRecords
+    })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.ok !== true) {
+    throw new Error(data.error || `Worker returned ${res.status}`);
+  }
+  const accepted = Array.isArray(data.accepted) ? data.accepted : [];
+  const rejected = Array.isArray(data.rejected) ? data.rejected : [];
+  if (accepted.length !== cleanRecords.length || rejected.length) {
+    throw new Error(`Worker accepted ${accepted.length} of ${cleanRecords.length} records.`);
+  }
+  return { ...data, accepted };
+}
+
+async function fetchCurrentFullDataCloudRecord(connection){
+  const res = await fetch(`${connection.baseUrl}/v1/records?since=0&limit=500`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${connection.config.token}`
+    },
+    cache: "no-store"
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.ok !== true) {
+    throw new Error(data.error || `Worker returned ${res.status}`);
+  }
+  const current = (Array.isArray(data.records) ? data.records : [])
+    .filter((record) => record.recordId === FULL_DATA_SYNC_RECORD_ID || record.recordType === FULL_DATA_SYNC_RECORD_TYPE)
+    .sort((a, b) => Number(b.serverRevision || 0) - Number(a.serverRevision || 0))[0] || null;
+  return {
+    record: current,
+    backup: getFullDataBackupFromRecord(current),
+    serverRevision: current?.serverRevision || data.serverRevision || 0
+  };
+}
+
+function describeFullDataCloudRecord(cloud){
+  const record = cloud?.record || null;
+  const backup = cloud?.backup || getFullDataBackupFromRecord(record);
+  const updatedAt = record?.clientUpdatedAt || record?.payload?.createdAt || backup?.exportedAt || "";
+  const deviceId = record?.lastChangedDeviceId || record?.payload?.deviceId || backup?.exportedByDeviceId || "";
+  const passageCount = Array.isArray(backup?.data?.passages) ? backup.data.passages.length : 0;
+  return {
+    revision: Number(record?.serverRevision || cloud?.serverRevision || 0),
+    updatedAt,
+    deviceId,
+    shortDeviceId: String(deviceId || "").slice(0, 18),
+    appVersion: record?.payload?.appVersion || backup?.appVersion || "",
+    passageCount,
+    text: record
+      ? `Cloud revision ${Number(record.serverRevision || cloud?.serverRevision || 0)} · ${formatSyncStatusTime(updatedAt)} · device ${String(deviceId || "unknown").slice(0, 18)}`
+      : "No cloud copy found"
+  };
+}
+
+function renderFullDataCloudPreview(cloud, note = ""){
+  const el = document.getElementById("syncPreviewResults");
+  if (!el) return;
+  const summary = describeFullDataCloudRecord(cloud);
+  if (!cloud?.record) {
+    el.innerHTML = `
+      <div class="sync-preview-panel">
+        <div class="sync-status-grid">
+          <div><span>Cloud copy</span><strong>None yet</strong></div>
+          <div><span>This device</span><strong>${escapeHtml(getOrCreateDeviceId().slice(0, 18))}</strong></div>
+        </div>
+        <p class="hint">${escapeHtml(note || "Sync Now will create the first complete cloud copy from this device.")}</p>
+      </div>
+    `;
+    return;
+  }
+  el.innerHTML = `
+    <div class="sync-preview-panel">
+      <div class="sync-status-grid">
+        <div><span>Cloud revision</span><strong>${summary.revision}</strong></div>
+        <div><span>Cloud updated</span><strong>${escapeHtml(formatSyncStatusTime(summary.updatedAt))}</strong></div>
+        <div><span>Cloud device</span><strong>${escapeHtml(summary.shortDeviceId || "Unknown")}</strong></div>
+        <div><span>Cloud data</span><strong>${summary.passageCount} passage${summary.passageCount === 1 ? "" : "s"}</strong></div>
+      </div>
+      <p class="hint">${escapeHtml(note || "Check only. No data was uploaded, downloaded or changed.")}</p>
+    </div>
+  `;
+}
+
+function saveFullDataCloudStatus(status, cloud, extra = {}){
+  const summary = describeFullDataCloudRecord(cloud);
+  return saveLocalSyncStatus({
+    status,
+    lastRemoteStatus: "ok",
+    lastRemoteCheckAt: extra.checkedAt || nowIso(),
+    lastRemoteRevision: summary.revision,
+    lastFullSyncRevision: summary.revision,
+    lastFullSyncAt: summary.updatedAt || extra.checkedAt || nowIso(),
+    lastFullSyncDeviceId: summary.deviceId || "",
+    lastFullSyncAppVersion: summary.appVersion || "",
+    pendingLocalChanges: countPendingLocalChanges(),
+    lastSyncError: "",
+    ...extra
+  });
+}
+
+function cloudCopyChangedSinceLastSync(cloud){
+  if (!cloud?.record) return false;
+  const status = loadLocalSyncStatus();
+  const lastSeen = Number(status.lastFullSyncRevision || 0);
+  const cloudRevision = Number(cloud.record.serverRevision || 0);
+  if (!lastSeen) return true;
+  return cloudRevision > lastSeen;
+}
+
+function clearAllLocalSyncDirty(){
+  let passagesChanged = false;
+  let portsChanged = false;
+  (Array.isArray(passages) ? passages : []).forEach((p) => {
+    if (!p || typeof p !== "object") return;
+    if (p.syncDirty || p.syncStatus || p.dirtyAt) {
+      p.syncDirty = false;
+      p.syncStatus = "synced";
+      p.dirtyAt = "";
+      passagesChanged = true;
+    }
+    (Array.isArray(p.entries) ? p.entries : []).forEach((entry) => {
+      if (!entry || typeof entry !== "object") return;
+      if (entry.syncDirty || entry.syncStatus || entry.dirtyAt) {
+        entry.syncDirty = false;
+        entry.syncStatus = "synced";
+        entry.dirtyAt = "";
+        passagesChanged = true;
+      }
+    });
+  });
+  (Array.isArray(knownPorts) ? knownPorts : []).forEach((port) => {
+    if (!port || typeof port !== "object") return;
+    if (port.syncDirty || port.syncStatus || port.dirtyAt) {
+      port.syncDirty = false;
+      port.syncStatus = "synced";
+      port.dirtyAt = "";
+      portsChanged = true;
+    }
+  });
+  if (passagesChanged) savePassages();
+  if (portsChanged) {
+    saveLocalStorageItem(PORTS_KEY, JSON.stringify({ all: knownPorts, recent: recentPorts }), "ports");
+    refreshPortUI();
+  }
+}
+
+function chooseFullSyncConflictAction(cloud){
+  const summary = describeFullDataCloudRecord(cloud);
+  return new Promise((resolve) => {
+    showModal({
+      title: "Cloud Copy Changed",
+      hideButtons: true,
+      bodyHtml: `
+        <p>Cloud was last updated by device <strong>${escapeHtml(summary.shortDeviceId || "Unknown")}</strong>.</p>
+        <p>${escapeHtml(formatSyncStatusTime(summary.updatedAt))} · Revision ${summary.revision}</p>
+        <p>Choose which complete STEELER data copy to keep.</p>
+        <div class="st-action-row">
+          <button type="button" id="syncKeepThisDeviceBtn" class="btn">Keep This Device</button>
+          <button type="button" id="syncUseCloudCopyBtn" class="btn btn-secondary">Use Cloud Copy</button>
+          <button type="button" id="syncCancelChoiceBtn" class="btn btn-secondary">Cancel</button>
+        </div>
+      `
+    });
+    const finish = (choice) => {
+      closeModal();
+      resolve(choice);
+    };
+    document.getElementById("syncKeepThisDeviceBtn")?.addEventListener("click", () => finish("local"));
+    document.getElementById("syncUseCloudCopyBtn")?.addEventListener("click", () => finish("cloud"));
+    document.getElementById("syncCancelChoiceBtn")?.addEventListener("click", () => finish("cancel"));
+  });
+}
+
+async function uploadFullDataCloudCopy(connection, previousCloud, syncedAt){
+  const previousStatus = loadLocalSyncStatus();
+  const localBackup = createDataBackupPayload();
+  const records = [];
+  const previousBackup = getFullDataBackupFromRecord(previousCloud?.record);
+  if (previousBackup) records.push(createCloudBackupRecord(previousBackup));
+  const currentRecord = createFullDataSyncRecord(localBackup, syncedAt);
+  records.push(currentRecord);
+  const pushed = await pushCloudSyncRecords(connection, records);
+  const acceptedCurrent = pushed.accepted.find((record) => record.recordId === FULL_DATA_SYNC_RECORD_ID);
+  const cloud = {
+    record: {
+      ...currentRecord,
+      serverRevision: acceptedCurrent?.serverRevision || pushed.serverRevision || previousCloud?.serverRevision || 0
+    },
+    backup: localBackup,
+    serverRevision: acceptedCurrent?.serverRevision || pushed.serverRevision || previousCloud?.serverRevision || 0
+  };
+  clearAllLocalSyncDirty();
+  saveFullDataCloudStatus("full-sync-ok", cloud, {
+    checkedAt: syncedAt,
+    lastSyncAt: syncedAt,
+    lastCloudBackupAt: previousBackup ? syncedAt : previousStatus.lastCloudBackupAt || "",
+    lastCloudBackupRecordId: previousBackup ? records[0].recordId : previousStatus.lastCloudBackupRecordId || "",
+    lastSyncDirection: "upload"
+  });
+  return cloud;
+}
+
+async function applyFullDataCloudCopy(cloud, syncedAt){
+  const backup = cloud?.backup || getFullDataBackupFromRecord(cloud?.record);
+  if (!backup || backup.format !== DATA_BACKUP_FORMAT || !backup.data || !Array.isArray(backup.data.passages)) {
+    throw new Error("Cloud copy is not a valid STEELER data backup.");
+  }
+  downloadJsonPayload(createDataBackupPayload(), "STEELER-Before-cloud-sync-backup");
+  const restored = restoreDataBackupObject(backup, {
+    skipConfirm: true,
+    successMessage: "Cloud copy applied successfully."
+  });
+  if (!restored) throw new Error("Cloud copy was not applied.");
+  clearAllLocalSyncDirty();
+  saveFullDataCloudStatus("full-sync-ok", cloud, {
+    checkedAt: syncedAt,
+    lastSyncAt: syncedAt,
+    lastSyncDirection: "download"
+  });
+}
+
+async function checkFullDataCloudSync(){
+  const btn = document.getElementById("syncPreviewBtn");
+  const connection = getSavedSyncConnection();
+  if (connection.error) {
+    setSyncCheckMessage(connection.error);
+    return;
+  }
+  if (btn) btn.disabled = true;
+  setSyncCheckMessage("Checking cloud copy...");
+  const checkedAt = nowIso();
+
+  try{
+    const cloud = await fetchCurrentFullDataCloudRecord(connection);
+    const summary = describeFullDataCloudRecord(cloud);
+    renderFullDataCloudPreview(cloud);
+    saveLocalSyncStatus({
+      status: "full-sync-check-ok",
+      lastRemoteStatus: "ok",
+      lastRemoteCheckAt: checkedAt,
+      lastRemoteRevision: summary.revision,
+      lastObservedFullSyncRevision: summary.revision,
+      lastObservedFullSyncAt: summary.updatedAt || "",
+      lastObservedFullSyncDeviceId: summary.deviceId || "",
+      lastObservedFullSyncAppVersion: summary.appVersion || "",
+      checkedAt,
+      lastSyncAt: loadLocalSyncStatus().lastSyncAt || "",
+      lastSyncError: ""
+    });
+    renderLocalSyncStatus();
+    setSyncCheckMessage(cloud.record
+      ? `${summary.text}. No data changed.`
+      : "No cloud copy found yet. Sync Now will create one from this device.");
+  }catch(e){
+    saveLocalSyncStatus({
+      status: "full-sync-check-error",
+      lastRemoteStatus: "error",
+      lastRemoteCheckAt: checkedAt,
+      lastSyncError: e && e.message ? e.message : String(e || "Cloud check failed")
+    });
+    renderLocalSyncStatus();
+    setSyncCheckMessage(`Cloud check failed: ${e && e.message ? e.message : e}`);
+  }finally{
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runFullDataCloudSync(){
+  const btn = document.getElementById("syncFullBtn");
+  const connection = getSavedSyncConnection();
+  if (connection.error) {
+    setSyncCheckMessage(connection.error);
+    return;
+  }
+  if (btn) btn.disabled = true;
+  setSyncCheckMessage("Checking cloud copy before sync...");
+  const syncedAt = nowIso();
+
+  try{
+    const cloud = await fetchCurrentFullDataCloudRecord(connection);
+    renderFullDataCloudPreview(cloud);
+    let choice = "local";
+    if (cloudCopyChangedSinceLastSync(cloud)) {
+      choice = await chooseFullSyncConflictAction(cloud);
+      if (choice === "cancel") {
+        setSyncCheckMessage("Sync cancelled. Nothing changed.");
+        return;
+      }
+    } else {
+      const ok = confirm(
+        "Sync all STEELER data to cloud?\n\n" +
+        "This will replace the current cloud copy with this device's complete data package. The previous cloud copy will be kept in recovery backups."
+      );
+      if (!ok) {
+        setSyncCheckMessage("Sync cancelled. Nothing changed.");
+        return;
+      }
+    }
+
+    if (choice === "cloud") {
+      setSyncCheckMessage("Applying cloud copy to this device...");
+      await applyFullDataCloudCopy(cloud, syncedAt);
+      renderFullDataCloudPreview(cloud, "Cloud copy applied to this device. A safety backup downloaded first.");
+      renderLocalSyncStatus();
+      setSyncCheckMessage("Cloud copy applied to this device. A safety backup downloaded first.");
+      return;
+    }
+
+    setSyncCheckMessage("Uploading this device as the current cloud copy...");
+    const updatedCloud = await uploadFullDataCloudCopy(connection, cloud, syncedAt);
+    renderFullDataCloudPreview(updatedCloud, "This device is now the current cloud copy.");
+    renderLocalSyncStatus();
+    setSyncCheckMessage(`Sync complete. This device is now the cloud copy at revision ${describeFullDataCloudRecord(updatedCloud).revision}.`);
+    refreshCloudBackups({ silent: true });
+  }catch(e){
+    saveLocalSyncStatus({
+      status: "full-sync-error",
+      lastRemoteStatus: "error",
+      lastRemoteCheckAt: syncedAt,
+      lastSyncError: e && e.message ? e.message : String(e || "Full data sync failed")
+    });
+    renderLocalSyncStatus();
+    setSyncCheckMessage(`Sync failed: ${e && e.message ? e.message : e}`);
+  }finally{
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function refreshManualSyncPreview(connection, messagePrefix = ""){
@@ -3239,6 +3656,12 @@ function markPassageDirty(p, timestamp = nowIso(), reason = "passage-change"){
   recordLocalSyncChange(reason, timestamp);
 }
 
+function markPassageDirtyIfPlanChanged(p, beforePlanJson, reason = "plan-change"){
+  if (!p || typeof p !== "object") return;
+  const afterPlanJson = stableComparableJson(p.plan || {});
+  if (afterPlanJson !== beforePlanJson) markPassageDirty(p, nowIso(), reason);
+}
+
 function markLogEntryDirty(entry, p, options = {}){
   if (!entry || typeof entry !== "object") return;
   const timestamp = options.at || nowIso();
@@ -3587,7 +4010,9 @@ function passageDateToday(p = null) {
 }
 
 function passageDateTimeNow(p = null) {
-  return localDateTimeInputValue(new Date(), getPassageTimeZone(p));
+  const timeNow = timeOnlyFromIso(localDateTimeInputValue(new Date(), getPassageTimeZone(p)));
+  const fallbackDate = getPassageLogDate(p) || passageDateToday(p);
+  return normalizeEntryTimeInput(timeNow, "", fallbackDate);
 }
 
 function escapeHtml(str) {
@@ -3740,6 +4165,7 @@ function switchToTab(tabId) {
     if (planWasActive && tabId !== "planTab") {
       const p = getCurrentPassage();
       if (p && p.plan) {
+        const beforePlanJson = stableComparableJson(p.plan || {});
         if (typeof planSunriseSet !== "undefined" && planSunriseSet) p.plan.sunriseSet = planSunriseSet.value.trim();
         if (typeof planMoonPhase !== "undefined" && planMoonPhase) p.plan.moonPhase = normaliseMoonPhaseLabel(planMoonPhase.value);
         if (typeof planMoonRiseSet !== "undefined" && planMoonRiseSet) p.plan.moonRiseSet = planMoonRiseSet.value.trim();
@@ -3753,6 +4179,7 @@ function switchToTab(tabId) {
         }
         if (typeof readDailySummariesFromForm === "function") p.plan.dailySummaries = readDailySummariesFromForm();
         if (typeof readDetailedPassagePlanFromForm === "function") readDetailedPassagePlanFromForm();
+        markPassageDirtyIfPlanChanged(p, beforePlanJson, "plan-autosave");
         try { savePassages(); } catch {}
       }
     }
@@ -5449,6 +5876,33 @@ function ensureEntries(p){
   if(!Array.isArray(p.entries)) p.entries = [];
 }
 
+function getPassageLogDate(p) {
+  return String(p?.plan?.date || p?.createdAt || "").slice(0, 10);
+}
+
+function getLogEntrySortKey(p, entry) {
+  const raw = String(entry?.time || "").trim();
+  if (!raw) return "";
+  const passageDate = getPassageLogDate(p);
+  const timeOnly = timeOnlyFromIso(raw);
+  if (passageDate && /^\d{2}:\d{2}$/.test(timeOnly)) return `${passageDate}T${timeOnly}`;
+  return raw;
+}
+
+function compareLogEntriesForPassage(p) {
+  return (a, b) => {
+    const byTime = getLogEntrySortKey(p, a).localeCompare(getLogEntrySortKey(p, b));
+    if (byTime !== 0) return byTime;
+    return String(a?.id || "").localeCompare(String(b?.id || ""));
+  };
+}
+
+function logEntrySortDate(p, entry) {
+  const key = getLogEntrySortKey(p, entry);
+  const d = key ? new Date(key) : new Date(0);
+  return Number.isNaN(d.getTime()) ? new Date(0) : d;
+}
+
 // Simple unique id generator (used for log entries, etc.)
 function newId(prefix = 'e') {
   return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
@@ -5493,7 +5947,7 @@ function ensureEntryLegs(p) {
   if (!p || !Array.isArray(p.entries)) return;
   const entries = activeLogEntries(p);
   if (entries.every(e => typeof e.leg === "number")) return;
-  const sorted = entries.slice().sort((a, b) => String(a.time || "").localeCompare(String(b.time || "")));
+  const sorted = entries.slice().sort(compareLogEntriesForPassage(p));
   let leg = 0;
   for (const e of sorted) {
     if (typeof e.leg !== "number") e.leg = leg;
@@ -6071,8 +6525,10 @@ function __scheduleTideStationsAutosave(){
     try {
       const p = getCurrentPassage();
       if (!p || !p.plan) return;
+      const beforePlanJson = stableComparableJson(p.plan || {});
       p.plan.tideStations = readTideStationsFromForm();
       try { ensureAutoTideStations(p); } catch {}
+      markPassageDirtyIfPlanChanged(p, beforePlanJson, "plan-tides-change");
       try { savePassages(); } catch {}
       // If Log tab is visible, refresh the left Plan summary panel immediately.
       try {
@@ -6143,8 +6599,10 @@ function renderDailySummaries(p) {
   const days = p.plan.dailySummaries || [];
   days.forEach((d, index) => {
     const row = document.createElement("div");
+    const dayId = d.id || ("ds_" + Date.now() + "_" + Math.random().toString(36).slice(2));
     row.className = "daily-summary-row";
     row.dataset.index = index;
+    row.dataset.id = dayId;
 
     row.innerHTML = `
       <div class="row ds-row">
@@ -6181,7 +6639,7 @@ function readDailySummariesFromForm() {
   const rows = dailySummariesContainer.querySelectorAll(".daily-summary-row");
   rows.forEach(row => {
     days.push({
-      id: "ds_" + Date.now() + "_" + Math.random().toString(36).slice(2),
+      id: row.dataset.id || ("ds_" + Date.now() + "_" + Math.random().toString(36).slice(2)),
       date: row.querySelector(".ds-date").value,
       fee: row.querySelector(".ds-fee").value.trim(),
       notes: row.querySelector(".ds-notes").value.trim()
@@ -7922,8 +8380,10 @@ function applyWeatherSection(sectionKey, titleLine, content, meta){
 
   const p = getCurrentPassage();
   if(p){
+    const beforePlanJson = stableComparableJson(p.plan || {});
     p.plan = p.plan || {};
     p.plan.weather = merged;
+    markPassageDirtyIfPlanChanged(p, beforePlanJson, "plan-weather-change");
     savePassages();
   }
 }
@@ -8111,8 +8571,10 @@ const byProvider = { metoffice: [], meteofrance: [] };
 
     const pp = getCurrentPassage();
     if (pp){
+      const beforePlanJson = stableComparableJson(pp.plan || {});
       if (!pp.plan) pp.plan = {};
       pp.plan.weather = merged;
+      markPassageDirtyIfPlanChanged(pp, beforePlanJson, "plan-weather-change");
       savePassages();
     }
 
@@ -8142,6 +8604,7 @@ planForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const p = getCurrentPassage();
   if (!p) return;
+  const beforePlanJson = stableComparableJson(p.plan || {});
 
   p.plan.date = planDate.value;
   p.plan.timeZone = normalisePassageTimeZone(planTimeZone?.value || p.plan.timeZone);
@@ -8224,6 +8687,7 @@ p.plan.vessel = planVessel.value.trim();
     console.warn("Port confirmation flow failed", e);
   }
 
+  markPassageDirtyIfPlanChanged(p, beforePlanJson, "plan-change");
   savePassages();
 
   // If ports already exist, update MRU.
@@ -9367,13 +9831,11 @@ function addSpecialEntry(noteText, notesOverride = null) {
   ensureFlags(p);
   if (passageIsShutdown(p)) return alert("Shutdown already recorded – no further log entries allowed.");
 
-  const now = new Date();
-  const timeStr = localDateTimeInputValue(now, getPassageTimeZone(p));
+  const timeStr = passageDateTimeNow(p);
 
   const entry = {
     id: "e_" + Date.now(),
     time: timeStr,
-    leg: getCurrentLegIndex(p),
     leg: getCurrentLegIndex(p),
     lat: "",
     lon: "",
@@ -9478,7 +9940,7 @@ function saveFuelManagementSettings(settings){
 function getAllFuelRelevantEntries(){
   return passages.flatMap(p => activeLogEntries(p).map(entry => ({ passage:p, entry })))
     .filter(({ entry }) => entry && (entry.time || entry.refuel || entry.fuelUsed))
-    .sort((a, b) => String(a.entry.time || "").localeCompare(String(b.entry.time || "")));
+    .sort((a, b) => getLogEntrySortKey(a.passage, a.entry).localeCompare(getLogEntrySortKey(b.passage, b.entry)));
 }
 
 function computeFuelManagementStats({ beforeTime = "", excludeEntryId = "" } = {}){
@@ -9725,12 +10187,12 @@ function addDockEntry() {
   ensureFlags(p);
   if (passageIsShutdown(p)) return alert("Shutdown already recorded – no further log entries allowed.");
 
-  const now = new Date();
-  const timeStr = localDateTimeInputValue(now, getPassageTimeZone(p));
+  const timeStr = passageDateTimeNow(p);
 
   const entry = {
     id: "e_" + Date.now(),
     time: timeStr,
+    leg: getCurrentLegIndex(p),
     lat: "",
     lon: "",
     course: "",
@@ -10041,7 +10503,7 @@ function renderLogEntries() {
   }
   logEmptyMessage.style.display = "none";
 
-  const entries = visibleEntries.slice().sort((a, b) => (a.time > b.time ? 1 : -1));
+  const entries = visibleEntries.slice().sort(compareLogEntriesForPassage(p));
 
   entries.forEach(entry => {
     const tr = document.createElement("tr");
@@ -10219,7 +10681,7 @@ function _fmtDurationFromMinutes(totalMinutes) {
 function computeLegMetricsFromEntries(p, legIdx) {
   const entries = activeLogEntries(p);
   const legEntries = entries.filter(e => (e.leg ?? 0) === legIdx);
-  const sorted = legEntries.slice().sort((a, b) => new Date(a.time || 0) - new Date(b.time || 0));
+  const sorted = legEntries.slice().sort(compareLogEntriesForPassage(p));
 
   // Fuel used: last numeric in this leg
   let fuelUsed = null;
@@ -10242,19 +10704,20 @@ function computeLegMetricsFromEntries(p, legIdx) {
   const slipEntry = sorted.find(e => typeof e.notes === 'string' && e.notes.toLowerCase().startsWith('slipped lines'));
   let endEntry = null;
   if (slipEntry && slipEntry.time) {
-    endEntry = sorted.find(e => {
-      if (!e.time || e.time <= slipEntry.time || typeof e.notes !== 'string') return false;
+    const slipIdx = sorted.indexOf(slipEntry);
+    endEntry = sorted.slice(slipIdx + 1).find(e => {
+      if (!e.time || typeof e.notes !== 'string') return false;
       const note = e.notes.toLowerCase();
       return note.startsWith('alongside') || note.startsWith('docked') || note.startsWith('shutdown');
     });
   }
-  const tStart = slipEntry?.time ? new Date(slipEntry.time) : null;
-  const tEnd = endEntry?.time ? new Date(endEntry.time) : (tStart ? new Date() : null);
+  const tStart = slipEntry?.time ? logEntrySortDate(p, slipEntry) : null;
+  const tEnd = endEntry?.time ? logEntrySortDate(p, endEntry) : (tStart ? new Date() : null);
   if (tStart && tEnd && !isNaN(tStart) && !isNaN(tEnd)) {
     const ms = tEnd - tStart;
     if (!isNaN(ms) && ms > 0) durationMinutes = Math.round(ms / 60000);
   } else {
-    const times = sorted.map(e => e.time).filter(Boolean).map(t => new Date(t)).filter(d => !isNaN(d));
+    const times = sorted.map(e => logEntrySortDate(p, e)).filter(d => !isNaN(d));
     if (times.length >= 2) {
       const min = times.reduce((a, b) => (a < b ? a : b));
       const max = times.reduce((a, b) => (a > b ? a : b));
@@ -10289,7 +10752,7 @@ function computePassageLogSummary(p) {
 
   const sorted = entries
     .slice()
-    .sort((a, b) => new Date(a.time || 0) - new Date(b.time || 0));
+    .sort(compareLogEntriesForPassage(p));
 
   // Engine hours used: prefer plan/finish snapshot, else fall back to any per-entry EH (legacy)
   const planEhStart = (p.plan && p.plan.engineHoursStart !== undefined && p.plan.engineHoursStart !== null && p.plan.engineHoursStart !== "") ? `${p.plan.engineHoursStart}` : null;
@@ -10343,7 +10806,7 @@ function computeLegLogSummary(p, legIdx) {
   const entries = activeLogEntries(p);
   const legEntries = entries.filter(e => (e.leg ?? 0) === legIdx);
 
-  const sorted = legEntries.slice().sort((a, b) => new Date(a.time || 0) - new Date(b.time || 0));
+  const sorted = legEntries.slice().sort(compareLogEntriesForPassage(p));
   const m = computeLegMetricsFromEntries(p, legIdx);
   const fuelUsed = (m.fuelUsed === null) ? "–" : _fmt1(m.fuelUsed);
   const nmG = (m.nmG === null) ? "–" : _fmt1(m.nmG);

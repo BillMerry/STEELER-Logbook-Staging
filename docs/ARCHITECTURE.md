@@ -1,6 +1,6 @@
 # STEELER Logbook Architecture
 
-This document records the v1.2.0 sync-foundation architecture, including the v0.20.x sea-use tweaks, Detailed Passage Plan template management, and the first offline-first data sync groundwork.
+This document records the v1.2.4 sync-foundation architecture, including the v0.20.x sea-use tweaks, Detailed Passage Plan template management, and the first offline-first data sync groundwork.
 
 STEELER Logbook is a vanilla HTML/CSS/JavaScript offline-first PWA intended for iPad use at sea. Reliability, predictable offline behaviour and preservation of existing passage data are more important than reducing file size or changing code shape for its own sake.
 
@@ -32,7 +32,7 @@ Modules should provide focused helpers for calculations, parsing, rendering or d
 
 ## Sync Worker Prototype
 
-`sync-worker/` contains an isolated Cloudflare Worker + D1 prototype for the v1.2.0 sync stream. The browser app can now call it manually from Settings for staging-only checks, manual sync preview, manual sync-record upload, receive-only sync-record apply, one-way backup uploads, read-only backup listing, backup JSON download, and guarded cloud-backup restore.
+`sync-worker/` contains an isolated Cloudflare Worker + D1 prototype for the v1.2.4 sync stream. The browser app can now call it manually from Settings for manual sync checks, manual sync preview, manual sync-record upload, receive-only sync-record apply, one-way backup uploads, read-only backup listing, backup JSON download, and guarded cloud-backup restore.
 
 The prototype uses:
 
@@ -50,20 +50,17 @@ It remains deliberately conservative until broader multi-device safety testing i
 - Safety mirrors/last-known-good keys are separate safety keys and must not replace the canonical data keys.
 - Parse failures should be visible and recoverable, with a route to export raw corrupted data before reset or recovery.
 - Backup/restore format changes must be backward compatible.
-- The primary v1.2.0 backup format is `steeler-data-backup`, which archives all local STEELER data on the device. Older logbook, ports, and DPP backup formats remain readable where supported.
+- The primary v1.2.4 backup format is `steeler-data-backup`, which archives all local STEELER data on the device. Older logbook, ports, and DPP backup formats remain readable where supported.
 - A local `steeler_device_id_v1` value identifies this browser/device for future sync. It is created locally and must not be replaced by restoring a data backup.
 - Passage and log-entry deletion is recoverable: deleted records stay in local passage data with `deleted: true`, but are hidden from normal operational views and exports.
-- `steeler_sync_status_v1` stores local sync preparation status, including pending local change counts, last local change time, Worker check results, and the last one-way cloud backup result.
-- `steeler_sync_config_v1` stores the staging Worker URL and token locally so Settings can test `/v1/status`, preview sync, send sync records, receive sync records, send a one-way cloud backup, list recent cloud backup summaries, download a selected backup JSON file, and manually restore a selected cloud backup. The token is not included in full data backups.
-- Manual Sync Preview builds local `steeler-sync-record` payloads for passages, ports, Safety/Emergency, legacy emergency-contact settings, DPP templates, DPP waypoints, weather abbreviations, fuel settings, and app settings. It compares them with `/v1/records/summary` and does not upload or apply records.
-- Preview Sync separates records into safe to send, safe to receive, and needs review. A record needs review when local and cloud versions both exist, differ, and appear to have been last changed by different devices.
-- Preview details include lightweight summaries for shared global records, including Ports, Safety Info, DPP templates, DPP waypoints, weather abbreviations, fuel settings, and app settings.
-- Needs-review records can be resolved one at a time by keeping this device's version or using the cloud version. Keeping this device sends only that one local record to Cloudflare. Using cloud downloads a local safety backup first, then applies only that one cloud record.
-- Full Sync sends records marked safe to send, receives records marked safe to receive, downloads a local safety backup before receiving anything, refreshes the preview when finished, and leaves needs-review records untouched.
-- The main sync UI shows Preview Sync and Full Sync first. Advanced sync tools expose one-way send/receive, Worker check, and cloud backup controls.
-- Send Sync Records sends only the records that Preview Sync marks as safe to send via `/v1/records/push`. After every selected record is accepted, local sync-dirty flags are cleared. Records needing review are left untouched. It does not receive, merge, restore, or overwrite local data.
-- Receive Sync Records fetches only the cloud records that Preview Sync marks as safe to receive. It downloads a local safety backup first, warns if this device also has local records waiting to upload, and applies only the selected received records. Records needing review are left untouched. It does not send local records.
-- The manual cloud backup uses `/v1/records/push` with record type `cloud-backup`. The read-only backup list uses `/v1/backups`; selected backup download/restore uses `/v1/backups/{recordId}`. Restore first downloads a local safety backup and requires two confirmations. These workflows do not pull or merge sync records into the app.
+- `steeler_sync_status_v1` stores local sync status, including pending local change counts, last local change time, observed cloud revision, last synced cloud revision, and the device that last updated the cloud copy.
+- `steeler_sync_config_v1` stores the sync Worker URL and token locally so Settings can check the current cloud copy, run Sync Now, list recovery backup summaries, download a selected backup JSON file, and manually restore a selected recovery backup. The token is not included in full data backups.
+- Simplified cloud sync treats STEELER data as one complete logbook package. The current cloud copy is a Worker record with id `global:full-data-sync` and type `full-data-sync`; its payload contains a full `steeler-data-backup`.
+- Sync Now first checks the current cloud copy. If the cloud revision has not changed since this device last synced, this device uploads its complete data package as the current cloud copy.
+- If the cloud revision has changed since this device last synced, the app shows which device last updated the cloud copy and asks whether to keep this device's complete copy, use the cloud copy, or cancel.
+- Choosing Keep This Device pushes this device's full backup as the current cloud copy. If a previous cloud copy exists, it is first preserved as a `cloud-backup` recovery record.
+- Choosing Use Cloud Copy downloads a safety backup of the current local data first, then restores the complete cloud backup locally. The local `steeler_device_id_v1` remains device-local and is not replaced by backup restore.
+- Recovery backups use `/v1/records/push` with record type `cloud-backup`. The read-only backup list uses `/v1/backups`; selected backup download/restore uses `/v1/backups/{recordId}`. Manual restore first downloads a local safety backup and requires two confirmations.
 
 ## Service Worker Release Rules
 
