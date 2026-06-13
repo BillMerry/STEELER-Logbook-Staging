@@ -8,6 +8,7 @@ const DPP_WAYPOINTS_KEY = "steeler_dpp_waypoints_v1";
 const FUEL_MANAGEMENT_KEY = "steeler_fuel_management_v1";
 const LOG_SPLIT_RATIO_KEY = "steeler_log_split_ratio_v1";
 const DEVICE_ID_KEY = "steeler_device_id_v1";
+const DEVICE_NAME_KEY = "steeler_device_name_v1";
 const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
@@ -112,6 +113,43 @@ function getOrCreateDeviceId(){
     id = id || makeStableId("device");
   }
   return id;
+}
+
+function guessDeviceName(){
+  const ua = navigator.userAgent || "";
+  const platform = navigator.platform || "";
+  if (/iPad/i.test(ua) || (platform === "MacIntel" && navigator.maxTouchPoints > 1)) return "iPad";
+  if (/iPhone/i.test(ua)) return "iPhone";
+  if (/Mac/i.test(platform)) return "MacBook";
+  if (/Windows/i.test(platform)) return "Windows PC";
+  if (/Android/i.test(ua)) return "Android device";
+  return "This device";
+}
+
+function getDeviceName(){
+  try{
+    return String(storage.getItem(DEVICE_NAME_KEY) || "").trim() || guessDeviceName();
+  }catch{
+    return guessDeviceName();
+  }
+}
+
+function saveDeviceName(name){
+  const clean = String(name || "").trim().slice(0, 80);
+  try{
+    if (clean) storage.setItem(DEVICE_NAME_KEY, clean);
+    else storage.removeItem(DEVICE_NAME_KEY);
+  }catch(e){
+    console.warn("Could not save device name", e);
+  }
+  return getDeviceName();
+}
+
+function displayDeviceName(name, id = ""){
+  const cleanName = String(name || "").trim();
+  if (cleanName) return cleanName;
+  const cleanId = String(id || "").trim();
+  return cleanId ? cleanId.slice(0, 18) : "Unknown";
 }
 
 function loadSyncConfig(){
@@ -266,11 +304,12 @@ function renderLocalSyncStatus(){
   if (!el) return;
   const summary = getLocalSyncSummary();
   const config = loadSyncConfig();
-  const shortDeviceId = String(summary.deviceId || "").slice(0, 18);
+  const deviceName = getDeviceName();
   const displayedCloudRevision = summary.lastObservedFullSyncRevision || summary.lastFullSyncRevision || "";
   const displayedCloudAt = summary.lastObservedFullSyncAt || summary.lastFullSyncAt || "";
-  const lastCloudDevice = summary.lastObservedFullSyncDeviceId || summary.lastFullSyncDeviceId || summary.lastCloudBackupDeviceId || "";
-  const shortCloudDevice = String(lastCloudDevice || "").slice(0, 18);
+  const lastCloudDeviceName = summary.lastObservedFullSyncDeviceName || summary.lastFullSyncDeviceName || summary.lastCloudBackupDeviceName || "";
+  const lastCloudDeviceId = summary.lastObservedFullSyncDeviceId || summary.lastFullSyncDeviceId || summary.lastCloudBackupDeviceId || "";
+  const cloudDeviceText = displayDeviceName(lastCloudDeviceName, lastCloudDeviceId);
   const cloudText = summary.lastRemoteStatus === "error"
     ? "Error"
     : (displayedCloudRevision ? `Revision ${displayedCloudRevision}` : "Not checked");
@@ -282,13 +321,17 @@ function renderLocalSyncStatus(){
       <div><span>Status</span><strong>${escapeHtml(statusText)}</strong></div>
       <div><span>Cloud copy</span><strong>${escapeHtml(cloudText)}</strong></div>
       <div><span>Cloud updated</span><strong>${escapeHtml(formatSyncStatusTime(displayedCloudAt))}</strong></div>
-      <div><span>Cloud device</span><strong>${escapeHtml(shortCloudDevice || "Unknown")}</strong></div>
-      <div><span>This device</span><strong>${escapeHtml(shortDeviceId || "Creating...")}</strong></div>
+      <div><span>Cloud device</span><strong>${escapeHtml(cloudDeviceText)}</strong></div>
+      <div><span>This device</span><strong>${escapeHtml(deviceName)}</strong></div>
       <div><span>Last sync</span><strong>${escapeHtml(formatSyncStatusTime(summary.lastSyncAt))}</strong></div>
       <div><span>Local changes</span><strong>${summary.pendingLocalChanges}</strong></div>
       <div><span>Recoverable deleted entries</span><strong>${summary.recoverableDeletedEntries}</strong></div>
     </div>
     <div class="sync-check-panel">
+      <label class="sync-check-field">
+        <span>Device name</span>
+        <input id="syncDeviceName" type="text" value="${escapeHtml(deviceName)}" autocomplete="off" spellcheck="false" placeholder="Bill's MacBook Pro">
+      </label>
       <label class="sync-check-field">
         <span>Worker URL</span>
         <input id="syncWorkerUrl" type="url" value="${escapeHtml(config.workerUrl)}" autocomplete="off" spellcheck="false">
@@ -325,6 +368,14 @@ function setSyncCheckMessage(message){
 }
 
 function bindSyncStatusControls(){
+  const deviceNameInput = document.getElementById("syncDeviceName");
+  if (deviceNameInput && deviceNameInput.dataset.bound !== "1") {
+    deviceNameInput.dataset.bound = "1";
+    const saveName = () => saveDeviceName(deviceNameInput.value);
+    deviceNameInput.addEventListener("change", saveName);
+    deviceNameInput.addEventListener("blur", saveName);
+  }
+
   const refreshBtn = document.getElementById("syncRefreshBackupsBtn");
   if (refreshBtn && refreshBtn.dataset.bound !== "1") {
     refreshBtn.dataset.bound = "1";
@@ -347,6 +398,8 @@ function bindSyncStatusControls(){
 function getSavedSyncConnection(){
   const urlEl = document.getElementById("syncWorkerUrl");
   const tokenEl = document.getElementById("syncWorkerToken");
+  const deviceNameEl = document.getElementById("syncDeviceName");
+  if (deviceNameEl) saveDeviceName(deviceNameEl.value);
   const config = saveSyncConfig({
     workerUrl: urlEl?.value || DEFAULT_SYNC_WORKER_URL,
     token: tokenEl?.value || ""
@@ -488,6 +541,7 @@ function createSyncRecord(recordId, recordType, payload, timestamp, lastChangedD
     schemaVersion: LOCAL_DATA_SCHEMA_VERSION,
     clientUpdatedAt: cleanTimestamp,
     lastChangedDeviceId,
+    lastChangedDeviceName: getDeviceName(),
     deleted: payload?.deleted === true,
     payload: {
       format: "steeler-sync-record",
@@ -1028,12 +1082,14 @@ function getFullDataBackupFromRecord(record){
 
 function createFullDataSyncRecord(backupPayload, timestamp = nowIso()){
   const deviceId = getOrCreateDeviceId();
+  const deviceName = getDeviceName();
   return {
     recordId: FULL_DATA_SYNC_RECORD_ID,
     recordType: FULL_DATA_SYNC_RECORD_TYPE,
     schemaVersion: LOCAL_DATA_SCHEMA_VERSION,
     clientUpdatedAt: timestamp,
     lastChangedDeviceId: deviceId,
+    lastChangedDeviceName: deviceName,
     deleted: false,
     payload: {
       format: "steeler-full-data-sync-record",
@@ -1041,6 +1097,7 @@ function createFullDataSyncRecord(backupPayload, timestamp = nowIso()){
       createdAt: timestamp,
       appVersion: APP_VERSION,
       deviceId,
+      deviceName,
       backup: backupPayload
     }
   };
@@ -1058,6 +1115,7 @@ async function pushCloudSyncRecords(connection, records){
     cache: "no-store",
     body: JSON.stringify({
       deviceId: getOrCreateDeviceId(),
+      deviceName: getDeviceName(),
       records: cleanRecords
     })
   });
@@ -1100,16 +1158,18 @@ function describeFullDataCloudRecord(cloud){
   const backup = cloud?.backup || getFullDataBackupFromRecord(record);
   const updatedAt = record?.clientUpdatedAt || record?.payload?.createdAt || backup?.exportedAt || "";
   const deviceId = record?.lastChangedDeviceId || record?.payload?.deviceId || backup?.exportedByDeviceId || "";
+  const deviceName = record?.lastChangedDeviceName || record?.payload?.deviceName || backup?.exportedByDeviceName || "";
   const passageCount = Array.isArray(backup?.data?.passages) ? backup.data.passages.length : 0;
   return {
     revision: Number(record?.serverRevision || cloud?.serverRevision || 0),
     updatedAt,
     deviceId,
-    shortDeviceId: String(deviceId || "").slice(0, 18),
+    deviceName,
+    displayDevice: displayDeviceName(deviceName, deviceId),
     appVersion: record?.payload?.appVersion || backup?.appVersion || "",
     passageCount,
     text: record
-      ? `Cloud revision ${Number(record.serverRevision || cloud?.serverRevision || 0)} · ${formatSyncStatusTime(updatedAt)} · device ${String(deviceId || "unknown").slice(0, 18)}`
+      ? `Cloud revision ${Number(record.serverRevision || cloud?.serverRevision || 0)} · ${formatSyncStatusTime(updatedAt)} · ${displayDeviceName(deviceName, deviceId)}`
       : "No cloud copy found"
   };
 }
@@ -1123,7 +1183,7 @@ function renderFullDataCloudPreview(cloud, note = ""){
       <div class="sync-preview-panel">
         <div class="sync-status-grid">
           <div><span>Cloud copy</span><strong>None yet</strong></div>
-          <div><span>This device</span><strong>${escapeHtml(getOrCreateDeviceId().slice(0, 18))}</strong></div>
+          <div><span>This device</span><strong>${escapeHtml(getDeviceName())}</strong></div>
         </div>
         <p class="hint">${escapeHtml(note || "Sync Now will create the first complete cloud copy from this device.")}</p>
       </div>
@@ -1135,7 +1195,7 @@ function renderFullDataCloudPreview(cloud, note = ""){
       <div class="sync-status-grid">
         <div><span>Cloud revision</span><strong>${summary.revision}</strong></div>
         <div><span>Cloud updated</span><strong>${escapeHtml(formatSyncStatusTime(summary.updatedAt))}</strong></div>
-        <div><span>Cloud device</span><strong>${escapeHtml(summary.shortDeviceId || "Unknown")}</strong></div>
+        <div><span>Cloud device</span><strong>${escapeHtml(summary.displayDevice)}</strong></div>
         <div><span>Cloud data</span><strong>${summary.passageCount} passage${summary.passageCount === 1 ? "" : "s"}</strong></div>
       </div>
       <p class="hint">${escapeHtml(note || "Check only. No data was uploaded, downloaded or changed.")}</p>
@@ -1153,6 +1213,7 @@ function saveFullDataCloudStatus(status, cloud, extra = {}){
     lastFullSyncRevision: summary.revision,
     lastFullSyncAt: summary.updatedAt || extra.checkedAt || nowIso(),
     lastFullSyncDeviceId: summary.deviceId || "",
+    lastFullSyncDeviceName: summary.deviceName || "",
     lastFullSyncAppVersion: summary.appVersion || "",
     pendingLocalChanges: countPendingLocalChanges(),
     lastSyncError: "",
@@ -1213,7 +1274,7 @@ function chooseFullSyncConflictAction(cloud){
       title: "Cloud Copy Changed",
       hideButtons: true,
       bodyHtml: `
-        <p>Cloud was last updated by device <strong>${escapeHtml(summary.shortDeviceId || "Unknown")}</strong>.</p>
+        <p>Cloud was last updated by <strong>${escapeHtml(summary.displayDevice)}</strong>.</p>
         <p>${escapeHtml(formatSyncStatusTime(summary.updatedAt))} · Revision ${summary.revision}</p>
         <p>Choose which complete STEELER data copy to keep.</p>
         <div class="st-action-row">
@@ -1304,6 +1365,7 @@ async function checkFullDataCloudSync(){
       lastObservedFullSyncRevision: summary.revision,
       lastObservedFullSyncAt: summary.updatedAt || "",
       lastObservedFullSyncDeviceId: summary.deviceId || "",
+      lastObservedFullSyncDeviceName: summary.deviceName || "",
       lastObservedFullSyncAppVersion: summary.appVersion || "",
       checkedAt,
       lastSyncAt: loadLocalSyncStatus().lastSyncAt || "",
@@ -1934,7 +1996,7 @@ function renderCloudBackups(backups){
     <div class="sync-cloud-backup-list">
       ${backups.map((backup) => {
         const deviceId = String(backup.deviceId || "");
-        const shortDeviceId = deviceId ? deviceId.slice(0, 18) : "Unknown";
+        const deviceText = displayDeviceName(backup.deviceName, deviceId);
         const passageText = backup.passageCount == null
           ? "Passages unknown"
           : `${backup.passageCount} passage${backup.passageCount === 1 ? "" : "s"}`;
@@ -1945,7 +2007,7 @@ function renderCloudBackups(backups){
               <span>${escapeHtml(`${backup.appVersion || "Unknown version"} · ${passageText}`)}</span>
             </div>
             <div>
-              <span>${escapeHtml(`Device ${shortDeviceId}`)}</span>
+              <span>${escapeHtml(deviceText)}</span>
               <span>${escapeHtml(`Revision ${backup.serverRevision || 0}`)}</span>
               <button type="button" class="btn btn-secondary sync-download-backup-btn" data-record-id="${escapeHtml(backup.recordId || "")}">Download Backup</button>
               <button type="button" class="btn btn-danger sync-restore-backup-btn" data-record-id="${escapeHtml(backup.recordId || "")}">Restore Backup</button>
@@ -2087,6 +2149,7 @@ function describeDataBackupForRestore(backup, summary = {}){
   const exportedAt = backup?.exportedAt || summary.createdAt || "";
   const appVersion = backup?.appVersion || summary.appVersion || "Unknown version";
   const deviceId = backup?.exportedByDeviceId || summary.deviceId || "Unknown device";
+  const deviceName = backup?.exportedByDeviceName || summary.deviceName || "";
   const latestPassage = Array.isArray(backup?.data?.passages)
     ? backup.data.passages.reduce((latest, p) => {
         const candidate = p?.updatedAt || p?.createdAt || p?.plan?.date || "";
@@ -2098,7 +2161,7 @@ function describeDataBackupForRestore(backup, summary = {}){
     `Backup date: ${formatSyncStatusTime(exportedAt)}`,
     `App version: ${appVersion}`,
     `Passages: ${passagesCount}`,
-    `Device: ${String(deviceId).slice(0, 24)}`,
+    `Device: ${displayDeviceName(deviceName, deviceId)}`,
     latestPassage ? `Latest passage/change: ${latestPassage}` : ""
   ].filter(Boolean).join("\n");
 }
@@ -2195,18 +2258,21 @@ async function restoreCloudBackup(recordId, btn){
 function createCloudBackupRecord(backupPayload){
   const timestamp = nowIso();
   const deviceId = getOrCreateDeviceId();
+  const deviceName = getDeviceName();
   return {
     recordId: makeStableId("cloud_backup"),
     recordType: "cloud-backup",
     schemaVersion: LOCAL_DATA_SCHEMA_VERSION,
     clientUpdatedAt: timestamp,
     lastChangedDeviceId: deviceId,
+    lastChangedDeviceName: deviceName,
     payload: {
       format: "steeler-cloud-backup-record",
       version: 1,
       createdAt: timestamp,
       appVersion: APP_VERSION,
       deviceId,
+      deviceName,
       backup: backupPayload
     }
   };
@@ -2239,6 +2305,7 @@ async function sendCloudBackup(){
       cache: "no-store",
       body: JSON.stringify({
         deviceId: getOrCreateDeviceId(),
+        deviceName: getDeviceName(),
         records: [record]
       })
     });
@@ -4943,6 +5010,7 @@ function createDataBackupPayload(){
     exportedAt: new Date().toISOString(),
     appVersion: APP_VERSION,
     exportedByDeviceId: getOrCreateDeviceId(),
+    exportedByDeviceName: getDeviceName(),
     data: {
       passages,
       theme: storage.getItem(THEME_KEY) || "day",

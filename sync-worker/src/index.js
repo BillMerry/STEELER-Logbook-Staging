@@ -53,7 +53,8 @@ function normaliseRecord(input) {
     deleted: record.deleted === true,
     schemaVersion: Number(record.schemaVersion || 1),
     clientUpdatedAt: String(record.clientUpdatedAt || record.updatedAt || ""),
-    lastChangedDeviceId: String(record.lastChangedDeviceId || record.deviceId || "")
+    lastChangedDeviceId: String(record.lastChangedDeviceId || record.deviceId || ""),
+    lastChangedDeviceName: String(record.lastChangedDeviceName || record.deviceName || record.payload?.deviceName || "")
   };
 }
 
@@ -106,6 +107,7 @@ async function handlePush(request, env) {
   }
 
   const deviceId = String(body.deviceId || "").trim();
+  const deviceName = String(body.deviceName || "").trim();
   await touchClient(request, env, deviceId);
 
   let revision = await getCurrentRevision(env);
@@ -159,7 +161,8 @@ async function handlePush(request, env) {
     accepted.push({
       recordId: record.recordId,
       recordType: record.recordType,
-      serverRevision: revision
+      serverRevision: revision,
+      deviceName: record.lastChangedDeviceName || deviceName || ""
     });
   }
 
@@ -186,17 +189,21 @@ async function handlePull(request, env) {
     LIMIT ?
   `).bind(ownerId, since, limit).all();
 
-  const records = (result.results || []).map((row) => ({
-    recordId: row.record_id,
-    recordType: row.record_type,
-    payload: JSON.parse(row.payload_json),
-    deleted: row.deleted === 1,
-    schemaVersion: row.schema_version,
-    clientUpdatedAt: row.client_updated_at,
-    serverUpdatedAt: row.server_updated_at,
-    serverRevision: row.server_revision,
-    lastChangedDeviceId: row.last_changed_device_id
-  }));
+  const records = (result.results || []).map((row) => {
+    const payload = JSON.parse(row.payload_json);
+    return {
+      recordId: row.record_id,
+      recordType: row.record_type,
+      payload,
+      deleted: row.deleted === 1,
+      schemaVersion: row.schema_version,
+      clientUpdatedAt: row.client_updated_at,
+      serverUpdatedAt: row.server_updated_at,
+      serverRevision: row.server_revision,
+      lastChangedDeviceId: row.last_changed_device_id,
+      lastChangedDeviceName: payload.deviceName || payload.backup?.exportedByDeviceName || ""
+    };
+  });
 
   return jsonResponse({
     ok: true,
@@ -230,16 +237,25 @@ async function handleRecordsSummary(request, env) {
     LIMIT ?
   `).bind(...bindings).all();
 
-  const records = (result.results || []).map((row) => ({
-    recordId: row.record_id,
-    recordType: row.record_type,
-    deleted: row.deleted === 1,
-    schemaVersion: row.schema_version,
-    clientUpdatedAt: row.client_updated_at,
-    serverUpdatedAt: row.server_updated_at,
-    serverRevision: row.server_revision,
-    lastChangedDeviceId: row.last_changed_device_id
-  }));
+  const records = (result.results || []).map((row) => {
+    let payload = {};
+    try {
+      payload = JSON.parse(row.payload_json || "{}");
+    } catch {
+      payload = {};
+    }
+    return {
+      recordId: row.record_id,
+      recordType: row.record_type,
+      deleted: row.deleted === 1,
+      schemaVersion: row.schema_version,
+      clientUpdatedAt: row.client_updated_at,
+      serverUpdatedAt: row.server_updated_at,
+      serverRevision: row.server_revision,
+      lastChangedDeviceId: row.last_changed_device_id,
+      lastChangedDeviceName: payload.deviceName || payload.backup?.exportedByDeviceName || ""
+    };
+  });
 
   return jsonResponse({
     ok: true,
@@ -276,6 +292,7 @@ async function handleBackups(request, env) {
       createdAt: payload.createdAt || backup.exportedAt || row.client_updated_at || "",
       appVersion: payload.appVersion || backup.appVersion || "",
       deviceId: payload.deviceId || backup.exportedByDeviceId || row.last_changed_device_id || "",
+      deviceName: payload.deviceName || backup.exportedByDeviceName || "",
       passageCount: Array.isArray(backupData.passages) ? backupData.passages.length : null,
       serverUpdatedAt: row.server_updated_at,
       serverRevision: row.server_revision
@@ -324,6 +341,7 @@ async function handleBackupDownload(request, env, recordId) {
       createdAt: payload.createdAt || backup.exportedAt || row.client_updated_at || "",
       appVersion: payload.appVersion || backup.appVersion || "",
       deviceId: payload.deviceId || backup.exportedByDeviceId || row.last_changed_device_id || "",
+      deviceName: payload.deviceName || backup.exportedByDeviceName || "",
       serverUpdatedAt: row.server_updated_at,
       serverRevision: row.server_revision
     },

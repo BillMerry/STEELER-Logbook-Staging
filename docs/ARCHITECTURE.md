@@ -51,9 +51,9 @@ It remains deliberately conservative until broader multi-device safety testing i
 - Parse failures should be visible and recoverable, with a route to export raw corrupted data before reset or recovery.
 - Backup/restore format changes must be backward compatible.
 - The primary v1.2.4 backup format is `steeler-data-backup`, which archives all local STEELER data on the device. Older logbook, ports, and DPP backup formats remain readable where supported.
-- A local `steeler_device_id_v1` value identifies this browser/device for future sync. It is created locally and must not be replaced by restoring a data backup.
+- A local `steeler_device_id_v1` value identifies this browser/device for sync. A separate local `steeler_device_name_v1` stores the human-friendly display name, such as `Bill's MacBook Pro`, used in sync status and conflict prompts. The id is created locally and must not be replaced by restoring a data backup.
 - Passage and log-entry deletion is recoverable: deleted records stay in local passage data with `deleted: true`, but are hidden from normal operational views and exports.
-- `steeler_sync_status_v1` stores local sync status, including pending local change counts, last local change time, observed cloud revision, last synced cloud revision, and the device that last updated the cloud copy.
+- `steeler_sync_status_v1` stores local sync status, including pending local change counts, last local change time, observed cloud revision, last synced cloud revision, and the device id/name that last updated the cloud copy.
 - `steeler_sync_config_v1` stores the sync Worker URL and token locally so Settings can check the current cloud copy, run Sync Now, list recovery backup summaries, download a selected backup JSON file, and manually restore a selected recovery backup. The token is not included in full data backups.
 - Simplified cloud sync treats STEELER data as one complete logbook package. The current cloud copy is a Worker record with id `global:full-data-sync` and type `full-data-sync`; its payload contains a full `steeler-data-backup`.
 - Sync Now first checks the current cloud copy. If the cloud revision has not changed since this device last synced, this device uploads its complete data package as the current cloud copy.

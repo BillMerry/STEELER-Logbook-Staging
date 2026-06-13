@@ -19,6 +19,7 @@ The app is an offline-first browser PWA. User data is stored in `localStorage` a
 | `steeler_fuel_management_v1` | Fuel tank/reset settings | JSON fuel management object |
 | `steeler_log_split_ratio_v1` | Log/plan split layout preference | Plain string number |
 | `steeler_device_id_v1` | Local device/client identity for future sync | Plain string generated locally; not restored from data backups |
+| `steeler_device_name_v1` | Human-friendly local device name for sync display | Plain string edited locally; not restored from data backups |
 | `steeler_sync_status_v1` | Local sync status summary | JSON object; records local changes, Worker checks, and one-way cloud backup status |
 | `steeler_sync_config_v1` | Staging sync connection settings | JSON object containing Worker URL and local token; not included in full data backups |
 
@@ -509,6 +510,7 @@ Primary full data backup:
   exportedAt: "2026-05-03T12:00:00.000Z",
   appVersion: "1.2.4",
   exportedByDeviceId: "device_...",
+  exportedByDeviceName: "Bill's MacBook Pro",
   data: {
     passages: Passage[],
     theme: "day",
@@ -605,6 +607,7 @@ Manual Sync Preview builds local sync records, but does not upload or apply them
   schemaVersion: 1,
   clientUpdatedAt: "2026-05-03T12:00:00.000Z",
   lastChangedDeviceId: "device_...",
+  lastChangedDeviceName: "Bill's MacBook Pro",
   deleted: false,
   payload: {
     format: "steeler-sync-record",
@@ -632,6 +635,7 @@ The previous per-record sync shape is retained only as historical compatibility 
     version: 1,
     appVersion: "1.3.0-rc1",
     deviceId: "device_...",
+    deviceName: "Bill's MacBook Pro",
     backup: DataBackupPayload
   }
 }

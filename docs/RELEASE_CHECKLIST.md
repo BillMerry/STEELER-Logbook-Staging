@@ -63,13 +63,13 @@ Test from a clean browser profile or an iPad where possible:
 - Confirm the destination device keeps its own `steeler_device_id_v1` after restoring a data backup.
 - Delete a log entry and confirm it disappears from normal Log view, CSV export and PDF/print export while remaining present in the full data backup with `deleted: true`.
 - Delete a passage on one device, run Sync Now on both devices, and confirm the chosen complete copy keeps the passage deleted rather than resurrecting it unexpectedly.
-- Confirm Settings > Data & Backup shows status, cloud copy revision, cloud updated time/device, this device, last sync, local changes, and recoverable deleted entries.
+- Set a friendly device name on each device, such as `Bill's MacBook Pro` and `STEELER iPad`, then confirm Settings > Data & Backup shows status, cloud copy revision, cloud updated time/device name, this device name, last sync, local changes, and recoverable deleted entries.
 - Enter the staging sync Worker URL/token, tap Check Cloud, and confirm it reports the current full-data cloud copy without uploading, downloading, restoring, merging, or changing local data.
 - Tap Sync Now on a device with no newer cloud copy and confirm it uploads this device's complete STEELER data package as the current cloud copy.
 - Edit one shared setting, such as Ports, DPP templates, weather abbreviations or fuel settings, tap Sync Now, and confirm the full-data cloud copy now includes that change.
 - Add a URL to a log note or DPP note and confirm it displays as a clickable link.
 - Override a DPP leg distance and confirm the total distance/time/fuel use the manual NM value.
-- On another device that has not seen the latest cloud revision, tap Sync Now and confirm the app says which device changed the cloud copy and offers Keep This Device, Use Cloud Copy, and Cancel.
+- On another device that has not seen the latest cloud revision, tap Sync Now and confirm the app says which named device changed the cloud copy and offers Keep This Device, Use Cloud Copy, and Cancel.
 - Choose Keep This Device and confirm this device's complete data replaces the current cloud copy while the previous cloud copy appears in Recovery backups.
 - Repeat the conflict path and choose Use Cloud Copy. Confirm a local safety backup downloads first, the full cloud copy is restored, and this device keeps its own `steeler_device_id_v1`.
 - Confirm Recovery backups can be expanded and contain recent cloud backup controls only, without per-record send/receive tools.
