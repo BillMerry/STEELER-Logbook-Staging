@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.3.0-rc3";
+const APP_VERSION = "1.3.0-rc4";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -1138,7 +1138,7 @@ async function pushCloudSyncRecords(connection, records){
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.ok !== true) {
-    throw new Error(data.error || `Worker returned ${res.status}`);
+    throw new Error(getCloudResponseErrorMessage(res, data));
   }
   const accepted = Array.isArray(data.accepted) ? data.accepted : [];
   const rejected = Array.isArray(data.rejected) ? data.rejected : [];
@@ -1148,8 +1148,18 @@ async function pushCloudSyncRecords(connection, records){
   return { ...data, accepted };
 }
 
+function getCloudResponseErrorMessage(response, data = {}){
+  if (data && typeof data.error === "string" && data.error.trim()) return data.error.trim();
+  if (response?.status === 503) return "Cloud sync is temporarily unavailable. Please try again in a minute.";
+  if (response?.status === 504) return "Cloud sync took too long to respond. Please try again in a minute.";
+  if (response?.status === 401) return "The sync token was not accepted.";
+  if (response?.status === 404) return "The cloud sync service could not find that request.";
+  if (response?.status) return `Cloud sync returned ${response.status}.`;
+  return "Cloud sync did not respond.";
+}
+
 async function fetchCurrentFullDataCloudRecord(connection){
-  const res = await fetch(`${connection.baseUrl}/v1/records?since=0&limit=500`, {
+  const res = await fetch(`${connection.baseUrl}/v1/records?since=0&limit=20&type=${encodeURIComponent(FULL_DATA_SYNC_RECORD_TYPE)}`, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${connection.config.token}`
@@ -1158,7 +1168,7 @@ async function fetchCurrentFullDataCloudRecord(connection){
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.ok !== true) {
-    throw new Error(data.error || `Worker returned ${res.status}`);
+    throw new Error(getCloudResponseErrorMessage(res, data));
   }
   const current = (Array.isArray(data.records) ? data.records : [])
     .filter((record) => record.recordId === FULL_DATA_SYNC_RECORD_ID || record.recordType === FULL_DATA_SYNC_RECORD_TYPE)

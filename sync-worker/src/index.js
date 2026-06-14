@@ -179,15 +179,23 @@ async function handlePull(request, env) {
   const url = new URL(request.url);
   const since = Number(url.searchParams.get("since") || 0);
   const limit = Math.max(1, Math.min(500, Number(url.searchParams.get("limit") || 100)));
+  const typeFilter = String(url.searchParams.get("type") || "").trim();
+  const clauses = ["owner_id = ?", "server_revision > ?"];
+  const bindings = [ownerId, since];
+  if (typeFilter) {
+    clauses.push("record_type = ?");
+    bindings.push(typeFilter);
+  }
+  bindings.push(limit);
 
   const result = await env.SYNC_DB.prepare(`
     SELECT record_id, record_type, payload_json, deleted, schema_version,
            client_updated_at, server_updated_at, server_revision, last_changed_device_id
     FROM sync_records
-    WHERE owner_id = ? AND server_revision > ?
+    WHERE ${clauses.join(" AND ")}
     ORDER BY server_revision ASC
     LIMIT ?
-  `).bind(ownerId, since, limit).all();
+  `).bind(...bindings).all();
 
   const records = (result.results || []).map((row) => {
     const payload = JSON.parse(row.payload_json);
