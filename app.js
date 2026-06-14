@@ -13,10 +13,11 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.3.0-rc2";
+const APP_VERSION = "1.3.0-rc3";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
-const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
+const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
+const LEGACY_STAGING_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
 const FULL_DATA_SYNC_RECORD_ID = "global:full-data-sync";
 const FULL_DATA_SYNC_RECORD_TYPE = "full-data-sync";
 const DEFAULT_PASSAGE_TIME_ZONE = "Europe/London";
@@ -164,11 +165,12 @@ function loadSyncConfig(){
     fallback,
     value => value && typeof value === "object" && !Array.isArray(value)
   );
+  const cleanWorkerUrl = String(stored?.workerUrl || fallback.workerUrl).trim().replace(/\/+$/g, "");
   return {
     ...fallback,
     ...stored,
     version: 1,
-    workerUrl: String(stored?.workerUrl || fallback.workerUrl).trim(),
+    workerUrl: cleanWorkerUrl === LEGACY_STAGING_SYNC_WORKER_URL ? DEFAULT_SYNC_WORKER_URL : cleanWorkerUrl,
     token: String(stored?.token || "")
   };
 }
@@ -305,45 +307,58 @@ function renderLocalSyncStatus(){
   const summary = getLocalSyncSummary();
   const config = loadSyncConfig();
   const deviceName = getDeviceName();
-  const displayedCloudRevision = summary.lastObservedFullSyncRevision || summary.lastFullSyncRevision || "";
   const displayedCloudAt = summary.lastObservedFullSyncAt || summary.lastFullSyncAt || "";
   const lastCloudDeviceName = summary.lastObservedFullSyncDeviceName || summary.lastFullSyncDeviceName || summary.lastCloudBackupDeviceName || "";
   const lastCloudDeviceId = summary.lastObservedFullSyncDeviceId || summary.lastFullSyncDeviceId || summary.lastCloudBackupDeviceId || "";
   const cloudDeviceText = displayDeviceName(lastCloudDeviceName, lastCloudDeviceId);
-  const cloudText = summary.lastRemoteStatus === "error"
-    ? "Error"
-    : (displayedCloudRevision ? `Revision ${displayedCloudRevision}` : "Not checked");
-  const statusText = summary.status === "full-sync-ok"
-    ? "Up to date"
-    : (summary.pendingLocalChanges > 0 ? "Local changes" : "Ready");
+  const lastSyncText = formatSyncStatusTime(summary.lastSyncAt);
+  const hasConnection = Boolean(config.workerUrl && config.token);
+  let statusText = "Ready to sync";
+  let statusDetail = "Sync Now checks cloud first, then updates only the copy that needs it.";
+  if (!hasConnection) {
+    statusText = "Cloud sync not set up";
+    statusDetail = "Open connection settings and enter the sync details to use cloud sync.";
+  } else if (summary.lastRemoteStatus === "error") {
+    statusText = "Sync needs attention";
+    statusDetail = summary.lastSyncError || "The last cloud check did not complete.";
+  } else if (summary.status === "full-sync-ok" && summary.pendingLocalChanges === 0) {
+    statusText = "Synced";
+    statusDetail = summary.lastSyncAt
+      ? `This device was last synced ${lastSyncText}.`
+      : "This device matches the latest cloud copy.";
+  } else if (summary.pendingLocalChanges > 0) {
+    statusText = "Ready to sync changes";
+    statusDetail = "Sync Now will check cloud first, then save this device's latest changes if it is safe to do so.";
+  } else if (displayedCloudAt) {
+    statusText = "Ready to sync";
+    statusDetail = `Latest cloud copy was saved ${formatSyncStatusTime(displayedCloudAt)}${cloudDeviceText ? ` by ${cloudDeviceText}` : ""}.`;
+  }
   el.innerHTML = `
-    <div class="sync-status-grid">
-      <div><span>Status</span><strong>${escapeHtml(statusText)}</strong></div>
-      <div><span>Cloud copy</span><strong>${escapeHtml(cloudText)}</strong></div>
-      <div><span>Cloud updated</span><strong>${escapeHtml(formatSyncStatusTime(displayedCloudAt))}</strong></div>
-      <div><span>Cloud device</span><strong>${escapeHtml(cloudDeviceText)}</strong></div>
-      <div><span>This device</span><strong>${escapeHtml(deviceName)}</strong></div>
-      <div><span>Last sync</span><strong>${escapeHtml(formatSyncStatusTime(summary.lastSyncAt))}</strong></div>
-      <div><span>Local changes</span><strong>${summary.pendingLocalChanges}</strong></div>
-      <div><span>Recoverable deleted entries</span><strong>${summary.recoverableDeletedEntries}</strong></div>
+    <div class="sync-overview-card">
+      <span>Cloud sync</span>
+      <strong>${escapeHtml(statusText)}</strong>
+      <p>${escapeHtml(statusDetail)}</p>
     </div>
     <div class="sync-check-panel">
-      <label class="sync-check-field">
-        <span>Device name</span>
-        <input id="syncDeviceName" type="text" value="${escapeHtml(deviceName)}" autocomplete="off" spellcheck="false" placeholder="Bill's MacBook Pro">
-      </label>
-      <label class="sync-check-field">
-        <span>Worker URL</span>
-        <input id="syncWorkerUrl" type="url" value="${escapeHtml(config.workerUrl)}" autocomplete="off" spellcheck="false">
-      </label>
-      <label class="sync-check-field">
-        <span>Sync token</span>
-        <input id="syncWorkerToken" type="password" value="${escapeHtml(config.token)}" autocomplete="off" spellcheck="false">
-      </label>
       <div class="st-action-row">
         <button type="button" id="syncPreviewBtn" class="btn btn-secondary">Check Cloud</button>
-        <button type="button" id="syncFullBtn" class="btn">Sync Now</button>
+        <button type="button" id="syncFullBtn" class="btn" data-sync-now-btn="1">Sync Now</button>
       </div>
+      <details class="sync-advanced">
+        <summary>Connection settings</summary>
+        <label class="sync-check-field">
+          <span>Device name</span>
+          <input id="syncDeviceName" type="text" value="${escapeHtml(deviceName)}" autocomplete="off" spellcheck="false" placeholder="Bill's MacBook Pro">
+        </label>
+        <label class="sync-check-field">
+          <span>Worker URL</span>
+          <input id="syncWorkerUrl" type="url" value="${escapeHtml(config.workerUrl)}" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="sync-check-field">
+          <span>Sync token</span>
+          <input id="syncWorkerToken" type="password" value="${escapeHtml(config.token)}" autocomplete="off" spellcheck="false">
+        </label>
+      </details>
       <details class="sync-advanced">
         <summary>Recovery backups</summary>
         <div class="st-action-row">
@@ -351,12 +366,12 @@ function renderLocalSyncStatus(){
         </div>
       </details>
       <div id="syncPreviewResults" class="sync-preview-results">
-        <p class="hint">Sync Now stores one complete STEELER data copy in Cloudflare. If another device changed the cloud copy, you choose which complete copy to keep.</p>
+        <p class="hint">Cloud is treated as the main copy. Sync Now checks it first, then confirms before changing anything important.</p>
       </div>
       <div id="syncCloudBackups" class="sync-cloud-backups">
         <p class="hint">Recovery backups are kept when the cloud copy is replaced. They can be downloaded or restored manually.</p>
       </div>
-      <p id="syncCheckMessage" class="hint">${escapeHtml(summary.lastSyncError || "Ready to sync the full logbook data package.")}</p>
+      <p id="syncCheckMessage" class="hint">${escapeHtml(summary.lastSyncError || "Ready to sync.")}</p>
     </div>
   `;
   bindSyncStatusControls();
@@ -393,6 +408,7 @@ function bindSyncStatusControls(){
     fullBtn.dataset.bound = "1";
     fullBtn.addEventListener("click", runFullDataCloudSync);
   }
+
 }
 
 function getSavedSyncConnection(){
@@ -400,13 +416,14 @@ function getSavedSyncConnection(){
   const tokenEl = document.getElementById("syncWorkerToken");
   const deviceNameEl = document.getElementById("syncDeviceName");
   if (deviceNameEl) saveDeviceName(deviceNameEl.value);
+  const currentConfig = loadSyncConfig();
   const config = saveSyncConfig({
-    workerUrl: urlEl?.value || DEFAULT_SYNC_WORKER_URL,
-    token: tokenEl?.value || ""
+    workerUrl: urlEl ? urlEl.value : currentConfig.workerUrl,
+    token: tokenEl ? tokenEl.value : currentConfig.token
   });
 
   if (!config.token) {
-    return { error: "Enter the staging sync token first." };
+    return { error: "Enter the sync token first." };
   }
 
   try{
@@ -1174,6 +1191,26 @@ function describeFullDataCloudRecord(cloud){
   };
 }
 
+function removeBackupComparisonNoise(value){
+  if (Array.isArray(value)) return value.map(removeBackupComparisonNoise);
+  if (!value || typeof value !== "object") return value;
+  const clean = {};
+  Object.keys(value).sort().forEach((key) => {
+    if (key === "localSyncStatus" || key === "syncDirty" || key === "syncStatus" || key === "dirtyAt") return;
+    clean[key] = removeBackupComparisonNoise(value[key]);
+  });
+  return clean;
+}
+
+function comparableBackupData(backup){
+  return removeBackupComparisonNoise(cloneJsonSafe(backup?.data || {}, {}));
+}
+
+function fullDataBackupsMatch(localBackup, cloudBackup){
+  if (!localBackup || !cloudBackup) return false;
+  return stableComparableJson(comparableBackupData(localBackup)) === stableComparableJson(comparableBackupData(cloudBackup));
+}
+
 function renderFullDataCloudPreview(cloud, note = ""){
   const el = document.getElementById("syncPreviewResults");
   if (!el) return;
@@ -1181,11 +1218,11 @@ function renderFullDataCloudPreview(cloud, note = ""){
   if (!cloud?.record) {
     el.innerHTML = `
       <div class="sync-preview-panel">
-        <div class="sync-status-grid">
-          <div><span>Cloud copy</span><strong>None yet</strong></div>
-          <div><span>This device</span><strong>${escapeHtml(getDeviceName())}</strong></div>
+        <div class="sync-overview-card">
+          <span>Cloud copy</span>
+          <strong>None yet</strong>
+          <p>${escapeHtml(note || "Sync Now will create the first cloud copy from this device.")}</p>
         </div>
-        <p class="hint">${escapeHtml(note || "Sync Now will create the first complete cloud copy from this device.")}</p>
       </div>
     `;
     return;
@@ -1193,9 +1230,8 @@ function renderFullDataCloudPreview(cloud, note = ""){
   el.innerHTML = `
     <div class="sync-preview-panel">
       <div class="sync-status-grid">
-        <div><span>Cloud revision</span><strong>${summary.revision}</strong></div>
-        <div><span>Cloud updated</span><strong>${escapeHtml(formatSyncStatusTime(summary.updatedAt))}</strong></div>
-        <div><span>Cloud device</span><strong>${escapeHtml(summary.displayDevice)}</strong></div>
+        <div><span>Last cloud save</span><strong>${escapeHtml(formatSyncStatusTime(summary.updatedAt))}</strong></div>
+        <div><span>Saved by</span><strong>${escapeHtml(summary.displayDevice)}</strong></div>
         <div><span>Cloud data</span><strong>${summary.passageCount} passage${summary.passageCount === 1 ? "" : "s"}</strong></div>
       </div>
       <p class="hint">${escapeHtml(note || "Check only. No data was uploaded, downloaded or changed.")}</p>
@@ -1356,7 +1392,8 @@ async function checkFullDataCloudSync(){
   try{
     const cloud = await fetchCurrentFullDataCloudRecord(connection);
     const summary = describeFullDataCloudRecord(cloud);
-    renderFullDataCloudPreview(cloud);
+    const localBackup = createDataBackupPayload();
+    const localMatchesCloud = Boolean(cloud.record && fullDataBackupsMatch(localBackup, cloud.backup));
     saveLocalSyncStatus({
       status: "full-sync-check-ok",
       lastRemoteStatus: "ok",
@@ -1372,8 +1409,9 @@ async function checkFullDataCloudSync(){
       lastSyncError: ""
     });
     renderLocalSyncStatus();
+    renderFullDataCloudPreview(cloud, localMatchesCloud ? "This device already matches the cloud copy." : "");
     setSyncCheckMessage(cloud.record
-      ? `${summary.text}. No data changed.`
+      ? (localMatchesCloud ? "This device already matches the cloud copy." : `${summary.text}. No data changed.`)
       : "No cloud copy found yet. Sync Now will create one from this device.");
   }catch(e){
     saveLocalSyncStatus({
@@ -1389,20 +1427,41 @@ async function checkFullDataCloudSync(){
   }
 }
 
+function setFullDataSyncBusy(isBusy){
+  document.querySelectorAll("[data-sync-now-btn='1'], #syncFullBtn, #homeSyncNowBtn").forEach((button) => {
+    button.disabled = Boolean(isBusy);
+  });
+}
+
 async function runFullDataCloudSync(){
-  const btn = document.getElementById("syncFullBtn");
   const connection = getSavedSyncConnection();
   if (connection.error) {
     setSyncCheckMessage(connection.error);
+    alert(connection.error);
     return;
   }
-  if (btn) btn.disabled = true;
+  setFullDataSyncBusy(true);
   setSyncCheckMessage("Checking cloud copy before sync...");
   const syncedAt = nowIso();
 
   try{
     const cloud = await fetchCurrentFullDataCloudRecord(connection);
-    renderFullDataCloudPreview(cloud);
+    const localBackup = createDataBackupPayload();
+    const localMatchesCloud = Boolean(cloud.record && fullDataBackupsMatch(localBackup, cloud.backup));
+    renderFullDataCloudPreview(cloud, localMatchesCloud ? "This device already matches the cloud copy." : "");
+    if (cloud.record && localMatchesCloud) {
+      clearAllLocalSyncDirty();
+      saveFullDataCloudStatus("full-sync-ok", cloud, {
+        checkedAt: syncedAt,
+        lastSyncAt: syncedAt,
+        lastSyncDirection: "matched"
+      });
+      renderLocalSyncStatus();
+      renderFullDataCloudPreview(cloud, "This device already matches the cloud copy.");
+      setSyncCheckMessage("This device is already synced with cloud.");
+      return;
+    }
+
     let choice = "local";
     if (cloudCopyChangedSinceLastSync(cloud)) {
       choice = await chooseFullSyncConflictAction(cloud);
@@ -1410,10 +1469,19 @@ async function runFullDataCloudSync(){
         setSyncCheckMessage("Sync cancelled. Nothing changed.");
         return;
       }
+    } else if (!cloud.record) {
+      const ok = confirm(
+        "Create the first cloud copy?\n\n" +
+        "This will save this device's complete STEELER logbook to cloud so your other devices can use it."
+      );
+      if (!ok) {
+        setSyncCheckMessage("Sync cancelled. Nothing changed.");
+        return;
+      }
     } else {
       const ok = confirm(
-        "Sync all STEELER data to cloud?\n\n" +
-        "This will replace the current cloud copy with this device's complete data package. The previous cloud copy will be kept in recovery backups."
+        "Save this device's latest changes to cloud?\n\n" +
+        "Cloud will remain the main copy. The previous cloud copy will be kept in recovery backups."
       );
       if (!ok) {
         setSyncCheckMessage("Sync cancelled. Nothing changed.");
@@ -1424,16 +1492,16 @@ async function runFullDataCloudSync(){
     if (choice === "cloud") {
       setSyncCheckMessage("Applying cloud copy to this device...");
       await applyFullDataCloudCopy(cloud, syncedAt);
-      renderFullDataCloudPreview(cloud, "Cloud copy applied to this device. A safety backup downloaded first.");
       renderLocalSyncStatus();
+      renderFullDataCloudPreview(cloud, "Cloud copy applied to this device. A safety backup downloaded first.");
       setSyncCheckMessage("Cloud copy applied to this device. A safety backup downloaded first.");
       return;
     }
 
     setSyncCheckMessage("Uploading this device as the current cloud copy...");
     const updatedCloud = await uploadFullDataCloudCopy(connection, cloud, syncedAt);
-    renderFullDataCloudPreview(updatedCloud, "This device is now the current cloud copy.");
     renderLocalSyncStatus();
+    renderFullDataCloudPreview(updatedCloud, "This device is now the current cloud copy.");
     setSyncCheckMessage(`Sync complete. This device is now the cloud copy at revision ${describeFullDataCloudRecord(updatedCloud).revision}.`);
     refreshCloudBackups({ silent: true });
   }catch(e){
@@ -1446,7 +1514,7 @@ async function runFullDataCloudSync(){
     renderLocalSyncStatus();
     setSyncCheckMessage(`Sync failed: ${e && e.message ? e.message : e}`);
   }finally{
-    if (btn) btn.disabled = false;
+    setFullDataSyncBusy(false);
   }
 }
 
@@ -4333,6 +4401,7 @@ const tabButtons = document.querySelectorAll(".tab-btn");
 const tabs       = document.querySelectorAll(".tab");
 
 const homeNewPassageBtn = document.getElementById("homeNewPassageBtn");
+const homeSyncNowBtn = document.getElementById("homeSyncNowBtn");
 const homeCopyPassageBtn = document.getElementById("homeCopyPassageBtn");
 const homePassageList   = document.getElementById("homePassageList");
 const homePassageSearch = document.getElementById("homePassageSearch");
@@ -10976,6 +11045,8 @@ homeNewPassageBtn.addEventListener("click", () => {
   createPassage();
   switchToTab("planTab");
 });
+
+homeSyncNowBtn?.addEventListener("click", runFullDataCloudSync);
 
 homeCopyPassageBtn?.addEventListener("click", () => {
   const p = getCurrentPassage();

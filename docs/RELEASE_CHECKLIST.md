@@ -63,9 +63,10 @@ Test from a clean browser profile or an iPad where possible:
 - Confirm the destination device keeps its own `steeler_device_id_v1` after restoring a data backup.
 - Delete a log entry and confirm it disappears from normal Log view, CSV export and PDF/print export while remaining present in the full data backup with `deleted: true`.
 - Delete a passage on one device, run Sync Now on both devices, and confirm the chosen complete copy keeps the passage deleted rather than resurrecting it unexpectedly.
-- Set a friendly device name on each device, such as `Bill's MacBook Pro` and `STEELER iPad`, then confirm Settings > Data & Backup shows status, cloud copy revision, cloud updated time/device name, this device name, last sync, local changes, and recoverable deleted entries.
-- Enter the staging sync Worker URL/token, tap Check Cloud, and confirm it reports the current full-data cloud copy without uploading, downloading, restoring, merging, or changing local data.
-- Tap Sync Now on a device with no newer cloud copy and confirm it uploads this device's complete STEELER data package as the current cloud copy.
+- Set a friendly device name on each device, such as `Bill's MacBook Pro` and `STEELER iPad`, then confirm Settings > Data & Backup shows a plain cloud sync status and keeps device/connection details inside Connection settings.
+- Enter the sync Worker URL/token if needed, tap Check Cloud, and confirm it reports the current full-data cloud copy without uploading, downloading, restoring, merging, or changing local data.
+- Tap Sync Now on a device that already matches cloud and confirm it simply reports that the device is synced, without asking to replace cloud data.
+- Tap Sync Now on a device with local changes and no newer cloud copy and confirm it offers to save this device's latest changes to cloud.
 - Edit one shared setting, such as Ports, DPP templates, weather abbreviations or fuel settings, tap Sync Now, and confirm the full-data cloud copy now includes that change.
 - Add a URL to a log note or DPP note and confirm it displays as a clickable link.
 - Override a DPP leg distance and confirm the total distance/time/fuel use the manual NM value.

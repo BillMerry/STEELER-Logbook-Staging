@@ -1,4 +1,4 @@
-name = "steeler-logbook-sync-staging"
+name = "steeler-logbook-sync"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
 
