@@ -501,7 +501,7 @@ Stored in `steeler_fuel_management_v1`.
 }
 ```
 
-Fuel management treats refuel entries with a stored tank remaining value as a new tank baseline, then counts the latest `fuelUsed` value per passage leg after that baseline. This matches the Log summary convention where Fuel Used is a leg total rather than an amount to add for every individual entry.
+Fuel management processes logged fuel entries in chronological order. A full-tank refuel starts the tank estimate from `tankCapacity` and resets the displayed fuel-used total. A partial refuel adds the entered litres to the current estimate, capped at `tankCapacity`; if the entry has a stored tank remaining value, that exact estimate is used. The displayed fuel used counts the latest `fuelUsed` value per passage leg after the most recent full-tank or manual baseline. If no logged refuel entries exist, the saved manual `resetAt` / `resetLevel` fields act as the fallback baseline.
 
 ## Backup Payloads
 
@@ -625,7 +625,7 @@ Manual Sync Preview builds local sync records, but does not upload or apply them
 }
 ```
 
-The previous per-record sync shape is retained only as historical compatibility data. v1.3.0-rc5 uses one current full-data cloud record instead:
+The previous per-record sync shape is retained only as historical compatibility data. v1.3.0-rc6 uses one current full-data cloud record instead:
 
 ```js
 {
@@ -638,7 +638,7 @@ The previous per-record sync shape is retained only as historical compatibility 
   payload: {
     format: "steeler-full-data-sync-record",
     version: 1,
-    appVersion: "1.3.0-rc5",
+    appVersion: "1.3.0-rc6",
     deviceId: "device_...",
     deviceName: "Bill's MacBook Pro",
     backup: DataBackupPayload

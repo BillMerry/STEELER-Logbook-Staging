@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.3.0-rc5";
+const APP_VERSION = "1.3.0-rc6";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -3303,7 +3303,15 @@ function renamePort(oldName, newName){
   // Update MRU
   recentPorts = recentPorts.map(n => n === oldN ? newN : n);
 
-  // Update any saved passages that reference the port name
+  updatePassagePortNameReferences(oldN, newN);
+
+  savePorts();
+  savePassages();
+  refreshPortUI();
+  return { ok:true };
+}
+
+function updatePassagePortNameReferences(oldN, newN){
   try {
     for (const pass of passages || []){
       if (pass?.plan){
@@ -3317,13 +3325,59 @@ function renamePort(oldName, newName){
       }
     }
   } catch (e) {
-    console.warn("renamePort: passage update failed", e);
+    console.warn("Port reference update failed", e);
+  }
+}
+
+function savePortManagerEdit(oldName, values){
+  const oldN = String(oldName || "").trim();
+  const newN = String(values?.name || "").trim();
+  if (!oldN || !newN) return { ok:false, message:"Enter a port name." };
+  if (newN !== oldN && knownPorts.some(p => portName(p) === newN)) return { ok:false, message:"That name already exists." };
+
+  const idx = knownPorts.findIndex(p => portName(p) === oldN);
+  if (idx < 0) return { ok:false, message:"Could not find that port." };
+
+  const existing = knownPorts[idx];
+  const port = ensurePortId(typeof existing === "object" && existing ? { ...existing } : { name: oldN });
+  port.name = newN;
+
+  const coordText = String(values?.coordText || "").trim();
+  if (coordText) {
+    const pair = parseSingleLatLonField(coordText);
+    if (!pair) return { ok:false, message:"Please enter latitude and longitude in one field." };
+    if (!saneForSteeler(pair.lat, pair.lon)) return { ok:false, message:"Those coordinates look unusual for UK/Channel waters. Please double-check." };
+    port.lat = Number(pair.lat);
+    port.lon = Number(pair.lon);
+  } else {
+    delete port.lat;
+    delete port.lon;
   }
 
+  const comms = String(values?.commsPilotage || "").trim();
+  if (comms) port.commsPilotage = comms;
+  else {
+    delete port.commsPilotage;
+    delete port.comments;
+  }
+
+  const privateNotes = String(values?.privateNotes || "").trim();
+  if (privateNotes) port.privateNotes = privateNotes;
+  else {
+    delete port.privateNotes;
+    delete port.portNotes;
+  }
+
+  knownPorts[idx] = port;
+  knownPorts.sort((a,b) => portName(a).localeCompare(portName(b)));
+  if (newN !== oldN) {
+    recentPorts = recentPorts.map(n => n === oldN ? newN : n);
+    updatePassagePortNameReferences(oldN, newN);
+    savePassages();
+  }
   savePorts();
-  savePassages();
   refreshPortUI();
-  return { ok:true };
+  return { ok:true, name:newN };
 }
 
 function makeUniquePortName(base = "New Port"){
@@ -3411,21 +3465,6 @@ function renderPortsManagerList(openName = "") {
     nameInput.className = "ports-name-input";
     nameInput.value = name;
 
-    const renameBtn = document.createElement("button");
-    renameBtn.type = "button";
-    renameBtn.className = "ports-mini";
-    renameBtn.textContent = "Rename";
-    renameBtn.addEventListener("click", () => {
-      const target = (nameInput.value || "").trim();
-      const res = renamePort(name, target);
-      if (!res.ok){
-        alert(res.message || "Could not rename port.");
-        nameInput.value = name;
-        return;
-      }
-      renderPortsManagerList();
-    });
-
     const nameField = document.createElement("label");
     nameField.className = "st-labelled-field";
     const nameLabel = document.createElement("span");
@@ -3434,7 +3473,6 @@ function renderPortsManagerList(openName = "") {
     nameField.appendChild(nameInput);
 
     nameWrap.appendChild(nameField);
-    nameWrap.appendChild(renameBtn);
 
     const coords = document.createElement("div");
     coords.className = "ports-coords";
@@ -3446,29 +3484,7 @@ function renderPortsManagerList(openName = "") {
     coordInput.className = "ports-coord-input ports-coord-combined-input";
     coordInput.value = hasCoords ? formatDMM(latV, lonV) : "";
 
-    const saveBtn = document.createElement("button");
-    saveBtn.type = "button";
-    saveBtn.className = "ports-mini";
-    saveBtn.textContent = "Save position";
-
-    saveBtn.addEventListener("click", () => {
-      const pair = parseSingleLatLonField(coordInput.value);
-      if (!pair){
-        alert("Please enter latitude and longitude in one field.");
-        return;
-      }
-      const la = pair.lat;
-      const lo = pair.lon;
-      if (!saneForSteeler(la, lo)){
-        alert("Those coordinates look a bit daft for UK/Channel waters. Please double-check.");
-        return;
-      }
-      upsertPortItemExtended(name, la, lo, null);
-      savePorts();
-      renderPortsManagerList();
-    });
-
-const lookupBtn = document.createElement("button");
+    const lookupBtn = document.createElement("button");
     lookupBtn.type = "button";
     lookupBtn.className = "ports-mini";
     lookupBtn.textContent = "Lookup";
@@ -3494,7 +3510,6 @@ const lookupBtn = document.createElement("button");
     coordField.appendChild(coordInput);
     coords.appendChild(coordField);
 
-    coords.appendChild(saveBtn);
     coords.appendChild(lookupBtn);
 
     editPanel.appendChild(nameWrap);
@@ -3512,16 +3527,6 @@ const lookupBtn = document.createElement("button");
       ? (typeof item.commsPilotage === "string" ? item.commsPilotage : (typeof item.comments === "string" ? item.comments : ""))
       : "";
 
-    const commentsSaveBtn = document.createElement("button");
-    commentsSaveBtn.type = "button";
-    commentsSaveBtn.className = "ports-mini";
-    commentsSaveBtn.textContent = "Save Comms / Pilotage";
-    commentsSaveBtn.addEventListener("click", () => {
-      upsertPortItemExtended(name, null, null, commentsInput.value);
-      savePorts();
-      renderPortsManagerList();
-    });
-
     const commentsField = document.createElement("label");
     commentsField.className = "st-labelled-field";
     const commentsLabel = document.createElement("span");
@@ -3529,7 +3534,6 @@ const lookupBtn = document.createElement("button");
     commentsField.appendChild(commentsLabel);
     commentsField.appendChild(commentsInput);
     commentsWrap.appendChild(commentsField);
-    commentsWrap.appendChild(commentsSaveBtn);
     editPanel.appendChild(commentsWrap);
 
     const privateNotesWrap = document.createElement("div");
@@ -3543,16 +3547,6 @@ const lookupBtn = document.createElement("button");
       ? (typeof item.privateNotes === "string" ? item.privateNotes : (typeof item.portNotes === "string" ? item.portNotes : ""))
       : "";
 
-    const privateNotesSaveBtn = document.createElement("button");
-    privateNotesSaveBtn.type = "button";
-    privateNotesSaveBtn.className = "ports-mini";
-    privateNotesSaveBtn.textContent = "Save Private Notes";
-    privateNotesSaveBtn.addEventListener("click", () => {
-      savePortPrivateNotes(name, privateNotesInput.value);
-      savePorts();
-      renderPortsManagerList();
-    });
-
     const privateNotesField = document.createElement("label");
     privateNotesField.className = "st-labelled-field";
     const privateNotesLabel = document.createElement("span");
@@ -3560,8 +3554,38 @@ const lookupBtn = document.createElement("button");
     privateNotesField.appendChild(privateNotesLabel);
     privateNotesField.appendChild(privateNotesInput);
     privateNotesWrap.appendChild(privateNotesField);
-    privateNotesWrap.appendChild(privateNotesSaveBtn);
+
+    const privateNotesPreview = document.createElement("div");
+    privateNotesPreview.className = "ports-private-notes-preview";
+    const renderPrivateNotesPreview = () => {
+      privateNotesPreview.innerHTML = String(privateNotesInput.value || "").trim()
+        ? linkifyNoteHtml(privateNotesInput.value)
+        : "";
+      activateNoteLinks(privateNotesPreview);
+    };
+    privateNotesInput.addEventListener("input", renderPrivateNotesPreview);
+    renderPrivateNotesPreview();
+    privateNotesWrap.appendChild(privateNotesPreview);
     editPanel.appendChild(privateNotesWrap);
+
+    const saveDetailsBtn = document.createElement("button");
+    saveDetailsBtn.type = "button";
+    saveDetailsBtn.className = "ports-mini ports-save-details";
+    saveDetailsBtn.textContent = "Save Port Details";
+    saveDetailsBtn.addEventListener("click", () => {
+      const res = savePortManagerEdit(name, {
+        name: nameInput.value,
+        coordText: coordInput.value,
+        commsPilotage: commentsInput.value,
+        privateNotes: privateNotesInput.value
+      });
+      if (!res.ok) {
+        alert(res.message || "Could not save port details.");
+        return;
+      }
+      renderPortsManagerList(res.name || nameInput.value || name);
+    });
+    editPanel.appendChild(saveDetailsBtn);
 
     left.appendChild(summary);
     left.appendChild(editPanel);
@@ -10193,11 +10217,29 @@ function computeFuelManagementStats({ beforeTime = "", excludeEntryId = "" } = {
   let refuelCount = 0;
   let fuelUseEntryCount = 0;
   const latestFuelUseByLeg = new Map();
+  const fuelEntries = getAllFuelRelevantEntries()
+    .filter(({ entry }) => !(excludeEntryId && String(entry.id) === String(excludeEntryId)))
+    .filter(({ passage, entry }) => fuelEntryIsBeforeLimit(passage, entry, beforeDate));
+  const hasLoggedRefuel = fuelEntries.some(({ entry }) => !!entry.refuel);
 
-  getAllFuelRelevantEntries().forEach(({ passage, entry }) => {
-    if (excludeEntryId && String(entry.id) === String(excludeEntryId)) return;
-    if (!fuelEntryIsAfterCutoff(passage, entry, resetDate)) return;
-    if (!fuelEntryIsBeforeLimit(passage, entry, beforeDate)) return;
+  fuelEntries.forEach(({ passage, entry }) => {
+    if (!hasLoggedRefuel && !fuelEntryIsAfterCutoff(passage, entry, resetDate)) return;
+
+    const used = numberOrNull(entry.fuelUsed);
+    if (used != null && used > 0) {
+      const key = `${passage?.id || ""}::${entry.leg ?? 0}`;
+      const entryDate = logEntrySortDate(passage, entry);
+      const previousUsed = latestFuelUseByLeg.get(key)?.used || 0;
+      const deltaUsed = Math.max(0, used - previousUsed);
+      if (deltaUsed > 0) {
+        fuelUsed += deltaUsed;
+        if (remaining != null) remaining = Math.max(0, remaining - deltaUsed);
+      }
+      latestFuelUseByLeg.set(key, {
+        used,
+        time: entryDate && !Number.isNaN(entryDate.getTime()) ? entryDate.getTime() : 0
+      });
+    }
 
     const refuel = entry.refuel || null;
     if (refuel) {
@@ -10210,33 +10252,19 @@ function computeFuelManagementStats({ beforeTime = "", excludeEntryId = "" } = {
       }
       if (refuel.tankFull) {
         remaining = settings.tankCapacity;
-      } else if (remaining != null) {
-        remaining = Math.min(settings.tankCapacity, remaining + litres);
-      }
-      if (numberOrNull(refuel.tankRemaining) != null) {
-        remaining = numberOrNull(refuel.tankRemaining);
+        fuelUsed = 0;
         latestFuelUseByLeg.clear();
+      } else {
+        const storedRemaining = numberOrNull(refuel.tankRemaining);
+        if (storedRemaining != null) {
+          remaining = Math.max(0, Math.min(settings.tankCapacity, storedRemaining));
+        } else if (remaining != null) {
+          remaining = Math.min(settings.tankCapacity, remaining + litres);
+        }
       }
     }
-
-    const used = numberOrNull(entry.fuelUsed);
-    if (used != null && used > 0) {
-      const key = `${passage?.id || ""}::${entry.leg ?? 0}`;
-      const entryDate = logEntrySortDate(passage, entry);
-      latestFuelUseByLeg.set(key, {
-        used,
-        time: entryDate && !Number.isNaN(entryDate.getTime()) ? entryDate.getTime() : 0
-      });
-    }
   });
-
-  latestFuelUseByLeg.forEach((item) => {
-    if (item && item.used > 0) {
-      fuelUsed += item.used;
-      fuelUseEntryCount += 1;
-      if (remaining != null) remaining = Math.max(0, remaining - item.used);
-    }
-  });
+  fuelUseEntryCount = Array.from(latestFuelUseByLeg.values()).filter(item => item && item.used > 0).length;
 
   return {
     settings,
