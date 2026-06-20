@@ -544,8 +544,7 @@ body[data-theme="night"] .daily-summary-row{border-color:#333}
 .plan-summary .block{margin-bottom:0.5rem}
 .plan-summary .plan-link{cursor:pointer}
 .plan-summary a[data-note-link],
-.log-notes-display a[data-note-link],
-.ports-private-notes-preview a[data-note-link]{
+.log-notes-display a[data-note-link]{
   color:var(--accent);
   text-decoration:underline;
   text-underline-offset:0.12em;
@@ -1127,7 +1126,7 @@ body[data-theme="night"] .ports-delete { border-color: rgba(255,255,255,0.18); c
 .ports-comments{margin-top:0.35rem}
 .ports-comments-label{font-size:0.78rem;opacity:0.85;margin-bottom:0.25rem}
 .ports-comment-input{width:100%;min-height:2.2rem;resize:vertical;padding:0.35rem 0.45rem;border:1px solid var(--border);border-radius:0.45rem;background:var(--panel);color:var(--fg);margin-bottom:0.25rem}
-.ports-private-notes-preview{font-size:0.85rem;line-height:1.35;white-space:pre-wrap;color:var(--muted);margin:0.15rem 0 0.35rem}
+.ports-open-note-link{margin:0.05rem 0 0.35rem}
 .ports-save-details{margin-top:0.25rem}
 
 /* Manage Ports modal scrolling */

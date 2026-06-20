@@ -625,7 +625,7 @@ Manual Sync Preview builds local sync records, but does not upload or apply them
 }
 ```
 
-The previous per-record sync shape is retained only as historical compatibility data. v1.3.0-rc6 uses one current full-data cloud record instead:
+The previous per-record sync shape is retained only as historical compatibility data. v1.3.0-rc7 uses one current full-data cloud record instead:
 
 ```js
 {
@@ -638,7 +638,7 @@ The previous per-record sync shape is retained only as historical compatibility 
   payload: {
     format: "steeler-full-data-sync-record",
     version: 1,
-    appVersion: "1.3.0-rc6",
+    appVersion: "1.3.0-rc7",
     deviceId: "device_...",
     deviceName: "Bill's MacBook Pro",
     backup: DataBackupPayload

@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.3.0-rc6";
+const APP_VERSION = "1.3.0-rc7";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -3555,17 +3555,24 @@ function renderPortsManagerList(openName = "") {
     privateNotesField.appendChild(privateNotesInput);
     privateNotesWrap.appendChild(privateNotesField);
 
-    const privateNotesPreview = document.createElement("div");
-    privateNotesPreview.className = "ports-private-notes-preview";
-    const renderPrivateNotesPreview = () => {
-      privateNotesPreview.innerHTML = String(privateNotesInput.value || "").trim()
-        ? linkifyNoteHtml(privateNotesInput.value)
-        : "";
-      activateNoteLinks(privateNotesPreview);
+    const privateNoteLinkBtn = document.createElement("button");
+    privateNoteLinkBtn.type = "button";
+    privateNoteLinkBtn.className = "ports-mini ports-open-note-link";
+    const updatePrivateNoteLinkButton = () => {
+      const links = extractNoteLinks(privateNotesInput.value);
+      const firstLink = links[0] || null;
+      privateNoteLinkBtn.hidden = !firstLink;
+      privateNoteLinkBtn.textContent = links.length > 1 ? "Open First Link" : "Open Link";
+      privateNoteLinkBtn.dataset.href = firstLink?.href || "";
     };
-    privateNotesInput.addEventListener("input", renderPrivateNotesPreview);
-    renderPrivateNotesPreview();
-    privateNotesWrap.appendChild(privateNotesPreview);
+    privateNoteLinkBtn.addEventListener("click", () => {
+      const href = privateNoteLinkBtn.dataset.href || "";
+      if (!href) return;
+      window.open(href, "_blank", "noopener,noreferrer");
+    });
+    privateNotesInput.addEventListener("input", updatePrivateNoteLinkButton);
+    updatePrivateNoteLinkButton();
+    privateNotesWrap.appendChild(privateNoteLinkBtn);
     editPanel.appendChild(privateNotesWrap);
 
     const saveDetailsBtn = document.createElement("button");
@@ -4263,6 +4270,22 @@ function linkifyNoteHtml(value){
   });
   html += escapeHtml(text.slice(lastIndex));
   return html.replace(/\n/g, "<br>");
+}
+
+function extractNoteLinks(value){
+  const text = String(value || "");
+  if (!text) return [];
+  const urlPattern = /\b((?:https?:\/\/|www\.)[^\s<>"']+|(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s<>"']*)?)/gi;
+  const links = [];
+  text.replace(urlPattern, (match) => {
+    const trailing = match.match(/[),.;:!?]+$/)?.[0] || "";
+    const clean = trailing ? match.slice(0, -trailing.length) : match;
+    const lower = clean.toLowerCase();
+    const href = lower.startsWith("http://") || lower.startsWith("https://") ? clean : `https://${clean}`;
+    if (!links.some(link => link.href === href)) links.push({ text: clean, href });
+    return match;
+  });
+  return links;
 }
 
 function activateNoteLinks(root){
