@@ -204,12 +204,14 @@ Tide stations are planned data. Manual fields are the editable source of truth; 
   manualDistToNext: "",
   cogToNext: "187",
   plannedSpeed: "8.0",
+  tideKt: "-1.2",
+  sogToNext: 6.8,
   timeToNext: "01:33",
   fuelToNext: 21.7
 }
 ```
 
-`distToNext`, `cogToNext`, `timeToNext`, and `fuelToNext` are recalculated from coordinates and planned speed. They are stored in passage data today, but should be treated as derived values. `manualDistToNext` can override the calculated distance for the leg starting at that waypoint, for example where a river route is longer than the straight-line waypoint distance.
+`distToNext`, `cogToNext`, `sogToNext`, `timeToNext`, and `fuelToNext` are recalculated from coordinates, STW (`plannedSpeed`), and optional tide/current effect (`tideKt`). They are stored in passage data today, but should be treated as derived values. `manualDistToNext` can override the calculated distance for the leg starting at that waypoint, for example where a river route is longer than the straight-line waypoint distance. Timing uses SOG (`plannedSpeed + tideKt`), while fuel burn uses the STW fuel curve over the resulting elapsed time.
 
 ## DppTemplateStore
 
@@ -235,7 +237,7 @@ Stored separately from passages in `steeler_dpp_templates_v1`. These templates a
 }
 ```
 
-DPP templates include waypoint planned speeds plus the leg-specific `hazards`, `portsOfRefuge`, and `crewWelfare` fields. When a template is used, waypoint IDs are regenerated for the target leg so the saved template remains independent of the passage.
+DPP templates include waypoint STW speeds and tide/current values plus the leg-specific `hazards`, `portsOfRefuge`, and `crewWelfare` fields. When a template is used, waypoint IDs are regenerated for the target leg so the saved template remains independent of the passage.
 
 ## DppWaypointStore
 
@@ -363,6 +365,7 @@ Stored inside `steeler_logbook_ports_v1.data.all`.
   lat: 49.642,
   lon: -1.622,
   commsPilotage: "",
+  privateNotes: "",
   createdAt: "2026-05-03T12:00:00.000Z",
   updatedAt: "2026-05-03T12:00:00.000Z",
   schemaVersion: 1,
@@ -370,7 +373,7 @@ Stored inside `steeler_logbook_ports_v1.data.all`.
 }
 ```
 
-Older data may contain strings or objects without ids. The current app normalises known ports on load and removes legacy `tideId` fields.
+Older data may contain strings or objects without ids. The current app normalises known ports on load and removes legacy `tideId` fields. `commsPilotage` can be copied into Plan Comms / Pilotage; `privateNotes` stays in Port settings only.
 
 ## SafetyEmergencyInfo
 
@@ -492,11 +495,13 @@ Stored in `steeler_fuel_management_v1`.
 
 ```js
 {
-  tankCapacity: 2000,
+  tankCapacity: 800,
   resetAt: "2026-05-03T12:00",
-  resetLevel: 2000
+  resetLevel: 800
 }
 ```
+
+Fuel management treats refuel entries with a stored tank remaining value as a new tank baseline, then counts the latest `fuelUsed` value per passage leg after that baseline. This matches the Log summary convention where Fuel Used is a leg total rather than an amount to add for every individual entry.
 
 ## Backup Payloads
 
@@ -620,7 +625,7 @@ Manual Sync Preview builds local sync records, but does not upload or apply them
 }
 ```
 
-The previous per-record sync shape is retained only as historical compatibility data. v1.3.0-rc4 uses one current full-data cloud record instead:
+The previous per-record sync shape is retained only as historical compatibility data. v1.3.0-rc5 uses one current full-data cloud record instead:
 
 ```js
 {
@@ -633,7 +638,7 @@ The previous per-record sync shape is retained only as historical compatibility 
   payload: {
     format: "steeler-full-data-sync-record",
     version: 1,
-    appVersion: "1.3.0-rc4",
+    appVersion: "1.3.0-rc5",
     deviceId: "device_...",
     deviceName: "Bill's MacBook Pro",
     backup: DataBackupPayload

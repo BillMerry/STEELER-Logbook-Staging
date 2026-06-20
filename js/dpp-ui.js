@@ -110,14 +110,16 @@ function renderDetailedPassagePlan(p){
             <th>Lat / Lon</th>
             <th>Dist<br>NM</th>
             <th>COG<br>°T</th>
-            <th>Plan<br>kt</th>
+            <th>STW<br>kt</th>
+            <th>Tide<br>kt</th>
+            <th>SOG<br>kt</th>
             <th>Time<br>Next</th>
             <th>Fuel<br>L</th>
             <th colspan="3">Totals to Destination</th>
             <th>Actions</th>
           </tr>
           <tr class="dpp-subhead-row">
-            <th colspan="8"></th>
+            <th colspan="10"></th>
             <th>NM</th>
             <th>Time</th>
             <th>Fuel</th>
@@ -136,6 +138,8 @@ function renderDetailedPassagePlan(p){
               <td><input type="number" step="0.1" inputmode="decimal" class="dpp-distance-override" value="${escapeHtml(wp.manualDistToNext || "")}" placeholder="${wp.distToNext !== "" ? escapeHtml(String(wp.distToNext)) : "NM"}" title="Override distance to next waypoint"></td>
               <td>${wp.cogToNext ? escapeHtml(wp.cogToNext) : "–"}</td>
               <td><input type="number" step="0.1" inputmode="decimal" class="dpp-speed" value="${escapeHtml(wp.plannedSpeed || "")}" placeholder="kt"></td>
+              <td><input type="number" step="0.1" inputmode="decimal" class="dpp-tide" value="${escapeHtml(wp.tideKt || "")}" placeholder="+/-"></td>
+              <td>${wp.sogToNext !== "" && wp.sogToNext != null ? escapeHtml(String(wp.sogToNext)) : "–"}</td>
               <td>${wp.timeToNext ? escapeHtml(wp.timeToNext) : "–"}</td>
               <td>${wp.fuelToNext !== "" && wp.fuelToNext != null ? escapeHtml(String(wp.fuelToNext)) : "–"}</td>
               <td>${escapeHtml(String(dppRunningTotals[idx]?.totalNm ?? 0))}</td>
@@ -153,6 +157,8 @@ function renderDetailedPassagePlan(p){
           <tr class="dpp-totals-row">
             <td colspan="3">Totals</td>
             <td>${escapeHtml(String(dppTotals.totalNm || 0))}</td>
+            <td></td>
+            <td></td>
             <td></td>
             <td></td>
             <td>${escapeHtml(dppTotals.totalDuration || "00:00")}</td>
@@ -332,6 +338,8 @@ function renderDetailedPassagePlan(p){
       distToNext: "",
       cogToNext: "",
       plannedSpeed: "",
+      tideKt: "",
+      sogToNext: "",
       timeToNext: "",
       fuelToNext: ""
     });
@@ -434,6 +442,12 @@ function renderDetailedPassagePlan(p){
       savePassages();
     });
 
+    const dppTideEl = row.querySelector(".dpp-tide");
+    dppTideEl?.addEventListener("input", () => {
+      wp.tideKt = (dppTideEl.value || "").trim();
+      savePassages();
+    });
+
     const dppDistanceEl = row.querySelector(".dpp-distance-override");
     dppDistanceEl?.addEventListener("input", () => {
       wp.manualDistToNext = (dppDistanceEl.value || "").trim();
@@ -520,6 +534,8 @@ function readDetailedPassagePlanFromForm(){
       manualDistToNext: (row.querySelector(".dpp-distance-override")?.value || "").trim(),
       cogToNext: "",
       plannedSpeed: (row.querySelector(".dpp-speed")?.value || "").trim(),
+      tideKt: (row.querySelector(".dpp-tide")?.value || "").trim(),
+      sogToNext: "",
       timeToNext: "",
       fuelToNext: "",
       actualTime: fallback.waypoints[idx]?.actualTime || ""

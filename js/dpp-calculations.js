@@ -32,6 +32,8 @@ function cloneDetailedPassagePlan(detailed, { resetTimes=false, regenerateIds=fa
         manualDistToNext: wp.manualDistToNext || "",
         cogToNext: "",
         plannedSpeed: wp.plannedSpeed || "",
+        tideKt: wp.tideKt || "",
+        sogToNext: "",
         timeToNext: "",
         fuelToNext: "",
         actualTime: resetTimes ? "" : (wp.actualTime || "")
@@ -54,10 +56,12 @@ function detailedPassagePlanHasContent(detailed){
 function reverseDetailedPassagePlanFromPrevious(prevDetailed){
   const prev = cloneDetailedPassagePlan(prevDetailed, { resetTimes:true, regenerateIds:true });
   const originalSpeeds = (prev.waypoints || []).map(wp => wp.plannedSpeed || "");
+  const originalTides = (prev.waypoints || []).map(wp => wp.tideKt || "");
   prev.waypoints.reverse();
   prev.waypoints.forEach((wp, idx) => {
     const sourceSpeedIdx = originalSpeeds.length - idx - 2;
     wp.plannedSpeed = sourceSpeedIdx >= 0 ? (originalSpeeds[sourceSpeedIdx] || "") : "";
+    wp.tideKt = sourceSpeedIdx >= 0 ? (originalTides[sourceSpeedIdx] || "") : "";
     wp.manualDistToNext = "";
   });
   return prev;
@@ -302,6 +306,7 @@ function recalcDetailedPassagePlan(p, legIdx = null){
 
     wp.distToNext = "";
     wp.cogToNext = "";
+    wp.sogToNext = "";
     wp.timeToNext = "";
     wp.fuelToNext = "";
 
@@ -313,12 +318,16 @@ function recalcDetailedPassagePlan(p, legIdx = null){
         wp.distToNext = Number(nm.toFixed(1));
 								wp.cogToNext = bearingDegBetween(wp.lat, wp.lon, next.lat, next.lon);
 
-        const spd = parseFloat(wp.plannedSpeed);
-        if (Number.isFinite(spd) && spd > 0) {
-          const hours = nm / spd;
+        const stw = parseFloat(wp.plannedSpeed);
+        const tide = parseFloat(wp.tideKt);
+        const tideEffect = Number.isFinite(tide) ? tide : 0;
+        const sog = Number.isFinite(stw) ? stw + tideEffect : NaN;
+        if (Number.isFinite(sog) && sog > 0) {
+          wp.sogToNext = Number(sog.toFixed(1));
+          const hours = nm / sog;
           wp.timeToNext = hoursToDurationHHMM(hours);
 
-          const lph = estimateSteelerFuelLph(spd);
+          const lph = estimateSteelerFuelLph(stw);
           if (Number.isFinite(lph)) {
             wp.fuelToNext = Number((hours * lph).toFixed(1));
           }
@@ -330,7 +339,9 @@ function recalcDetailedPassagePlan(p, legIdx = null){
   for (let i = 1; i < wps.length; i++) {
     const prev = wps[i - 1];
     const prevTimeMins = hhmmToMinutes(prev.time);
-    const prevSpeed = parseFloat(prev.plannedSpeed);
+    const prevStw = parseFloat(prev.plannedSpeed);
+    const prevTide = parseFloat(prev.tideKt);
+    const prevSpeed = Number.isFinite(prevStw) ? prevStw + (Number.isFinite(prevTide) ? prevTide : 0) : NaN;
     const prevDist = parseFloat(prev.distToNext);
 
     if (prevTimeMins != null && Number.isFinite(prevSpeed) && prevSpeed > 0 && Number.isFinite(prevDist) && prevDist >= 0) {
@@ -353,6 +364,8 @@ function gpxPointsToDetailedWaypoints(points){
     distToNext: "",
     cogToNext: "",
     plannedSpeed: "",
+    tideKt: "",
+    sogToNext: "",
     timeToNext: "",
     fuelToNext: ""    
   }));

@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.3.0-rc4";
+const APP_VERSION = "1.3.0-rc5";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -3069,7 +3069,9 @@ function upsertPortItemExtended(name, lat=null, lon=null, commsPilotage=null){
     if (existingObj && typeof existingObj === "object"){
       if (existingObj.lat != null) out.lat = Number(existingObj.lat);
       if (existingObj.lon != null) out.lon = Number(existingObj.lon);
-            if (existingObj.commsPilotage) out.commsPilotage = String(existingObj.commsPilotage);
+      if (existingObj.privateNotes) out.privateNotes = String(existingObj.privateNotes);
+      if (existingObj.portNotes) out.privateNotes = String(existingObj.portNotes);
+      if (existingObj.commsPilotage) out.commsPilotage = String(existingObj.commsPilotage);
       else if (existingObj.comments) out.commsPilotage = String(existingObj.comments);
     }
     if (lat != null && lon != null){
@@ -3103,6 +3105,24 @@ function upsertPortItemExtended(name, lat=null, lon=null, commsPilotage=null){
   }
 
   knownPorts.sort((a,b) => portName(a).localeCompare(portName(b)));
+}
+
+function savePortPrivateNotes(name, notes){
+  const n = String(name || "").trim();
+  if (!n) return false;
+  const idx = knownPorts.findIndex(p => portName(p) === n);
+  if (idx < 0) return false;
+  const existing = knownPorts[idx];
+  const port = ensurePortId(typeof existing === "object" ? { ...existing } : { name: n });
+  const clean = String(notes || "").trim();
+  if (clean) port.privateNotes = clean;
+  else {
+    delete port.privateNotes;
+    delete port.portNotes;
+  }
+  knownPorts[idx] = port;
+  knownPorts.sort((a,b) => portName(a).localeCompare(portName(b)));
+  return true;
 }
 
 
@@ -3511,6 +3531,37 @@ const lookupBtn = document.createElement("button");
     commentsWrap.appendChild(commentsField);
     commentsWrap.appendChild(commentsSaveBtn);
     editPanel.appendChild(commentsWrap);
+
+    const privateNotesWrap = document.createElement("div");
+    privateNotesWrap.className = "ports-comments";
+
+    const privateNotesInput = document.createElement("textarea");
+    privateNotesInput.className = "ports-comment-input";
+    privateNotesInput.rows = 2;
+    privateNotesInput.placeholder = "Berthing tips, facilities, local reminders...";
+    privateNotesInput.value = (item && typeof item === "object")
+      ? (typeof item.privateNotes === "string" ? item.privateNotes : (typeof item.portNotes === "string" ? item.portNotes : ""))
+      : "";
+
+    const privateNotesSaveBtn = document.createElement("button");
+    privateNotesSaveBtn.type = "button";
+    privateNotesSaveBtn.className = "ports-mini";
+    privateNotesSaveBtn.textContent = "Save Private Notes";
+    privateNotesSaveBtn.addEventListener("click", () => {
+      savePortPrivateNotes(name, privateNotesInput.value);
+      savePorts();
+      renderPortsManagerList();
+    });
+
+    const privateNotesField = document.createElement("label");
+    privateNotesField.className = "st-labelled-field";
+    const privateNotesLabel = document.createElement("span");
+    privateNotesLabel.textContent = "Private Notes";
+    privateNotesField.appendChild(privateNotesLabel);
+    privateNotesField.appendChild(privateNotesInput);
+    privateNotesWrap.appendChild(privateNotesField);
+    privateNotesWrap.appendChild(privateNotesSaveBtn);
+    editPanel.appendChild(privateNotesWrap);
 
     left.appendChild(summary);
     left.appendChild(editPanel);
@@ -7117,6 +7168,8 @@ function savedWaypointToDppWaypoint(saved){
     manualDistToNext: "",
     cogToNext: "",
     plannedSpeed: "",
+    tideKt: "",
+    sogToNext: "",
     timeToNext: "",
     fuelToNext: ""
   };
@@ -7166,6 +7219,8 @@ function routePortToDppWaypoint(point){
     manualDistToNext: "",
     cogToNext: "",
     plannedSpeed: "",
+    tideKt: "",
+    sogToNext: "",
     timeToNext: "",
     fuelToNext: ""
   };
@@ -7228,6 +7283,8 @@ function readDppTemplateEditorForm(){
       manualDistToNext: (row.querySelector(".template-wp-distance-override")?.value || "").trim(),
       cogToNext: "",
       plannedSpeed: (row.querySelector(".template-wp-speed")?.value || "").trim(),
+      tideKt: (row.querySelector(".template-wp-tide")?.value || "").trim(),
+      sogToNext: "",
       timeToNext: "",
       fuelToNext: ""
     });
@@ -7255,6 +7312,7 @@ function renderDppTemplateEditorRows(detailed){
       <td><input type="text" class="template-wp-coords" value="${escapeHtml(wp.coordsText || formatDetailedWaypointCoords(Number(wp.lat), Number(wp.lon)))}" placeholder="50.57507° N, 2.44846° W"></td>
       <td><input type="number" step="0.1" inputmode="decimal" class="template-wp-distance-override" value="${escapeHtml(wp.manualDistToNext || "")}" placeholder="${wp.distToNext !== "" ? escapeHtml(String(wp.distToNext)) : "NM"}"></td>
       <td><input type="number" step="0.1" inputmode="decimal" class="template-wp-speed" value="${escapeHtml(wp.plannedSpeed || "")}" placeholder="kt"></td>
+      <td><input type="number" step="0.1" inputmode="decimal" class="template-wp-tide" value="${escapeHtml(wp.tideKt || "")}" placeholder="+/- kt"></td>
       <td><button type="button" class="btn btn-secondary btn-small template-wp-delete">Delete</button></td>
     </tr>
   `).join("");
@@ -7291,7 +7349,8 @@ function openDppTemplateEditor(id){
               <th>Waypoint</th>
               <th>WP Lat/Lon</th>
               <th>NM</th>
-              <th>Plan kt</th>
+              <th>STW kt</th>
+              <th>Tide kt</th>
               <th></th>
             </tr>
           </thead>
@@ -7349,6 +7408,8 @@ function openDppTemplateEditor(id){
       manualDistToNext: "",
       cogToNext: "",
       plannedSpeed: "",
+      tideKt: "",
+      sogToNext: "",
       timeToNext: "",
       fuelToNext: ""
     });
@@ -7576,6 +7637,8 @@ function readSettingsDppWorkspaceForm(){
       manualDistToNext: (row.querySelector(".dpp-distance-override")?.value || "").trim(),
       cogToNext: "",
       plannedSpeed: (row.querySelector(".dpp-speed")?.value || "").trim(),
+      tideKt: (row.querySelector(".dpp-tide")?.value || "").trim(),
+      sogToNext: "",
       timeToNext: "",
       fuelToNext: "",
       actualTime: fallback.waypoints[idx]?.actualTime || ""
@@ -7678,14 +7741,16 @@ function renderSettingsDppWorkspace(){
             <th>Lat / Lon</th>
             <th>Dist<br>NM</th>
             <th>COG<br>°T</th>
-            <th>Plan<br>kt</th>
+            <th>STW<br>kt</th>
+            <th>Tide<br>kt</th>
+            <th>SOG<br>kt</th>
             <th>Time<br>Next</th>
             <th>Fuel<br>L</th>
             <th colspan="3">Totals to Destination</th>
             <th>Actions</th>
           </tr>
           <tr class="dpp-subhead-row">
-            <th colspan="8"></th>
+            <th colspan="10"></th>
             <th>NM</th>
             <th>Time</th>
             <th>Fuel</th>
@@ -7701,6 +7766,8 @@ function renderSettingsDppWorkspace(){
               <td><input type="number" step="0.1" inputmode="decimal" class="dpp-distance-override" value="${escapeHtml(wp.manualDistToNext || "")}" placeholder="${wp.distToNext !== "" ? escapeHtml(String(wp.distToNext)) : "NM"}" title="Override distance to next waypoint"></td>
               <td>${wp.cogToNext ? escapeHtml(wp.cogToNext) : "–"}</td>
               <td><input type="number" step="0.1" inputmode="decimal" class="dpp-speed" value="${escapeHtml(wp.plannedSpeed || "")}" placeholder="kt"></td>
+              <td><input type="number" step="0.1" inputmode="decimal" class="dpp-tide" value="${escapeHtml(wp.tideKt || "")}" placeholder="+/-"></td>
+              <td>${wp.sogToNext !== "" && wp.sogToNext != null ? escapeHtml(String(wp.sogToNext)) : "–"}</td>
               <td>${wp.timeToNext ? escapeHtml(wp.timeToNext) : "–"}</td>
               <td>${wp.fuelToNext !== "" && wp.fuelToNext != null ? escapeHtml(String(wp.fuelToNext)) : "–"}</td>
               <td>${escapeHtml(String(dppRunningTotals[idx]?.totalNm ?? 0))}</td>
@@ -7718,6 +7785,8 @@ function renderSettingsDppWorkspace(){
           <tr class="dpp-totals-row">
             <td colspan="3">Totals</td>
             <td>${escapeHtml(String(dppTotals.totalNm || 0))}</td>
+            <td></td>
+            <td></td>
             <td></td>
             <td></td>
             <td>${escapeHtml(dppTotals.totalDuration || "00:00")}</td>
@@ -7802,6 +7871,8 @@ function renderSettingsDppWorkspace(){
       manualDistToNext: "",
       cogToNext: "",
       plannedSpeed: "",
+      tideKt: "",
+      sogToNext: "",
       timeToNext: "",
       fuelToNext: ""
     });
@@ -10090,21 +10161,43 @@ function getAllFuelRelevantEntries(){
     .sort((a, b) => getLogEntrySortKey(a.passage, a.entry).localeCompare(getLogEntrySortKey(b.passage, b.entry)));
 }
 
+function fuelCutoffDateFromInput(value){
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function fuelEntryIsAfterCutoff(passage, entry, cutoffDate){
+  if (!cutoffDate) return true;
+  const entryDate = logEntrySortDate(passage, entry);
+  if (!entryDate || Number.isNaN(entryDate.getTime())) return false;
+  return entryDate >= cutoffDate;
+}
+
+function fuelEntryIsBeforeLimit(passage, entry, limitDate){
+  if (!limitDate) return true;
+  const entryDate = logEntrySortDate(passage, entry);
+  if (!entryDate || Number.isNaN(entryDate.getTime())) return false;
+  return entryDate <= limitDate;
+}
+
 function computeFuelManagementStats({ beforeTime = "", excludeEntryId = "" } = {}){
   const settings = loadFuelManagementSettings();
-  const resetAt = String(settings.resetAt || "");
+  const resetDate = fuelCutoffDateFromInput(settings.resetAt);
+  const beforeDate = fuelCutoffDateFromInput(beforeTime);
   let remaining = numberOrNull(settings.resetLevel);
   let refuelLitres = 0;
   let refuelCost = 0;
   let fuelUsed = 0;
   let refuelCount = 0;
   let fuelUseEntryCount = 0;
+  const latestFuelUseByLeg = new Map();
 
-  getAllFuelRelevantEntries().forEach(({ entry }) => {
+  getAllFuelRelevantEntries().forEach(({ passage, entry }) => {
     if (excludeEntryId && String(entry.id) === String(excludeEntryId)) return;
-    const time = String(entry.time || "");
-    if (resetAt && time && time < resetAt) return;
-    if (beforeTime && time && time > beforeTime) return;
+    if (!fuelEntryIsAfterCutoff(passage, entry, resetDate)) return;
+    if (!fuelEntryIsBeforeLimit(passage, entry, beforeDate)) return;
 
     const refuel = entry.refuel || null;
     if (refuel) {
@@ -10120,14 +10213,28 @@ function computeFuelManagementStats({ beforeTime = "", excludeEntryId = "" } = {
       } else if (remaining != null) {
         remaining = Math.min(settings.tankCapacity, remaining + litres);
       }
-      if (numberOrNull(refuel.tankRemaining) != null) remaining = numberOrNull(refuel.tankRemaining);
+      if (numberOrNull(refuel.tankRemaining) != null) {
+        remaining = numberOrNull(refuel.tankRemaining);
+        latestFuelUseByLeg.clear();
+      }
     }
 
     const used = numberOrNull(entry.fuelUsed);
     if (used != null && used > 0) {
-      fuelUsed += used;
+      const key = `${passage?.id || ""}::${entry.leg ?? 0}`;
+      const entryDate = logEntrySortDate(passage, entry);
+      latestFuelUseByLeg.set(key, {
+        used,
+        time: entryDate && !Number.isNaN(entryDate.getTime()) ? entryDate.getTime() : 0
+      });
+    }
+  });
+
+  latestFuelUseByLeg.forEach((item) => {
+    if (item && item.used > 0) {
+      fuelUsed += item.used;
       fuelUseEntryCount += 1;
-      if (remaining != null) remaining = Math.max(0, remaining - used);
+      if (remaining != null) remaining = Math.max(0, remaining - item.used);
     }
   });
 

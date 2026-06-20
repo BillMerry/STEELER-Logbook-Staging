@@ -98,4 +98,5 @@ These areas are still tightly coupled to application state, DOM event binding, m
 - Detailed Passage Plan templates are stored globally in a separate localStorage key and can be applied to the selected leg after confirmation.
 - Detailed Passage Plan templates can be edited/renamed/deleted in Settings, are included in full backups, and have separate export/import.
 - DPP hazards, ports of refuge and crew welfare fields are leg-specific within the existing multi-leg DPP model.
+- DPP waypoint rows use STW plus optional tide/current effect to derive SOG. SOG drives ETA/time calculations; fuel burn uses the STW fuel curve over the derived elapsed time.
 - Multi-leg EC start/end SMS wording reflects transit stops and per-leg passage completion.
