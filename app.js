@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.3.0-rc7";
+const APP_VERSION = "1.3.0-rc8";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -3539,40 +3539,33 @@ function renderPortsManagerList(openName = "") {
     const privateNotesWrap = document.createElement("div");
     privateNotesWrap.className = "ports-comments";
 
-    const privateNotesInput = document.createElement("textarea");
-    privateNotesInput.className = "ports-comment-input";
-    privateNotesInput.rows = 2;
-    privateNotesInput.placeholder = "Berthing tips, facilities, local reminders...";
-    privateNotesInput.value = (item && typeof item === "object")
+    const privateNotesEditor = document.createElement("div");
+    privateNotesEditor.className = "ports-comment-input ports-note-editor";
+    privateNotesEditor.contentEditable = "true";
+    privateNotesEditor.setAttribute("role", "textbox");
+    privateNotesEditor.setAttribute("aria-multiline", "true");
+    privateNotesEditor.dataset.placeholder = "Berthing tips, facilities, local reminders...";
+    const privateNotesValue = (item && typeof item === "object")
       ? (typeof item.privateNotes === "string" ? item.privateNotes : (typeof item.portNotes === "string" ? item.portNotes : ""))
       : "";
+    setEditableNoteText(privateNotesEditor, privateNotesValue);
 
     const privateNotesField = document.createElement("label");
     privateNotesField.className = "st-labelled-field";
     const privateNotesLabel = document.createElement("span");
     privateNotesLabel.textContent = "Private Notes";
     privateNotesField.appendChild(privateNotesLabel);
-    privateNotesField.appendChild(privateNotesInput);
+    privateNotesField.appendChild(privateNotesEditor);
     privateNotesWrap.appendChild(privateNotesField);
 
-    const privateNoteLinkBtn = document.createElement("button");
-    privateNoteLinkBtn.type = "button";
-    privateNoteLinkBtn.className = "ports-mini ports-open-note-link";
-    const updatePrivateNoteLinkButton = () => {
-      const links = extractNoteLinks(privateNotesInput.value);
-      const firstLink = links[0] || null;
-      privateNoteLinkBtn.hidden = !firstLink;
-      privateNoteLinkBtn.textContent = links.length > 1 ? "Open First Link" : "Open Link";
-      privateNoteLinkBtn.dataset.href = firstLink?.href || "";
-    };
-    privateNoteLinkBtn.addEventListener("click", () => {
-      const href = privateNoteLinkBtn.dataset.href || "";
-      if (!href) return;
-      window.open(href, "_blank", "noopener,noreferrer");
+    privateNotesEditor.addEventListener("blur", () => {
+      setEditableNoteText(privateNotesEditor, getEditableNoteText(privateNotesEditor));
     });
-    privateNotesInput.addEventListener("input", updatePrivateNoteLinkButton);
-    updatePrivateNoteLinkButton();
-    privateNotesWrap.appendChild(privateNoteLinkBtn);
+    privateNotesEditor.addEventListener("paste", (ev) => {
+      ev.preventDefault();
+      const text = ev.clipboardData?.getData("text/plain") || "";
+      document.execCommand("insertText", false, text);
+    });
     editPanel.appendChild(privateNotesWrap);
 
     const saveDetailsBtn = document.createElement("button");
@@ -3584,7 +3577,7 @@ function renderPortsManagerList(openName = "") {
         name: nameInput.value,
         coordText: coordInput.value,
         commsPilotage: commentsInput.value,
-        privateNotes: privateNotesInput.value
+        privateNotes: getEditableNoteText(privateNotesEditor)
       });
       if (!res.ok) {
         alert(res.message || "Could not save port details.");
@@ -3611,12 +3604,12 @@ function renderPortsManagerList(openName = "") {
     row.appendChild(left);
     row.appendChild(right);
     row.addEventListener("click", (ev) => {
-      if (ev.target.closest("button, input, textarea, select, a")) return;
+      if (ev.target.closest("button, input, textarea, select, a, [contenteditable]")) return;
       row.classList.toggle("is-editing");
     });
     row.addEventListener("keydown", (ev) => {
       if (ev.key !== "Enter" && ev.key !== " ") return;
-      if (ev.target.closest("button, input, textarea, select, a")) return;
+      if (ev.target.closest("button, input, textarea, select, a, [contenteditable]")) return;
       ev.preventDefault();
       row.classList.toggle("is-editing");
     });
@@ -4272,20 +4265,15 @@ function linkifyNoteHtml(value){
   return html.replace(/\n/g, "<br>");
 }
 
-function extractNoteLinks(value){
-  const text = String(value || "");
-  if (!text) return [];
-  const urlPattern = /\b((?:https?:\/\/|www\.)[^\s<>"']+|(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s<>"']*)?)/gi;
-  const links = [];
-  text.replace(urlPattern, (match) => {
-    const trailing = match.match(/[),.;:!?]+$/)?.[0] || "";
-    const clean = trailing ? match.slice(0, -trailing.length) : match;
-    const lower = clean.toLowerCase();
-    const href = lower.startsWith("http://") || lower.startsWith("https://") ? clean : `https://${clean}`;
-    if (!links.some(link => link.href === href)) links.push({ text: clean, href });
-    return match;
-  });
-  return links;
+function setEditableNoteText(el, value){
+  if (!el) return;
+  el.innerHTML = linkifyNoteHtml(value);
+  activateNoteLinks(el);
+}
+
+function getEditableNoteText(el){
+  if (!el) return "";
+  return String(el.innerText || "").replace(/\n+$/, "");
 }
 
 function activateNoteLinks(root){
@@ -4293,7 +4281,10 @@ function activateNoteLinks(root){
     if (link.dataset.noteLinkReady === "true") return;
     link.dataset.noteLinkReady = "true";
     link.addEventListener("click", (ev) => {
+      ev.preventDefault();
       ev.stopPropagation();
+      const href = link.getAttribute("href");
+      if (href) window.open(href, "_blank", "noopener,noreferrer");
     });
   });
 }
