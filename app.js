@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.3.0-rc8";
+const APP_VERSION = "1.3.0-rc9";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -4248,15 +4248,17 @@ function escapeHtml(str) {
 function linkifyNoteHtml(value){
   const text = String(value || "");
   if (!text) return "";
-  const urlPattern = /\b((?:https?:\/\/|www\.)[^\s<>"']+|(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s<>"']*)?)/gi;
+  const linkPattern = /\b([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|(?:https?:\/\/|www\.)[^\s<>"']+|(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s<>"']*)?)/gi;
   let html = "";
   let lastIndex = 0;
-  text.replace(urlPattern, (match, _url, offset) => {
+  text.replace(linkPattern, (match, _link, offset) => {
     html += escapeHtml(text.slice(lastIndex, offset));
     const trailing = match.match(/[),.;:!?]+$/)?.[0] || "";
     const clean = trailing ? match.slice(0, -trailing.length) : match;
     const lower = clean.toLowerCase();
-    const href = lower.startsWith("http://") || lower.startsWith("https://") ? clean : `https://${clean}`;
+    const href = clean.includes("@")
+      ? `mailto:${clean}`
+      : (lower.startsWith("http://") || lower.startsWith("https://") ? clean : `https://${clean}`);
     html += `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" data-note-link="true">${escapeHtml(clean)}</a>${escapeHtml(trailing)}`;
     lastIndex = offset + match.length;
     return match;
