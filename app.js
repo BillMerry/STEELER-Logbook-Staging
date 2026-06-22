@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.3.0-rc9";
+const APP_VERSION = "1.3.0-rc10";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -282,7 +282,7 @@ function getLocalSyncSummary(){
   const deleted = countRecoverableDeletedEntries();
   if (status.pendingLocalChanges !== pending) {
     status.pendingLocalChanges = pending;
-    status.status = pending > 0 ? "local-pending" : "local-only";
+    status.status = pending > 0 ? "local-pending" : (status.status === "full-sync-ok" ? "full-sync-ok" : "local-only");
     saveLocalSyncStatus(status);
   }
   return {
@@ -1404,18 +1404,25 @@ async function checkFullDataCloudSync(){
     const summary = describeFullDataCloudRecord(cloud);
     const localBackup = createDataBackupPayload();
     const localMatchesCloud = Boolean(cloud.record && fullDataBackupsMatch(localBackup, cloud.backup));
+    const previousStatus = loadLocalSyncStatus();
     saveLocalSyncStatus({
-      status: "full-sync-check-ok",
+      status: localMatchesCloud ? "full-sync-ok" : "full-sync-check-ok",
       lastRemoteStatus: "ok",
       lastRemoteCheckAt: checkedAt,
       lastRemoteRevision: summary.revision,
+      lastFullSyncRevision: localMatchesCloud ? summary.revision : previousStatus.lastFullSyncRevision || "",
+      lastFullSyncAt: localMatchesCloud ? summary.updatedAt || checkedAt : previousStatus.lastFullSyncAt || "",
+      lastFullSyncDeviceId: localMatchesCloud ? summary.deviceId || "" : previousStatus.lastFullSyncDeviceId || "",
+      lastFullSyncDeviceName: localMatchesCloud ? summary.deviceName || "" : previousStatus.lastFullSyncDeviceName || "",
+      lastFullSyncAppVersion: localMatchesCloud ? summary.appVersion || "" : previousStatus.lastFullSyncAppVersion || "",
       lastObservedFullSyncRevision: summary.revision,
       lastObservedFullSyncAt: summary.updatedAt || "",
       lastObservedFullSyncDeviceId: summary.deviceId || "",
       lastObservedFullSyncDeviceName: summary.deviceName || "",
       lastObservedFullSyncAppVersion: summary.appVersion || "",
       checkedAt,
-      lastSyncAt: loadLocalSyncStatus().lastSyncAt || "",
+      lastSyncAt: localMatchesCloud ? checkedAt : previousStatus.lastSyncAt || "",
+      lastSyncDirection: localMatchesCloud ? "matched" : previousStatus.lastSyncDirection || "",
       lastSyncError: ""
     });
     renderLocalSyncStatus();
@@ -4286,7 +4293,12 @@ function activateNoteLinks(root){
       ev.preventDefault();
       ev.stopPropagation();
       const href = link.getAttribute("href");
-      if (href) window.open(href, "_blank", "noopener,noreferrer");
+      if (!href) return;
+      if (href.toLowerCase().startsWith("mailto:")) {
+        window.location.href = href;
+      } else {
+        window.open(href, "_blank", "noopener,noreferrer");
+      }
     });
   });
 }
