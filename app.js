@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.3.0-rc10";
+const APP_VERSION = "1.3.1-rc1";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -3396,11 +3396,15 @@ function makeUniquePortName(base = "New Port"){
 }
 
 function createNewPortFromSettings(){
-  const name = makeUniquePortName();
-  knownPorts.push(ensurePortId({ name, lat: null, lon: null, commsPilotage: "" }));
-  savePorts();
-  refreshPortUI();
-  renderPortsManagerList(name);
+  openPortDetailsModal({
+    title: "New Port",
+    port: { name: makeUniquePortName(), lat: null, lon: null, commsPilotage: "", privateNotes: "" },
+    allowLookup: true
+  }).then((saved) => {
+    if (!saved) return;
+    refreshPortUI();
+    renderPortsManagerList(saved.name);
+  });
 }
 
 
@@ -4883,6 +4887,157 @@ async function lookupPortCoordsOnline(name){
   return null;
 }
 
+function savePortDetailsFromFlow(values = {}){
+  const name = normalisePortDisplay(values.name);
+  if (!isLikelyRealPortName(name)) return { ok: false, message: "Enter a port name." };
+
+  const existing = findPortItemByName(name);
+  const port = ensurePortId(existing && typeof existing === "object" ? { ...existing } : { name });
+  port.name = name;
+
+  const coordText = String(values.coordText || "").trim();
+  const lat = values.lat == null ? NaN : Number(values.lat);
+  const lon = values.lon == null ? NaN : Number(values.lon);
+  let finalCoords = null;
+
+  if (coordText) {
+    finalCoords = parseSingleLatLonField(coordText);
+    if (!finalCoords) return { ok: false, message: "Please enter latitude and longitude in one field." };
+  } else if (Number.isFinite(lat) && Number.isFinite(lon)) {
+    finalCoords = { lat, lon };
+  }
+
+  if (finalCoords) {
+    if (!saneForSteeler(finalCoords.lat, finalCoords.lon)) {
+      return { ok: false, message: "Those coordinates look unusual for UK/Channel waters. Please double-check." };
+    }
+    port.lat = Number(finalCoords.lat);
+    port.lon = Number(finalCoords.lon);
+  } else {
+    delete port.lat;
+    delete port.lon;
+  }
+
+  const comms = String(values.commsPilotage || values.comments || "").trim();
+  if (comms) port.commsPilotage = comms;
+  else {
+    delete port.commsPilotage;
+    delete port.comments;
+  }
+
+  const privateNotes = String(values.privateNotes || values.portNotes || "").trim();
+  if (privateNotes) port.privateNotes = privateNotes;
+  else {
+    delete port.privateNotes;
+    delete port.portNotes;
+  }
+
+  const idx = knownPorts.findIndex(p => portName(p) === name);
+  if (idx >= 0) knownPorts[idx] = port;
+  else knownPorts.push(port);
+  knownPorts.sort((a,b) => portName(a).localeCompare(portName(b)));
+  savePorts();
+  rememberPort(name);
+  refreshPortUI();
+  return { ok: true, port, name };
+}
+
+function openPortDetailsModal({ title = "Port Details", port = {}, suggestedDisplayName = "", mapsUrl = "", allowLookup = true } = {}){
+  return new Promise((resolve) => {
+    const name = normalisePortDisplay(port?.name || "");
+    const lat = port?.lat == null ? NaN : Number(port.lat);
+    const lon = port?.lon == null ? NaN : Number(port.lon);
+    const coordText = Number.isFinite(lat) && Number.isFinite(lon) ? formatDMM(lat, lon) : "";
+    const comms = port && typeof port === "object" ? String(port.commsPilotage || port.comments || "") : "";
+    const privateNotes = port && typeof port === "object" ? String(port.privateNotes || port.portNotes || "") : "";
+    const mapHref = mapsUrl || (Number.isFinite(lat) && Number.isFinite(lon)
+      ? `https://maps.apple.com/?ll=${lat},${lon}&q=${encodeURIComponent(name)}`
+      : "");
+
+    showModal({
+      title,
+      hideButtons: true,
+      bodyHtml: `
+        <label class="st-labelled-field">
+          <span>Port name</span>
+          <input id="portDetailsName" type="text" value="${escapeHtml(name)}" autocomplete="off">
+        </label>
+        ${suggestedDisplayName ? `<p class="hint">Suggested match: ${escapeHtml(suggestedDisplayName)}</p>` : ""}
+        <div class="ports-coords" style="margin-top:0.65rem">
+          <label class="st-labelled-field">
+            <span>Lat / Lon</span>
+            <input id="portDetailsCoords" type="text" value="${escapeHtml(coordText)}" placeholder="50°45.085'N, 1°31.628'W">
+          </label>
+          ${allowLookup ? '<button type="button" id="portDetailsLookup" class="ports-mini">Lookup</button>' : ""}
+        </div>
+        <p id="portDetailsLookupHint" class="hint">${mapHref ? `<a href="${escapeHtml(mapHref)}" target="_blank" rel="noopener noreferrer">Check on Apple Maps</a>` : "Coordinates can be added now or later."}</p>
+        <label class="st-labelled-field" style="margin-top:0.65rem">
+          <span>Comms / Pilotage</span>
+          <textarea id="portDetailsComms" rows="2" placeholder="VHF channels, phone numbers, pilotage notes...">${escapeHtml(comms)}</textarea>
+        </label>
+        <label class="st-labelled-field" style="margin-top:0.65rem">
+          <span>Private Notes</span>
+          <textarea id="portDetailsPrivateNotes" rows="2" placeholder="Berthing tips, facilities, local reminders...">${escapeHtml(privateNotes)}</textarea>
+        </label>
+        <div class="st-action-row" style="margin-top:0.8rem">
+          <button type="button" id="portDetailsSave" class="btn">Save Port</button>
+          <button type="button" id="portDetailsCancel" class="btn btn-secondary">Not Now</button>
+        </div>
+      `
+    });
+
+    const finish = (value) => {
+      closeModal();
+      resolve(value);
+    };
+
+    document.getElementById("portDetailsLookup")?.addEventListener("click", async () => {
+      const lookupName = normalisePortDisplay(document.getElementById("portDetailsName")?.value || "");
+      if (!lookupName) {
+        alert("Enter a port name first.");
+        return;
+      }
+      const btn = document.getElementById("portDetailsLookup");
+      if (btn) btn.disabled = true;
+      try {
+        const hit = await lookupPortCoordsOnline(lookupName);
+        if (!hit) {
+          alert(`Couldn’t find a reliable place match for "${lookupName}". You can enter coordinates manually.`);
+          return;
+        }
+        const coordsEl = document.getElementById("portDetailsCoords");
+        if (coordsEl) coordsEl.value = formatDMM(hit.lat, hit.lon);
+        const hint = document.getElementById("portDetailsLookupHint");
+        if (hint) {
+          const href = hit.mapsUrl || `https://maps.apple.com/?ll=${hit.lat},${hit.lon}&q=${encodeURIComponent(hit.displayName || lookupName)}`;
+          hint.innerHTML = `Suggested match: ${escapeHtml(hit.displayName || lookupName)} · <a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">Check on Apple Maps</a>`;
+        }
+      } catch (err) {
+        console.error(err);
+        alert("Could not look up that port. You can enter coordinates manually.");
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    });
+
+    document.getElementById("portDetailsSave")?.addEventListener("click", () => {
+      const result = savePortDetailsFromFlow({
+        name: document.getElementById("portDetailsName")?.value || "",
+        coordText: document.getElementById("portDetailsCoords")?.value || "",
+        commsPilotage: document.getElementById("portDetailsComms")?.value || "",
+        privateNotes: document.getElementById("portDetailsPrivateNotes")?.value || ""
+      });
+      if (!result.ok) {
+        alert(result.message || "Could not save port details.");
+        return;
+      }
+      finish(result.port);
+    });
+
+    document.getElementById("portDetailsCancel")?.addEventListener("click", () => finish(null));
+  });
+}
+
 function showPortConfirmModal({ name, lat, lon, displayName, mapsUrl }){
   return new Promise((resolve) => {
     const n = normalisePortDisplay(name);
@@ -5022,38 +5177,23 @@ async function maybeSaveNewPort(name){
     return { name: n, lat: Number(existing.lat), lon: Number(existing.lon) };
   }
 
-  // Lookup (online) to propose coordinates.
   const hit = await lookupPortCoordsOnline(n);
-  if (!hit) {
-    const manual = await showPortNoMatchModal(n);
-    if (manual && manual.action === "save"){
-      upsertPortItem(n, manual.lat, manual.lon, (manual.commsPilotage ?? manual.comments) ?? null);
-      cleanPortsInPlace();
-      savePorts();
-      rememberPort(n);
-      refreshPortUI();
-      return { name: n, lat: manual.lat, lon: manual.lon };
-    }
-    return null;
-  }
+  const saved = await openPortDetailsModal({
+    title: hit ? "Save Port Details" : "Add Port Manually",
+    port: {
+      ...(existing && typeof existing === "object" ? existing : { name: n }),
+      name: n,
+      lat: hit ? hit.lat : existing?.lat,
+      lon: hit ? hit.lon : existing?.lon
+    },
+    suggestedDisplayName: hit?.displayName || "",
+    mapsUrl: hit?.mapsUrl || "",
+    allowLookup: true
+  });
 
-  const decision = await showPortConfirmModal({
-				name: n,
-				lat: hit.lat,
-				lon: hit.lon,
-				displayName: hit.displayName,
-				mapsUrl: hit.mapsUrl
-			});
-  if (decision && decision.action === "save"){
-    upsertPortItem(n, decision.lat, decision.lon, (decision.commsPilotage ?? decision.comments) ?? null);
-    cleanPortsInPlace();
-    savePorts();
-    rememberPort(n);
-    refreshPortUI();
-    return { name: n, lat: decision.lat, lon: decision.lon };
-  }
-
-  return null;
+  return saved && portHasCoords(saved)
+    ? { name: portName(saved), lat: Number(saved.lat), lon: Number(saved.lon) }
+    : null;
 }
 
 
@@ -7223,7 +7363,8 @@ function savedWaypointToDppWaypoint(saved){
     tideKt: "",
     sogToNext: "",
     timeToNext: "",
-    fuelToNext: ""
+    fuelToNext: "",
+    includeInEcSms: true
   };
 }
 
@@ -7274,7 +7415,8 @@ function routePortToDppWaypoint(point){
     tideKt: "",
     sogToNext: "",
     timeToNext: "",
-    fuelToNext: ""
+    fuelToNext: "",
+    includeInEcSms: true
   };
 }
 
@@ -7338,7 +7480,8 @@ function readDppTemplateEditorForm(){
       tideKt: (row.querySelector(".template-wp-tide")?.value || "").trim(),
       sogToNext: "",
       timeToNext: "",
-      fuelToNext: ""
+      fuelToNext: "",
+      includeInEcSms: row.querySelector(".template-wp-include-sms")?.checked !== false
     });
   });
 
@@ -7365,6 +7508,7 @@ function renderDppTemplateEditorRows(detailed){
       <td><input type="number" step="0.1" inputmode="decimal" class="template-wp-distance-override" value="${escapeHtml(wp.manualDistToNext || "")}" placeholder="${wp.distToNext !== "" ? escapeHtml(String(wp.distToNext)) : "NM"}"></td>
       <td><input type="number" step="0.1" inputmode="decimal" class="template-wp-speed" value="${escapeHtml(wp.plannedSpeed || "")}" placeholder="kt"></td>
       <td><input type="number" step="0.1" inputmode="decimal" class="template-wp-tide" value="${escapeHtml(wp.tideKt || "")}" placeholder="+/- kt"></td>
+      <td class="dpp-sms-cell"><input type="checkbox" class="template-wp-include-sms" title="Include this waypoint in the EC SMS routing" ${wp.includeInEcSms === false ? "" : "checked"}></td>
       <td><button type="button" class="btn btn-secondary btn-small template-wp-delete">Delete</button></td>
     </tr>
   `).join("");
@@ -7403,6 +7547,7 @@ function openDppTemplateEditor(id){
               <th>NM</th>
               <th>STW kt</th>
               <th>Tide kt</th>
+              <th>SMS</th>
               <th></th>
             </tr>
           </thead>
@@ -7693,6 +7838,7 @@ function readSettingsDppWorkspaceForm(){
       sogToNext: "",
       timeToNext: "",
       fuelToNext: "",
+      includeInEcSms: row.querySelector(".dpp-include-sms")?.checked !== false,
       actualTime: fallback.waypoints[idx]?.actualTime || ""
     });
   });
@@ -7799,6 +7945,7 @@ function renderSettingsDppWorkspace(){
             <th>Time<br>Next</th>
             <th>Fuel<br>L</th>
             <th colspan="3">Totals to Destination</th>
+            <th>SMS</th>
             <th>Actions</th>
           </tr>
           <tr class="dpp-subhead-row">
@@ -7806,6 +7953,7 @@ function renderSettingsDppWorkspace(){
             <th>NM</th>
             <th>Time</th>
             <th>Fuel</th>
+            <th></th>
             <th></th>
           </tr>
         </thead>
@@ -7825,6 +7973,7 @@ function renderSettingsDppWorkspace(){
               <td>${escapeHtml(String(dppRunningTotals[idx]?.totalNm ?? 0))}</td>
               <td>${escapeHtml(dppRunningTotals[idx]?.totalTime || "00:00")}</td>
               <td>${escapeHtml(String(dppRunningTotals[idx]?.totalFuel ?? 0))}</td>
+              <td class="dpp-sms-cell"><input type="checkbox" class="dpp-include-sms" title="Include this waypoint in the EC SMS routing" ${wp.includeInEcSms === false ? "" : "checked"}></td>
               <td>
                 <div class="dpp-row-actions">
                   <button type="button" class="btn btn-secondary btn-small settings-dpp-up" title="Move waypoint up">↑</button>
@@ -7843,6 +7992,7 @@ function renderSettingsDppWorkspace(){
             <td></td>
             <td>${escapeHtml(dppTotals.totalDuration || "00:00")}</td>
             <td>${escapeHtml(String(dppTotals.totalFuel || 0))}</td>
+            <td></td>
             <td></td>
             <td></td>
             <td></td>
@@ -7926,7 +8076,8 @@ function renderSettingsDppWorkspace(){
       tideKt: "",
       sogToNext: "",
       timeToNext: "",
-      fuelToNext: ""
+      fuelToNext: "",
+      includeInEcSms: true
     });
     renderSettingsDppWorkspace();
   });

@@ -116,6 +116,7 @@ function renderDetailedPassagePlan(p){
             <th>Time<br>Next</th>
             <th>Fuel<br>L</th>
             <th colspan="3">Totals to Destination</th>
+            <th>SMS</th>
             <th>Actions</th>
           </tr>
           <tr class="dpp-subhead-row">
@@ -123,6 +124,7 @@ function renderDetailedPassagePlan(p){
             <th>NM</th>
             <th>Time</th>
             <th>Fuel</th>
+            <th></th>
             <th></th>
           </tr>
         </thead>
@@ -145,6 +147,7 @@ function renderDetailedPassagePlan(p){
               <td>${escapeHtml(String(dppRunningTotals[idx]?.totalNm ?? 0))}</td>
               <td>${escapeHtml(dppRunningTotals[idx]?.totalTime || "00:00")}</td>
               <td>${escapeHtml(String(dppRunningTotals[idx]?.totalFuel ?? 0))}</td>
+              <td class="dpp-sms-cell"><input type="checkbox" class="dpp-include-sms" title="Include this waypoint in the EC SMS routing" ${wp.includeInEcSms === false ? "" : "checked"}></td>
               <td>
                 <div class="dpp-row-actions">
                   <button type="button" class="btn btn-secondary btn-small dpp-up" title="Move waypoint up">↑</button>
@@ -163,6 +166,7 @@ function renderDetailedPassagePlan(p){
             <td></td>
             <td>${escapeHtml(dppTotals.totalDuration || "00:00")}</td>
             <td>${escapeHtml(String(dppTotals.totalFuel || 0))}</td>
+            <td></td>
             <td></td>
             <td></td>
             <td></td>
@@ -341,7 +345,8 @@ function renderDetailedPassagePlan(p){
       tideKt: "",
       sogToNext: "",
       timeToNext: "",
-      fuelToNext: ""
+      fuelToNext: "",
+      includeInEcSms: true
     });
 
     savePassages();
@@ -454,6 +459,11 @@ function renderDetailedPassagePlan(p){
       savePassages();
     });
 
+    row.querySelector(".dpp-include-sms")?.addEventListener("change", (e) => {
+      wp.includeInEcSms = !!e.target.checked;
+      savePassages();
+    });
+
     row.querySelector(".dpp-up")?.addEventListener("click", () => {
       const activeDetailed = readDetailedPassagePlanFromForm();
 
@@ -538,6 +548,7 @@ function readDetailedPassagePlanFromForm(){
       sogToNext: "",
       timeToNext: "",
       fuelToNext: "",
+      includeInEcSms: row.querySelector(".dpp-include-sms")?.checked !== false,
       actualTime: fallback.waypoints[idx]?.actualTime || ""
     });
   });

@@ -36,6 +36,7 @@ function cloneDetailedPassagePlan(detailed, { resetTimes=false, regenerateIds=fa
         sogToNext: "",
         timeToNext: "",
         fuelToNext: "",
+        includeInEcSms: wp.includeInEcSms !== false,
         actualTime: resetTimes ? "" : (wp.actualTime || "")
       };
     }),
@@ -367,7 +368,8 @@ function gpxPointsToDetailedWaypoints(points){
     tideKt: "",
     sogToNext: "",
     timeToNext: "",
-    fuelToNext: ""    
+    fuelToNext: "",
+    includeInEcSms: true
   }));
 }
 

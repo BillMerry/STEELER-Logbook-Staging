@@ -995,6 +995,14 @@ body[data-theme="night"] .ports-delete { border-color: rgba(255,255,255,0.18); c
 .dpp-waypoint-manager-row{
   cursor:pointer;
 }
+.dpp-sms-cell{
+  text-align:center;
+  min-width:3.2rem;
+}
+.dpp-sms-cell input{
+  inline-size:1.05rem;
+  block-size:1.05rem;
+}
 .dpp-waypoint-manager-row .st-row-edit-panel{
   margin-top:var(--st-space-3);
 }

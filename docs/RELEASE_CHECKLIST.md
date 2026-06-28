@@ -71,6 +71,8 @@ Test from a clean browser profile or an iPad where possible:
 - Add a URL to a log note or DPP note and confirm it displays as a clickable link.
 - Override a DPP leg distance and confirm the total distance/time/fuel use the manual NM value.
 - Add positive and negative tide/current values to DPP rows and confirm SOG/time changes while fuel burn remains based on STW over the derived elapsed time.
+- Toggle individual DPP waypoint SMS checkboxes and confirm the EC start SMS intended-routing list includes only selected intermediate waypoints.
+- Add a new port from Origin/Destination and from Settings > New Port. Confirm both paths capture and display Port name, Lat/Lon, Comms/Pilotage and Private Notes in Port Settings.
 - On another device that has not seen the latest cloud revision, tap Sync Now and confirm the app says which named device changed the cloud copy and offers Keep This Device, Use Cloud Copy, and Cancel.
 - Choose Keep This Device and confirm this device's complete data replaces the current cloud copy while the previous cloud copy appears in Recovery backups.
 - Repeat the conflict path and choose Use Cloud Copy. Confirm a local safety backup downloads first, the full cloud copy is restored, and this device keeps its own `steeler_device_id_v1`.

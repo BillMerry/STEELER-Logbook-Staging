@@ -20,17 +20,23 @@ function buildSmsRouteList(p, detailedPlan = null){
 
   const out = [];
 
-  for (let i = 1; i < wps.length - 1 && i < 10; i++){
-    const wp = wps[i];
+  const included = wps
+    .slice(1, -1)
+    .filter((wp) => wp?.includeInEcSms !== false)
+    .slice(0, 9);
+
+  for (let i = 0; i < included.length; i++){
+    const wp = included[i];
     const coord = formatSmsWpCoord(wp);
     if (!coord) continue;
 
-    const name = String(wp?.name || `WP${i + 1}`).trim();
+    const name = String(wp?.name || `WP${i + 2}`).trim();
 
     out.push(`${name}\n${coord}`);
   }
 
-  if (wps.length > 11) out.push("… + more");
+  const remainingIncluded = wps.slice(1, -1).filter((wp) => wp?.includeInEcSms !== false).length;
+  if (remainingIncluded > included.length) out.push("… + more");
 
   return out.length ? out.join("\n") : "Direct / no intermediate waypoints set.";
 }

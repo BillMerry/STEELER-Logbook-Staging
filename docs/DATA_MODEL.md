@@ -207,11 +207,14 @@ Tide stations are planned data. Manual fields are the editable source of truth; 
   tideKt: "-1.2",
   sogToNext: 6.8,
   timeToNext: "01:33",
-  fuelToNext: 21.7
+  fuelToNext: 21.7,
+  includeInEcSms: true
 }
 ```
 
 `distToNext`, `cogToNext`, `sogToNext`, `timeToNext`, and `fuelToNext` are recalculated from coordinates, STW (`plannedSpeed`), and optional tide/current effect (`tideKt`). They are stored in passage data today, but should be treated as derived values. `manualDistToNext` can override the calculated distance for the leg starting at that waypoint, for example where a river route is longer than the straight-line waypoint distance. Timing uses SOG (`plannedSpeed + tideKt`), while fuel burn uses the STW fuel curve over the resulting elapsed time.
+
+`includeInEcSms` controls whether an intermediate DPP waypoint is included in the EC SMS intended-routing list. Missing values from older saved passages/templates are treated as `true`.
 
 ## DppTemplateStore
 
@@ -625,7 +628,7 @@ Manual Sync Preview builds local sync records, but does not upload or apply them
 }
 ```
 
-The previous per-record sync shape is retained only as historical compatibility data. v1.3.0-rc10 uses one current full-data cloud record instead:
+The previous per-record sync shape is retained only as historical compatibility data. v1.3.1-rc1 uses one current full-data cloud record instead:
 
 ```js
 {
@@ -638,7 +641,7 @@ The previous per-record sync shape is retained only as historical compatibility 
   payload: {
     format: "steeler-full-data-sync-record",
     version: 1,
-    appVersion: "1.3.0-rc10",
+    appVersion: "1.3.1-rc1",
     deviceId: "device_...",
     deviceName: "Bill's MacBook Pro",
     backup: DataBackupPayload
