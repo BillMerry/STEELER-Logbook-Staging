@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.3.3-rc1";
+const APP_VERSION = "1.3.3-rc2";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -316,6 +316,10 @@ function renderLocalSyncStatus(){
   const lastCloudDeviceId = summary.lastObservedFullSyncDeviceId || summary.lastFullSyncDeviceId || summary.lastCloudBackupDeviceId || "";
   const cloudDeviceText = displayDeviceName(lastCloudDeviceName, lastCloudDeviceId);
   const lastSyncText = formatSyncStatusTime(summary.lastSyncAt);
+  const autoSyncLastCheck = summary.lastAutoSyncAttemptAt || summary.lastAutoSyncAt || "";
+  const autoSyncText = config.autoSyncEnabled
+    ? `Auto-sync on${autoSyncLastCheck ? ` · Last check ${formatSyncStatusTime(autoSyncLastCheck)}` : ""}`
+    : "Auto-sync off";
   const hasConnection = Boolean(config.workerUrl && config.token);
   let statusText = "Ready to sync";
   let statusDetail = "Sync Now checks cloud first, then updates only the copy that needs it.";
@@ -348,6 +352,7 @@ function renderLocalSyncStatus(){
         <button type="button" id="syncPreviewBtn" class="btn btn-secondary">Check Cloud</button>
         <button type="button" id="syncFullBtn" class="btn" data-sync-now-btn="1">Sync Now</button>
       </div>
+      <p class="hint">${escapeHtml(autoSyncText)}</p>
       <details class="sync-advanced">
         <summary>Connection settings</summary>
         <label class="sync-check-field">
@@ -754,11 +759,27 @@ function cloneDppPlanFields(plan){
   };
 }
 
-function mergeReceivedPlanSafeguards(remotePlan, localPlan){
+function passageDetailSafeguardCanPreserve(remotePassage, localPassage){
+  const remoteChangedAt = latestTimestampFromValues([
+    remotePassage?.updatedAt,
+    remotePassage?.dirtyAt,
+    remotePassage?.createdAt
+  ], "");
+  const localChangedAt = latestTimestampFromValues([
+    localPassage?.updatedAt,
+    localPassage?.dirtyAt,
+    localPassage?.createdAt
+  ], "");
+  if (!remoteChangedAt || !localChangedAt) return true;
+  return localChangedAt >= remoteChangedAt;
+}
+
+function mergeReceivedPlanSafeguards(remotePlan, localPlan, options = {}){
   const mergedPlan = {
     ...(remotePlan || {})
   };
   const preserved = [];
+  const canPreserveLocalDetails = options.canPreserveLocalDetails !== false;
 
   const remoteDailySummaries = Array.isArray(remotePlan?.dailySummaries)
     ? remotePlan.dailySummaries
@@ -767,14 +788,14 @@ function mergeReceivedPlanSafeguards(remotePlan, localPlan){
     ? localPlan.dailySummaries
     : [];
 
-  if (localDailySummariesAreRicher(localDailySummaries, remoteDailySummaries)) {
+  if (canPreserveLocalDetails && localDailySummariesAreRicher(localDailySummaries, remoteDailySummaries)) {
     mergedPlan.dailySummaries = cloneDailySummaries(localDailySummaries);
     preserved.push("Daily Summary");
   }
 
   const remoteDppScore = detailedPlanCollectionContentScore(remotePlan);
   const localDppScore = detailedPlanCollectionContentScore(localPlan);
-  if (localDppScore > 0 && remoteDppScore === 0) {
+  if (canPreserveLocalDetails && localDppScore > 0 && remoteDppScore === 0) {
     const dppFields = cloneDppPlanFields(localPlan);
     if (dppFields.detailed !== undefined) mergedPlan.detailed = dppFields.detailed;
     if (dppFields.detailedLegs !== undefined) mergedPlan.detailedLegs = dppFields.detailedLegs;
@@ -795,7 +816,9 @@ function mergeReceivedPassageWithLocalSafeguards(remotePassage, localPassage){
       ...(remotePassage.plan || {})
     }
   };
-  const planMerge = mergeReceivedPlanSafeguards(remotePassage.plan || {}, localPassage.plan || {});
+  const planMerge = mergeReceivedPlanSafeguards(remotePassage.plan || {}, localPassage.plan || {}, {
+    canPreserveLocalDetails: passageDetailSafeguardCanPreserve(remotePassage, localPassage)
+  });
   merged.plan = planMerge.plan;
 
   if (planMerge.preserved.length) {

@@ -68,6 +68,7 @@ Test from a clean browser profile or an iPad where possible:
 - Tap Sync Now on a device that already matches cloud and confirm it simply reports that the device is synced, without asking to replace cloud data.
 - Tap Sync Now on a device with local changes and no newer cloud copy and confirm it offers to save this device's latest changes to cloud.
 - Enable Auto-sync in Connection settings, make a safe local change with no newer cloud copy, reopen or foreground the app, and confirm the local change is uploaded automatically after the cloud check.
+- Confirm the Data & Backup panel shows Auto-sync on/off and the latest auto-sync check time after auto-sync runs.
 - With Auto-sync enabled and no cloud copy yet, reopen the app and confirm it does not create the first cloud copy automatically.
 - With Auto-sync enabled and a newer cloud copy present, reopen the app and confirm it asks before using cloud or keeping this device.
 - Edit one shared setting, such as Ports, DPP templates, weather abbreviations or fuel settings, tap Sync Now, and confirm the full-data cloud copy now includes that change.
@@ -84,6 +85,7 @@ Test from a clean browser profile or an iPad where possible:
 - Choose Keep This Device and confirm this device's complete data replaces the current cloud copy while the previous cloud copy appears in Recovery backups.
 - Repeat the conflict path and choose Use Cloud Copy. Confirm a local safety backup downloads first, the full cloud copy is restored, and this device keeps its own `steeler_device_id_v1`.
 - Before choosing Use Cloud Copy, keep a richer local Daily Summary or DPP on this device while the cloud copy has that section missing. Confirm the cloud copy applies, the richer local section remains present, and sync status shows pending local changes rather than falsely synced.
+- Delete DPP content on one device, sync it to cloud, then use that cloud copy on another device that still has the old DPP and confirm the DPP deletion is respected.
 - Confirm Recovery backups can be expanded and contain recent cloud backup controls only, without per-record send/receive tools.
 - Tap Refresh Cloud Backups and confirm it lists recent cloud backup summaries without downloading, restoring, or changing local passage data.
 - Tap Download Backup for a listed cloud backup and confirm a JSON file downloads without restoring or changing local passage data.
