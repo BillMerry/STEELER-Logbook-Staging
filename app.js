@@ -13,13 +13,14 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.3.2-rc2";
+const APP_VERSION = "1.3.3-rc1";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
 const LEGACY_STAGING_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
 const FULL_DATA_SYNC_RECORD_ID = "global:full-data-sync";
 const FULL_DATA_SYNC_RECORD_TYPE = "full-data-sync";
+const AUTO_SYNC_MIN_INTERVAL_MS = 10 * 60 * 1000;
 const DEFAULT_PASSAGE_TIME_ZONE = "Europe/London";
 const PASSAGE_TIME_ZONES = {
   "Europe/London": "BST",
@@ -157,7 +158,8 @@ function loadSyncConfig(){
   const fallback = {
     version: 1,
     workerUrl: DEFAULT_SYNC_WORKER_URL,
-    token: ""
+    token: "",
+    autoSyncEnabled: false
   };
   const stored = loadLocalStorageJsonItem(
     SYNC_CONFIG_KEY,
@@ -171,7 +173,8 @@ function loadSyncConfig(){
     ...stored,
     version: 1,
     workerUrl: cleanWorkerUrl === LEGACY_STAGING_SYNC_WORKER_URL ? DEFAULT_SYNC_WORKER_URL : cleanWorkerUrl,
-    token: String(stored?.token || "")
+    token: String(stored?.token || ""),
+    autoSyncEnabled: stored?.autoSyncEnabled === true
   };
 }
 
@@ -183,6 +186,7 @@ function saveSyncConfig(config){
   };
   clean.workerUrl = String(clean.workerUrl || DEFAULT_SYNC_WORKER_URL).trim().replace(/\/+$/g, "");
   clean.token = String(clean.token || "");
+  clean.autoSyncEnabled = clean.autoSyncEnabled === true;
   storage.setItem(SYNC_CONFIG_KEY, JSON.stringify(clean));
   return clean;
 }
@@ -358,6 +362,10 @@ function renderLocalSyncStatus(){
           <span>Sync token</span>
           <input id="syncWorkerToken" type="password" value="${escapeHtml(config.token)}" autocomplete="off" spellcheck="false">
         </label>
+        <label class="sync-check-field sync-check-option">
+          <span>Auto-sync</span>
+          <span><input id="syncAutoEnabled" type="checkbox"${config.autoSyncEnabled ? " checked" : ""}> Check and sync safe local changes when this app opens or returns to the foreground</span>
+        </label>
       </details>
       <details class="sync-advanced">
         <summary>Recovery backups</summary>
@@ -391,6 +399,19 @@ function bindSyncStatusControls(){
     deviceNameInput.addEventListener("blur", saveName);
   }
 
+  const autoSyncInput = document.getElementById("syncAutoEnabled");
+  if (autoSyncInput && autoSyncInput.dataset.bound !== "1") {
+    autoSyncInput.dataset.bound = "1";
+    autoSyncInput.addEventListener("change", () => {
+      const currentConfig = loadSyncConfig();
+      saveSyncConfig({
+        ...currentConfig,
+        autoSyncEnabled: autoSyncInput.checked === true
+      });
+      if (autoSyncInput.checked) scheduleAutoFullDataSync("setting-enabled");
+    });
+  }
+
   const refreshBtn = document.getElementById("syncRefreshBackupsBtn");
   if (refreshBtn && refreshBtn.dataset.bound !== "1") {
     refreshBtn.dataset.bound = "1";
@@ -415,11 +436,13 @@ function getSavedSyncConnection(){
   const urlEl = document.getElementById("syncWorkerUrl");
   const tokenEl = document.getElementById("syncWorkerToken");
   const deviceNameEl = document.getElementById("syncDeviceName");
+  const autoSyncEl = document.getElementById("syncAutoEnabled");
   if (deviceNameEl) saveDeviceName(deviceNameEl.value);
   const currentConfig = loadSyncConfig();
   const config = saveSyncConfig({
     workerUrl: urlEl ? urlEl.value : currentConfig.workerUrl,
-    token: tokenEl ? tokenEl.value : currentConfig.token
+    token: tokenEl ? tokenEl.value : currentConfig.token,
+    autoSyncEnabled: autoSyncEl ? autoSyncEl.checked === true : currentConfig.autoSyncEnabled === true
   });
 
   if (!config.token) {
@@ -1555,15 +1578,16 @@ function setFullDataSyncBusy(isBusy){
   });
 }
 
-async function runFullDataCloudSync(){
+async function runFullDataCloudSync(options = {}){
+  const isAutoSync = options.auto === true;
   const connection = getSavedSyncConnection();
   if (connection.error) {
     setSyncCheckMessage(connection.error);
-    alert(connection.error);
+    if (!isAutoSync) alert(connection.error);
     return;
   }
   setFullDataSyncBusy(true);
-  setSyncCheckMessage("Checking cloud copy before sync...");
+  setSyncCheckMessage(isAutoSync ? "Auto-sync checking cloud copy..." : "Checking cloud copy before sync...");
   const syncedAt = nowIso();
 
   try{
@@ -1588,10 +1612,14 @@ async function runFullDataCloudSync(){
     if (cloudCopyChangedSinceLastSync(cloud)) {
       choice = await chooseFullSyncConflictAction(cloud);
       if (choice === "cancel") {
-        setSyncCheckMessage("Sync cancelled. Nothing changed.");
+        setSyncCheckMessage(isAutoSync ? "Auto-sync found a cloud change and was left for review. Nothing changed." : "Sync cancelled. Nothing changed.");
         return;
       }
     } else if (!cloud.record) {
+      if (isAutoSync) {
+        setSyncCheckMessage("Auto-sync skipped. Tap Sync Now to create the first cloud copy from this device.");
+        return;
+      }
       const ok = confirm(
         "Create the first cloud copy?\n\n" +
         "This will save this device's complete STEELER logbook to cloud so your other devices can use it."
@@ -1601,13 +1629,21 @@ async function runFullDataCloudSync(){
         return;
       }
     } else {
-      const ok = confirm(
-        "Save this device's latest changes to cloud?\n\n" +
-        "Cloud will remain the main copy. The previous cloud copy will be kept in recovery backups."
-      );
-      if (!ok) {
-        setSyncCheckMessage("Sync cancelled. Nothing changed.");
-        return;
+      if (isAutoSync) {
+        const pending = countPendingLocalChanges();
+        if (pending <= 0) {
+          setSyncCheckMessage("Auto-sync checked cloud. No safe local changes needed uploading.");
+          return;
+        }
+      } else {
+        const ok = confirm(
+          "Save this device's latest changes to cloud?\n\n" +
+          "Cloud will remain the main copy. The previous cloud copy will be kept in recovery backups."
+        );
+        if (!ok) {
+          setSyncCheckMessage("Sync cancelled. Nothing changed.");
+          return;
+        }
       }
     }
 
@@ -1620,11 +1656,11 @@ async function runFullDataCloudSync(){
       return;
     }
 
-    setSyncCheckMessage("Uploading this device as the current cloud copy...");
+    setSyncCheckMessage(isAutoSync ? "Auto-sync uploading this device's safe local changes..." : "Uploading this device as the current cloud copy...");
     const updatedCloud = await uploadFullDataCloudCopy(connection, cloud, syncedAt);
     renderLocalSyncStatus();
-    renderFullDataCloudPreview(updatedCloud, "This device is now the current cloud copy.");
-    setSyncCheckMessage(`Sync complete. This device is now the cloud copy at revision ${describeFullDataCloudRecord(updatedCloud).revision}.`);
+    renderFullDataCloudPreview(updatedCloud, isAutoSync ? "Auto-sync saved this device's safe local changes to cloud." : "This device is now the current cloud copy.");
+    setSyncCheckMessage(`${isAutoSync ? "Auto-sync complete" : "Sync complete"}. This device is now the cloud copy at revision ${describeFullDataCloudRecord(updatedCloud).revision}.`);
     refreshCloudBackups({ silent: true });
   }catch(e){
     saveLocalSyncStatus({
@@ -1637,6 +1673,50 @@ async function runFullDataCloudSync(){
     setSyncCheckMessage(`Sync failed: ${e && e.message ? e.message : e}`);
   }finally{
     setFullDataSyncBusy(false);
+  }
+}
+
+let autoFullDataSyncTimer = null;
+let autoFullDataSyncRunning = false;
+
+function scheduleAutoFullDataSync(reason = "auto"){
+  const config = loadSyncConfig();
+  if (config.autoSyncEnabled !== true) return;
+  if (document.hidden) return;
+  clearTimeout(autoFullDataSyncTimer);
+  autoFullDataSyncTimer = setTimeout(() => runAutoFullDataSync(reason), 1500);
+}
+
+async function runAutoFullDataSync(reason = "auto"){
+  const config = loadSyncConfig();
+  if (config.autoSyncEnabled !== true || !config.token) return;
+  if (autoFullDataSyncRunning) return;
+  const previousStatus = loadLocalSyncStatus();
+  const lastAttempt = Date.parse(previousStatus.lastAutoSyncAttemptAt || "");
+  if (Number.isFinite(lastAttempt) && Date.now() - lastAttempt < AUTO_SYNC_MIN_INTERVAL_MS) return;
+
+  autoFullDataSyncRunning = true;
+  const startedAt = nowIso();
+  saveLocalSyncStatus({
+    lastAutoSyncAttemptAt: startedAt,
+    lastAutoSyncReason: reason
+  });
+  try {
+    await runFullDataCloudSync({ auto: true, reason });
+    saveLocalSyncStatus({
+      lastAutoSyncAt: nowIso(),
+      lastAutoSyncReason: reason
+    });
+  } catch(e) {
+    saveLocalSyncStatus({
+      status: "auto-sync-error",
+      lastRemoteStatus: "error",
+      lastSyncError: e && e.message ? e.message : String(e || "Auto-sync failed")
+    });
+    renderLocalSyncStatus();
+    setSyncCheckMessage(`Auto-sync failed: ${e && e.message ? e.message : e}`);
+  } finally {
+    autoFullDataSyncRunning = false;
   }
 }
 
@@ -12311,7 +12391,13 @@ if (new URLSearchParams(location.search).has("reset")) {
   loadPassageIntoUI();
   setupLogSplitDivider();
   setLogLayoutMode("split", splitViewBtn);
+  scheduleAutoFullDataSync("app-open");
 }
+
+window.addEventListener("focus", () => scheduleAutoFullDataSync("window-focus"));
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) scheduleAutoFullDataSync("foreground");
+});
 
 // Service worker registration (PWA/offline)
 if ("serviceWorker" in navigator) {

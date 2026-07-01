@@ -48,12 +48,12 @@ function buildPorList(p, detailedPlan = null){
 function getMarineTrafficLink(vessel){
   const shipId = String(vessel?.marineTrafficShipId || "").trim();
   if (shipId){
-    return `https://www.marinetraffic.com/en/ais/home/shipid:${shipId}/zoom:14`;
+    return `http://www.marinetraffic.com/en/ais/home/shipid:${shipId}/zoom:14`;
   }
 
   const m = String(vessel?.mmsi || "").trim();
   if (m){
-    return `https://www.marinetraffic.com/en/ais/details/ships/mmsi:${m}`;
+    return `http://www.marinetraffic.com/en/ais/details/ships/mmsi:${m}`;
   }
 
   return "";

@@ -67,6 +67,9 @@ Test from a clean browser profile or an iPad where possible:
 - Enter the sync Worker URL/token if needed, tap Check Cloud, and confirm it reports the current full-data cloud copy without uploading, downloading, restoring, merging, or changing local data.
 - Tap Sync Now on a device that already matches cloud and confirm it simply reports that the device is synced, without asking to replace cloud data.
 - Tap Sync Now on a device with local changes and no newer cloud copy and confirm it offers to save this device's latest changes to cloud.
+- Enable Auto-sync in Connection settings, make a safe local change with no newer cloud copy, reopen or foreground the app, and confirm the local change is uploaded automatically after the cloud check.
+- With Auto-sync enabled and no cloud copy yet, reopen the app and confirm it does not create the first cloud copy automatically.
+- With Auto-sync enabled and a newer cloud copy present, reopen the app and confirm it asks before using cloud or keeping this device.
 - Edit one shared setting, such as Ports, DPP templates, weather abbreviations or fuel settings, tap Sync Now, and confirm the full-data cloud copy now includes that change.
 - Add a URL to a log note or DPP note and confirm it displays as a clickable link.
 - Override a DPP leg distance and confirm the total distance/time/fuel use the manual NM value.
@@ -76,6 +79,7 @@ Test from a clean browser profile or an iPad where possible:
 - Change a passage date in Plan and confirm any Daily Summary row that was using the previous passage date updates to the new date. Add a new Daily Summary row and confirm it defaults to the passage date.
 - Add an Engine Start entry, confirm Home shows Under Way, then delete that Engine Start entry and confirm Home no longer shows Under Way unless another active Engine Start remains.
 - Send a Lookout Request SMS to a non-default saved or one-off contact, then send the Passage Complete SMS for the same passage and confirm the same recipient is preselected/prefilled.
+- Generate a Lookout Request SMS with MarineTraffic enabled and confirm the vessel-position link opens in a browser on a device with the MarineTraffic app installed.
 - On another device that has not seen the latest cloud revision, tap Sync Now and confirm the app says which named device changed the cloud copy and offers Keep This Device, Use Cloud Copy, and Cancel.
 - Choose Keep This Device and confirm this device's complete data replaces the current cloud copy while the previous cloud copy appears in Recovery backups.
 - Repeat the conflict path and choose Use Cloud Copy. Confirm a local safety backup downloads first, the full cloud copy is restored, and this device keeps its own `steeler_device_id_v1`.
