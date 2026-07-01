@@ -628,7 +628,7 @@ Manual Sync Preview builds local sync records, but does not upload or apply them
 }
 ```
 
-The previous per-record sync shape is retained only as historical compatibility data. v1.3.1-rc1 uses one current full-data cloud record instead:
+The previous per-record sync shape is retained only as historical compatibility data. v1.3.2-rc1 uses one current full-data cloud record instead:
 
 ```js
 {
@@ -641,7 +641,7 @@ The previous per-record sync shape is retained only as historical compatibility 
   payload: {
     format: "steeler-full-data-sync-record",
     version: 1,
-    appVersion: "1.3.1-rc1",
+    appVersion: "1.3.2-rc1",
     deviceId: "device_...",
     deviceName: "Bill's MacBook Pro",
     backup: DataBackupPayload
@@ -651,7 +651,7 @@ The previous per-record sync shape is retained only as historical compatibility 
 
 Sync Now fetches only the current `full-data-sync` record, then compares this device's current data with the current cloud backup first. If they already match, the app confirms that the device is synced and does not upload another cloud copy. If the device has changes and the cloud record has not changed since this device last synced, the device backup can be saved as the current cloud copy. If the cloud record changed since this device last synced and the data differs, the user chooses either this device's full backup or the cloud full backup. When this device replaces an existing cloud copy, the previous cloud backup is preserved as a `cloud-backup` recovery record.
 
-Using the cloud copy downloads a local safety backup first, then restores the cloud `steeler-data-backup`. The device id key remains local-only and is not restored from the backup.
+Using the cloud copy downloads a local safety backup first, then restores the cloud `steeler-data-backup`. v1.3.2-rc1 also compares the incoming passage plans with the current local copy before restore; if the cloud copy is missing richer local Daily Summary content or has no DPP content where the local passage has DPP content, those local sections are preserved and marked pending so they can be synced back to cloud. The device id key remains local-only and is not restored from the backup.
 
 Legacy full logbook backup:
 

@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.3.1-rc1";
+const APP_VERSION = "1.3.2-rc1";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -695,9 +695,76 @@ function localDailySummariesAreRicher(localDailySummaries, remoteDailySummaries)
     && localDailySummaries.length >= remoteDailySummaries.length;
 }
 
-function mergeReceivedPassageWithLocal(remotePassage, localPassage){
-  if (!remotePassage || typeof remotePassage !== "object") return remotePassage;
-  if (!localPassage || typeof localPassage !== "object") return remotePassage;
+function detailedPlanContentScore(detailed){
+  if (!detailed || typeof detailed !== "object") return 0;
+  const waypoints = Array.isArray(detailed.waypoints) ? detailed.waypoints : [];
+  const waypointScore = waypoints.reduce((score, wp) => {
+    if (!wp || typeof wp !== "object") return score;
+    const textFields = [
+      wp.name, wp.coords, wp.lat, wp.lon, wp.position, wp.time, wp.actualTime,
+      wp.course, wp.distance, wp.plannedSpeed, wp.tideKt, wp.tideDir,
+      wp.manualDistToNext
+    ];
+    return score + textFields.reduce((sum, value) => sum + (String(value || "").trim() ? 1 : 0), 1);
+  }, 0);
+  const notesScore = ["hazards", "portsOfRefuge", "crewWelfare"].reduce((score, key) => {
+    const value = String(detailed[key] || "").trim();
+    return score + (value ? 3 + Math.min(value.length, 200) : 0);
+  }, 0);
+  return waypointScore + notesScore;
+}
+
+function detailedPlanCollectionContentScore(plan){
+  if (!plan || typeof plan !== "object") return 0;
+  const singleScore = detailedPlanContentScore(plan.detailed);
+  const legsScore = (Array.isArray(plan.detailedLegs) ? plan.detailedLegs : [])
+    .reduce((score, detailed) => score + detailedPlanContentScore(detailed), 0);
+  return singleScore + legsScore;
+}
+
+function cloneDppPlanFields(plan){
+  const source = plan && typeof plan === "object" ? plan : {};
+  return {
+    detailed: cloneJsonSafe(source.detailed, undefined),
+    detailedLegs: cloneJsonSafe(source.detailedLegs, undefined),
+    detailedLegIndex: source.detailedLegIndex
+  };
+}
+
+function mergeReceivedPlanSafeguards(remotePlan, localPlan){
+  const mergedPlan = {
+    ...(remotePlan || {})
+  };
+  const preserved = [];
+
+  const remoteDailySummaries = Array.isArray(remotePlan?.dailySummaries)
+    ? remotePlan.dailySummaries
+    : [];
+  const localDailySummaries = Array.isArray(localPlan?.dailySummaries)
+    ? localPlan.dailySummaries
+    : [];
+
+  if (localDailySummariesAreRicher(localDailySummaries, remoteDailySummaries)) {
+    mergedPlan.dailySummaries = cloneDailySummaries(localDailySummaries);
+    preserved.push("Daily Summary");
+  }
+
+  const remoteDppScore = detailedPlanCollectionContentScore(remotePlan);
+  const localDppScore = detailedPlanCollectionContentScore(localPlan);
+  if (localDppScore > 0 && remoteDppScore === 0) {
+    const dppFields = cloneDppPlanFields(localPlan);
+    if (dppFields.detailed !== undefined) mergedPlan.detailed = dppFields.detailed;
+    if (dppFields.detailedLegs !== undefined) mergedPlan.detailedLegs = dppFields.detailedLegs;
+    if (dppFields.detailedLegIndex !== undefined) mergedPlan.detailedLegIndex = dppFields.detailedLegIndex;
+    preserved.push("DPP");
+  }
+
+  return { plan: mergedPlan, preserved };
+}
+
+function mergeReceivedPassageWithLocalSafeguards(remotePassage, localPassage){
+  if (!remotePassage || typeof remotePassage !== "object") return { passage: remotePassage, preserved: [] };
+  if (!localPassage || typeof localPassage !== "object") return { passage: remotePassage, preserved: [] };
 
   const merged = {
     ...remotePassage,
@@ -705,23 +772,49 @@ function mergeReceivedPassageWithLocal(remotePassage, localPassage){
       ...(remotePassage.plan || {})
     }
   };
-  const remoteDailySummaries = Array.isArray(remotePassage.plan?.dailySummaries)
-    ? remotePassage.plan.dailySummaries
-    : [];
-  const localDailySummaries = Array.isArray(localPassage.plan?.dailySummaries)
-    ? localPassage.plan.dailySummaries
-    : [];
+  const planMerge = mergeReceivedPlanSafeguards(remotePassage.plan || {}, localPassage.plan || {});
+  merged.plan = planMerge.plan;
 
-  if (localDailySummariesAreRicher(localDailySummaries, remoteDailySummaries)) {
+  if (planMerge.preserved.length) {
     const changedAt = nowIso();
-    merged.plan.dailySummaries = cloneDailySummaries(localDailySummaries);
     merged.updatedAt = changedAt;
     merged.dirtyAt = changedAt;
     merged.syncDirty = true;
-    merged.syncStatus = "dirty";
+    merged.syncStatus = "pending";
   }
 
-  return merged;
+  return { passage: merged, preserved: planMerge.preserved };
+}
+
+function prepareCloudBackupForRestoreWithSafeguards(backup){
+  const prepared = cloneJsonSafe(backup, null);
+  const preservedPassageIds = new Set();
+  const preservedLabels = new Set();
+  if (!prepared?.data || !Array.isArray(prepared.data.passages)) {
+    return { backup, preservedPassageIds, preservedLabels };
+  }
+
+  const localById = new Map((Array.isArray(passages) ? passages : [])
+    .filter(p => p?.id)
+    .map(p => [String(p.id), p]));
+  prepared.data.passages = prepared.data.passages.map((remotePassage) => {
+    const localPassage = remotePassage?.id ? localById.get(String(remotePassage.id)) : null;
+    const result = mergeReceivedPassageWithLocalSafeguards(remotePassage, localPassage);
+    if (result.preserved.length && remotePassage?.id) {
+      preservedPassageIds.add(String(remotePassage.id));
+      result.preserved.forEach(label => preservedLabels.add(label));
+    }
+    return result.passage;
+  });
+
+  return { backup: prepared, preservedPassageIds, preservedLabels };
+}
+
+function mergeReceivedPassageWithLocal(remotePassage, localPassage){
+  if (!remotePassage || typeof remotePassage !== "object") return remotePassage;
+  if (!localPassage || typeof localPassage !== "object") return remotePassage;
+
+  return mergeReceivedPassageWithLocalSafeguards(remotePassage, localPassage).passage;
 }
 
 function applySyncRecord(record){
@@ -1276,11 +1369,15 @@ function cloudCopyChangedSinceLastSync(cloud){
   return cloudRevision > lastSeen;
 }
 
-function clearAllLocalSyncDirty(){
+function clearAllLocalSyncDirty(options = {}){
+  const preservePassageIds = options.preservePassageIds instanceof Set
+    ? options.preservePassageIds
+    : new Set(Array.isArray(options.preservePassageIds) ? options.preservePassageIds.map(String) : []);
   let passagesChanged = false;
   let portsChanged = false;
   (Array.isArray(passages) ? passages : []).forEach((p) => {
     if (!p || typeof p !== "object") return;
+    if (preservePassageIds.has(String(p.id || ""))) return;
     if (p.syncDirty || p.syncStatus || p.dirtyAt) {
       p.syncDirty = false;
       p.syncStatus = "synced";
@@ -1375,16 +1472,24 @@ async function applyFullDataCloudCopy(cloud, syncedAt){
     throw new Error("Cloud copy is not a valid STEELER data backup.");
   }
   downloadJsonPayload(createDataBackupPayload(), "STEELER-Before-cloud-sync-backup");
-  const restored = restoreDataBackupObject(backup, {
+  const prepared = prepareCloudBackupForRestoreWithSafeguards(backup);
+  const restored = restoreDataBackupObject(prepared.backup, {
     skipConfirm: true,
-    successMessage: "Cloud copy applied successfully."
+    successMessage: prepared.preservedPassageIds.size
+      ? "Cloud copy applied. Richer local Daily Summary or DPP details were preserved."
+      : "Cloud copy applied successfully."
   });
   if (!restored) throw new Error("Cloud copy was not applied.");
-  clearAllLocalSyncDirty();
-  saveFullDataCloudStatus("full-sync-ok", cloud, {
+  clearAllLocalSyncDirty({ preservePassageIds: prepared.preservedPassageIds });
+  const preservedLabels = [...prepared.preservedLabels].join(" and ");
+  saveFullDataCloudStatus(prepared.preservedPassageIds.size ? "local-pending" : "full-sync-ok", cloud, {
     checkedAt: syncedAt,
     lastSyncAt: syncedAt,
-    lastSyncDirection: "download"
+    lastSyncDirection: prepared.preservedPassageIds.size ? "download-preserved" : "download",
+    pendingLocalChanges: countPendingLocalChanges(),
+    lastSyncError: prepared.preservedPassageIds.size
+      ? `Cloud copy applied; richer local ${preservedLabels || "passage"} details were preserved and need syncing.`
+      : ""
   });
 }
 
@@ -5965,7 +6070,7 @@ function attachSwipeToCard(card, passageId) {
 }
 
 function getPassageDashboardStatus(passage) {
-  const hasEngineStart = (passage.entries || []).some(e => inferEntryType(e) === "engine-start");
+  const hasEngineStart = activeLogEntries(passage).some(e => inferEntryType(e) === "engine-start");
   if (passage.finish?.shutdownLogged) return "Complete";
   if (hasEngineStart) return "Under Way";
   return "Planned";
@@ -6984,12 +7089,35 @@ addTideStationBtn.addEventListener("click", () => {
   renderTideStations(p);
 });
 
+function getDailySummaryDefaultDate(p) {
+  return String(p?.plan?.date || "").trim() || passageDateToday(p);
+}
+
+function syncDailySummaryDatesWithPassageDate(p, previousDate, nextDate) {
+  if (!p?.plan || !Array.isArray(p.plan.dailySummaries)) return false;
+  const prev = String(previousDate || "").trim();
+  const next = String(nextDate || p.plan.date || "").trim();
+  if (!next) return false;
+  let changed = false;
+  p.plan.dailySummaries = p.plan.dailySummaries.map((day) => {
+    const current = String(day?.date || "").trim();
+    if (!current || (prev && current === prev)) {
+      changed = true;
+      return { ...(day || {}), date: next };
+    }
+    return day;
+  });
+  return changed;
+}
+
 function renderDailySummaries(p) {
   dailySummariesContainer.innerHTML = "";
   const days = p.plan.dailySummaries || [];
+  const defaultDate = getDailySummaryDefaultDate(p);
   days.forEach((d, index) => {
     const row = document.createElement("div");
     const dayId = d.id || ("ds_" + Date.now() + "_" + Math.random().toString(36).slice(2));
+    const rowDate = d.date || defaultDate;
     row.className = "daily-summary-row";
     row.dataset.index = index;
     row.dataset.id = dayId;
@@ -6998,7 +7126,7 @@ function renderDailySummaries(p) {
       <div class="row ds-row">
         <label>
           Date
-          <input type="date" class="ds-date" value="${d.date || ""}">
+          <input type="date" class="ds-date" value="${escapeHtml(rowDate)}">
         </label>
         <label>
           Mooring fee
@@ -8288,7 +8416,7 @@ addDailySummaryBtn.addEventListener("click", () => {
   const p = getCurrentPassage();
   if (!p) return;
   p.plan.dailySummaries = readDailySummariesFromForm();
-  p.plan.dailySummaries.push({ id: "ds_" + Date.now(), date: "", fee: "", notes: "" });
+  p.plan.dailySummaries.push({ id: "ds_" + Date.now(), date: getDailySummaryDefaultDate(p), fee: "", notes: "" });
   renderDailySummaries(p);
 });
 
@@ -9026,6 +9154,7 @@ planForm.addEventListener("submit", async (e) => {
   const p = getCurrentPassage();
   if (!p) return;
   const beforePlanJson = stableComparableJson(p.plan || {});
+  const previousPlanDate = String(p.plan?.date || "").trim();
 
   p.plan.date = planDate.value;
   p.plan.timeZone = normalisePassageTimeZone(planTimeZone?.value || p.plan.timeZone);
@@ -9096,6 +9225,7 @@ p.plan.vessel = planVessel.value.trim();
   ensureAutoTideStations(p);
 
   p.plan.dailySummaries = readDailySummariesFromForm();
+  syncDailySummaryDatesWithPassageDate(p, previousPlanDate, p.plan.date);
   if (typeof readDetailedPassagePlanFromForm === "function") readDetailedPassagePlanFromForm();
   ensureDetailedPassagePlans(p);
 
