@@ -1,6 +1,6 @@
 # STEELER Logbook Architecture
 
-This document records the v1.3.2 release-candidate architecture, including the sync-foundation architecture, Detailed Passage Plan template management, standardised port entry, EC SMS waypoint selection, and guarded cloud-copy restore behaviour.
+This document records the v1.3.2 release-candidate architecture, including the sync-foundation architecture, Detailed Passage Plan template management, standardised port entry, EC SMS waypoint selection, guarded cloud-copy restore behaviour, and passage-specific SMS recipient memory.
 
 STEELER Logbook is a vanilla HTML/CSS/JavaScript offline-first PWA intended for iPad use at sea. Reliability, predictable offline behaviour and preservation of existing passage data are more important than reducing file size or changing code shape for its own sake.
 
@@ -60,12 +60,13 @@ Auto-sync and MarineTraffic/VesselFinder app-link behaviour remain future candid
 - Simplified cloud sync treats STEELER data as one complete logbook package. The current cloud copy is a Worker record with id `global:full-data-sync` and type `full-data-sync`; its payload contains a full `steeler-data-backup`.
 - Sync Now first checks the current cloud copy by fetching only the `full-data-sync` record from the Worker. If this device already matches cloud, the app marks it synced and does not upload. If this device has changes and the cloud revision has not changed since this device last synced, this device can upload its complete data package as the current cloud copy.
 - If the cloud revision has changed since this device last synced, the app shows which device last updated the cloud copy and asks whether to keep this device's complete copy, use the cloud copy, or cancel.
-- When the user chooses the cloud copy, v1.3.2-rc1 preserves richer local Daily Summary data and local DPP content if those sections are missing from the incoming cloud passage, then leaves the preserved passage marked pending for the next sync.
+- When the user chooses the cloud copy, v1.3.2-rc2 preserves richer local Daily Summary data and local DPP content if those sections are missing from the incoming cloud passage, then leaves the preserved passage marked pending for the next sync.
 - Choosing Keep This Device pushes this device's full backup as the current cloud copy. If a previous cloud copy exists, it is first preserved as a `cloud-backup` recovery record.
 - Choosing Use Cloud Copy downloads a safety backup of the current local data first, then restores the complete cloud backup locally. The local `steeler_device_id_v1` remains device-local and is not replaced by backup restore.
 - Recovery backups use `/v1/records/push` with record type `cloud-backup`. The read-only backup list uses `/v1/backups`; selected backup download/restore uses `/v1/backups/{recordId}`. Manual restore first downloads a local safety backup and requires two confirmations.
 - v1.3.1 standardises new port capture so route-field additions and Settings > New Port collect the same core fields: name, Lat/Lon, Comms/Pilotage and Private Notes.
 - v1.3.1 DPP waypoints can opt in/out of the EC SMS intended-routing list through `includeInEcSms`; older waypoints default to included.
+- v1.3.2 stores the selected Lookout Request SMS recipient on the passage so the Passage Complete SMS defaults to the same recipient.
 
 ## Service Worker Release Rules
 

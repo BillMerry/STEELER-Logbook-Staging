@@ -75,6 +75,7 @@ Test from a clean browser profile or an iPad where possible:
 - Add a new port from Origin/Destination and from Settings > New Port. Confirm both paths capture and display Port name, Lat/Lon, Comms/Pilotage and Private Notes in Port Settings.
 - Change a passage date in Plan and confirm any Daily Summary row that was using the previous passage date updates to the new date. Add a new Daily Summary row and confirm it defaults to the passage date.
 - Add an Engine Start entry, confirm Home shows Under Way, then delete that Engine Start entry and confirm Home no longer shows Under Way unless another active Engine Start remains.
+- Send a Lookout Request SMS to a non-default saved or one-off contact, then send the Passage Complete SMS for the same passage and confirm the same recipient is preselected/prefilled.
 - On another device that has not seen the latest cloud revision, tap Sync Now and confirm the app says which named device changed the cloud copy and offers Keep This Device, Use Cloud Copy, and Cancel.
 - Choose Keep This Device and confirm this device's complete data replaces the current cloud copy while the previous cloud copy appears in Recovery backups.
 - Repeat the conflict path and choose Use Cloud Copy. Confirm a local safety backup downloads first, the full cloud copy is restored, and this device keeps its own `steeler_device_id_v1`.

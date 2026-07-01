@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.3.2-rc1";
+const APP_VERSION = "1.3.2-rc2";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -7090,7 +7090,9 @@ addTideStationBtn.addEventListener("click", () => {
 });
 
 function getDailySummaryDefaultDate(p) {
-  return String(p?.plan?.date || "").trim() || passageDateToday(p);
+  const isCurrent = p?.id && String(p.id) === String(currentPassageId || "");
+  const livePlanDate = isCurrent ? String(planDate?.value || "").trim() : "";
+  return livePlanDate || String(p?.plan?.date || "").trim() || passageDateToday(p);
 }
 
 function syncDailySummaryDatesWithPassageDate(p, previousDate, nextDate) {
@@ -7098,10 +7100,12 @@ function syncDailySummaryDatesWithPassageDate(p, previousDate, nextDate) {
   const prev = String(previousDate || "").trim();
   const next = String(nextDate || p.plan.date || "").trim();
   if (!next) return false;
+  const createdDate = String(p.createdAt || "").slice(0, 10);
   let changed = false;
   p.plan.dailySummaries = p.plan.dailySummaries.map((day) => {
     const current = String(day?.date || "").trim();
-    if (!current || (prev && current === prev)) {
+    const isInitialCreatedDate = createdDate && current === createdDate && current !== next;
+    if (!current || (prev && current === prev) || isInitialCreatedDate) {
       changed = true;
       return { ...(day || {}), date: next };
     }
@@ -8605,10 +8609,17 @@ function scheduleAutoSunSync(){
   sunSyncTimer = setTimeout(() => {
     const p = getCurrentPassage();
     if (!p) return;
+    const previousPlanDate = String(p.plan?.date || "").trim();
     p.plan.date = planDate.value;
     p.plan.timeZone = normalisePassageTimeZone(planTimeZone?.value || p.plan.timeZone);
     p.plan.from = planFrom.value.trim();
     p.plan.to   = planTo.value.trim();
+    if (typeof readDailySummariesFromForm === "function") {
+      p.plan.dailySummaries = readDailySummariesFromForm();
+    }
+    if (syncDailySummaryDatesWithPassageDate(p, previousPlanDate, p.plan.date)) {
+      renderDailySummaries(p);
+    }
     autoComputeSunriseSetForCurrent();
 
     if (planMoonPhase && planDate.value) {
@@ -10249,7 +10260,10 @@ async function openEngineStartEntryDialog(p, legIdx, entry = null) {
 								try{
 																if (confirm("Notify Emergency Contact now?")){
 																																const msg = buildEcStartSms(p, legIdx);
-																																setTimeout(() => chooseEmergencyContactAndSend(msg), 80);
+																																setTimeout(() => chooseEmergencyContactAndSend(msg, {
+																																																passage: p,
+																																																rememberAsPassageLookoutContact: true
+																																}), 80);
 																}
 								}catch(e){
 																console.warn("EC notify failed", e);
@@ -10331,7 +10345,10 @@ async function openShutdownEntryDialog(p, legIdx, isFinalLeg, entry = null) {
 								try{
 																if (confirm("Notify Emergency Contact of safe arrival?")){
 																																const msg = buildEcEndSms(p, legIdx);
-																																setTimeout(() => chooseEmergencyContactAndSend(msg), 80);
+																																setTimeout(() => chooseEmergencyContactAndSend(msg, {
+																																																passage: p,
+																																																usePassageLookoutContact: true
+																																}), 80);
 																}
 								}catch(e){
 																console.warn("EC shutdown notify failed", e);

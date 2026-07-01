@@ -280,12 +280,54 @@ function launchSms(number, message){
   window.location.href = `sms:${number}?body=${encodeURIComponent(message)}`;
 }
 
-function chooseEmergencyContactAndSend(message){
+function getPassageLookoutSmsContact(p){
+  const contact = p?.ecSms?.lookoutContact;
+  if (!contact || typeof contact !== "object") return null;
+  const tel = String(contact.tel || "").trim();
+  const contactId = String(contact.contactId || "").trim();
+  if (!tel && !contactId) return null;
+  return {
+    contactId,
+    name: String(contact.name || "").trim(),
+    tel,
+    oneOff: contact.oneOff === true
+  };
+}
+
+function rememberPassageLookoutSmsContact(p, contact){
+  if (!p || !contact) return;
+  const tel = String(contact.tel || "").trim();
+  const contactId = String(contact.contactId || "").trim();
+  if (!tel && !contactId) return;
+  p.ecSms = p.ecSms && typeof p.ecSms === "object" ? p.ecSms : {};
+  p.ecSms.lookoutContact = {
+    contactId,
+    name: String(contact.name || "").trim(),
+    tel,
+    oneOff: contact.oneOff === true
+  };
+  try {
+    if (typeof markPassageDirty === "function") markPassageDirty(p, new Date().toISOString(), "ec-sms-contact");
+    if (typeof savePassages === "function") savePassages();
+  } catch(e) {}
+}
+
+function chooseEmergencyContactAndSend(message, sendOptions = {}){
   const contacts = getEmergencyContacts();
   const usableContacts = contacts.filter(c => String(c.tel || "").trim());
-  const defaultContact = usableContacts.find(c => c.isDefault) || usableContacts[0] || null;
+  const passageContact = sendOptions.usePassageLookoutContact
+    ? getPassageLookoutSmsContact(sendOptions.passage)
+    : null;
+  const preferredContactId = String(sendOptions.preferredContactId || passageContact?.contactId || "").trim();
+  const preferredTel = String(sendOptions.preferredTel || passageContact?.tel || "").trim();
+  const preferredSavedContact = preferredContactId
+    ? usableContacts.find(c => String(c.id) === preferredContactId)
+    : preferredTel ? usableContacts.find(c => String(c.tel || "").trim() === preferredTel) : null;
+  const defaultContact = preferredSavedContact || usableContacts.find(c => c.isDefault) || usableContacts[0] || null;
+  const oneOffName = preferredSavedContact ? "" : String(sendOptions.preferredName || passageContact?.name || "").trim();
+  const oneOffTelValue = preferredSavedContact ? "" : preferredTel;
 
-  const options = usableContacts.map(c => `
+  const selectOptions = usableContacts.map(c => `
     <option value="${escapeHtml(c.id)}"${defaultContact && String(c.id) === String(defaultContact.id) ? " selected" : ""}>
       ${escapeHtml(c.name || "(unnamed contact)")} — ${escapeHtml(c.tel || "")}${c.isDefault ? " [default]" : ""}
     </option>
@@ -301,15 +343,15 @@ function chooseEmergencyContactAndSend(message){
           <label>
             Saved Emergency Contact
             <select id="notifyEcSelect" style="width:100%; padding:8px; border-radius:10px;">
-              ${options || `<option value="">No saved contacts with telephone numbers</option>`}
+              ${selectOptions || `<option value="">No saved contacts with telephone numbers</option>`}
             </select>
           </label>
         </div>
 
         <div style="border-top:1px solid var(--line); padding-top:10px;">
           <div style="font-weight:600; margin-bottom:6px;">Or use a one-off contact</div>
-          <input id="notifyEcOneOffName" placeholder="One-off EC name" style="width:100%; margin-bottom:6px;">
-          <input id="notifyEcOneOffTel" placeholder="One-off EC telephone" style="width:100%;">
+          <input id="notifyEcOneOffName" placeholder="One-off EC name" value="${escapeHtml(oneOffName)}" style="width:100%; margin-bottom:6px;">
+          <input id="notifyEcOneOffTel" placeholder="One-off EC telephone" value="${escapeHtml(oneOffTelValue)}" style="width:100%;">
           <div style="font-size:0.9em; opacity:0.75; margin-top:6px;">
             One-off details are used for this message only and are not saved.
           </div>
@@ -319,6 +361,14 @@ function chooseEmergencyContactAndSend(message){
     onOk: () => {
       const oneOffTel = (document.getElementById("notifyEcOneOffTel")?.value || "").trim();
       if (oneOffTel){
+        if (sendOptions.rememberAsPassageLookoutContact) {
+          rememberPassageLookoutSmsContact(sendOptions.passage, {
+            contactId: "",
+            name: (document.getElementById("notifyEcOneOffName")?.value || "").trim(),
+            tel: oneOffTel,
+            oneOff: true
+          });
+        }
         launchSms(oneOffTel, message);
         return true;
       }
@@ -331,6 +381,14 @@ function chooseEmergencyContactAndSend(message){
         return false;
       }
 
+      if (sendOptions.rememberAsPassageLookoutContact) {
+        rememberPassageLookoutSmsContact(sendOptions.passage, {
+          contactId: selected.id,
+          name: selected.name,
+          tel: selected.tel,
+          oneOff: false
+        });
+      }
       launchSms(selected.tel, message);
       return true;
     }
@@ -349,5 +407,7 @@ window.STEELER.ecSms = {
   buildEcStartSms,
   buildEcEndSms,
   launchSms,
+  getPassageLookoutSmsContact,
+  rememberPassageLookoutSmsContact,
   chooseEmergencyContactAndSend
 };
