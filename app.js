@@ -13,14 +13,14 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.3.3-rc3";
+const APP_VERSION = "1.3.3-rc4";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
 const LEGACY_STAGING_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
 const FULL_DATA_SYNC_RECORD_ID = "global:full-data-sync";
 const FULL_DATA_SYNC_RECORD_TYPE = "full-data-sync";
-const AUTO_SYNC_MIN_INTERVAL_MS = 10 * 60 * 1000;
+const AUTO_SYNC_MIN_INTERVAL_MS = 60 * 1000;
 const DEFAULT_PASSAGE_TIME_ZONE = "Europe/London";
 const PASSAGE_TIME_ZONES = {
   "Europe/London": "BST",
@@ -229,6 +229,7 @@ function saveLocalSyncStatus(status){
       updatedAt: nowIso()
     };
     storage.setItem(SYNC_STATUS_KEY, JSON.stringify(clean));
+    updateAutoSyncFooterStatus(clean);
     return clean;
   }catch(e){
     console.warn("Could not save sync status", e);
@@ -303,6 +304,21 @@ function formatSyncStatusTime(value){
   }catch{
     return value;
   }
+}
+
+function updateAutoSyncFooterStatus(summary = null){
+  const el = document.getElementById("autoSyncFooterStatus");
+  if (!el) return;
+  const config = loadSyncConfig();
+  if (config.autoSyncEnabled !== true) {
+    el.textContent = "Auto-sync off";
+    return;
+  }
+  const status = summary || loadLocalSyncStatus();
+  const checkedAt = status.lastAutoSyncAttemptAt || status.lastAutoSyncAt || "";
+  el.textContent = checkedAt
+    ? `Auto-sync on · checked ${formatSyncStatusTime(checkedAt)}`
+    : "Auto-sync on · waiting";
 }
 
 function renderLocalSyncStatus(){
@@ -413,6 +429,7 @@ function bindSyncStatusControls(){
         ...currentConfig,
         autoSyncEnabled: autoSyncInput.checked === true
       });
+      updateAutoSyncFooterStatus();
       if (autoSyncInput.checked) scheduleAutoFullDataSync("setting-enabled");
     });
   }
@@ -1533,24 +1550,18 @@ async function applyFullDataCloudCopy(cloud, syncedAt){
     throw new Error("Cloud copy is not a valid STEELER data backup.");
   }
   downloadJsonPayload(createDataBackupPayload(), "STEELER-Before-cloud-sync-backup");
-  const prepared = prepareCloudBackupForRestoreWithSafeguards(backup);
-  const restored = restoreDataBackupObject(prepared.backup, {
+  const restored = restoreDataBackupObject(backup, {
     skipConfirm: true,
-    successMessage: prepared.preservedPassageIds.size
-      ? "Cloud copy applied. Richer local Daily Summary or DPP details were preserved."
-      : "Cloud copy applied successfully."
+    successMessage: "Cloud copy applied successfully."
   });
   if (!restored) throw new Error("Cloud copy was not applied.");
-  clearAllLocalSyncDirty({ preservePassageIds: prepared.preservedPassageIds });
-  const preservedLabels = [...prepared.preservedLabels].join(" and ");
-  saveFullDataCloudStatus(prepared.preservedPassageIds.size ? "local-pending" : "full-sync-ok", cloud, {
+  clearAllLocalSyncDirty();
+  saveFullDataCloudStatus("full-sync-ok", cloud, {
     checkedAt: syncedAt,
     lastSyncAt: syncedAt,
-    lastSyncDirection: prepared.preservedPassageIds.size ? "download-preserved" : "download",
+    lastSyncDirection: "download",
     pendingLocalChanges: countPendingLocalChanges(),
-    lastSyncError: prepared.preservedPassageIds.size
-      ? `Cloud copy applied; richer local ${preservedLabels || "passage"} details were preserved and need syncing.`
-      : ""
+    lastSyncError: ""
   });
 }
 
@@ -1721,6 +1732,8 @@ function scheduleAutoFullDataSync(reason = "auto"){
   const config = loadSyncConfig();
   if (config.autoSyncEnabled !== true) return;
   if (document.hidden) return;
+  updateAutoSyncFooterStatus();
+  setSyncCheckMessage("Auto-sync scheduled...");
   clearTimeout(autoFullDataSyncTimer);
   autoFullDataSyncTimer = setTimeout(() => runAutoFullDataSync(reason), 1500);
 }
@@ -3236,6 +3249,7 @@ function saveSafetyInfoFromSettingsFields(){
 function setAppVersionBadge(){
   const el = document.getElementById("appVersion");
   if (el) el.textContent = APP_VERSION;
+  updateAutoSyncFooterStatus();
 }
 window.addEventListener("DOMContentLoaded", setAppVersionBadge);
 document.addEventListener("click", (e) => {

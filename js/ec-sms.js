@@ -49,13 +49,9 @@ function getMarineTrafficLink(vessel){
   const boatName = String(vessel?.boatName || "STEELER").trim();
   const m = String(vessel?.mmsi || "").trim();
   const shipId = String(vessel?.marineTrafficShipId || "").trim();
-  const query = [
-    boatName,
-    m ? `MMSI ${m}` : "",
-    shipId ? `MarineTraffic shipid ${shipId}` : "",
-    "AIS position"
-  ].filter(Boolean).join(" ");
-  return `https://duckduckgo.com/?q=${encodeURIComponent(query)}`;
+  if (shipId) return `https://www.marinetraffic.com/en/ais/details/ships/shipid:${encodeURIComponent(shipId)}`;
+  if (m) return `https://www.marinetraffic.com/en/ais/details/ships/mmsi:${encodeURIComponent(m)}`;
+  return `https://www.marinetraffic.com/en/ais/home/centerx:0/centery:0/zoom:3?search=${encodeURIComponent(boatName)}`;
 }
 
 function getSmsTimeZoneLabel(timeZone, utcDate = null){
@@ -243,7 +239,7 @@ MMSI: ${mmsi}`;
 
   const sections = [
     intro,
-    (mtLink && includeMt) ? `To search for our latest AIS position (when in range): ${mtLink}` : "",
+    (mtLink && includeMt) ? `AIS position link (when in range): ${mtLink}\n\nNote: If your phone opens this in a MarineTraffic or VesselFinder app and STEELER is not shown, please open the same link in a web browser instead.` : "",
     etaInfo.overdueText,
     "The following information may be of interest and should also be passed on to the Coastguard in case of emergency.",
     vesselBlock,
