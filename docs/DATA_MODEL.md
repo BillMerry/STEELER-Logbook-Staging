@@ -111,6 +111,8 @@ Deleted passages are soft-deleted for sync safety. The app hides passages where 
 
 `ecSms.lookoutContact` is optional. It records the Emergency Contact used for the passage's Lookout Request so the Passage Complete SMS can default to the same recipient instead of reverting to the global default contact.
 
+`plan.dppUpdatedAt`, `plan.dppClearedAt` and `plan.dppClearedAtByLeg` are optional sync-safety markers. They are updated when DPP content changes or is explicitly cleared, so another device can distinguish an intentional DPP deletion from an older/incomplete cloud payload.
+
 ## PassagePlan
 
 ```js
@@ -651,7 +653,7 @@ The sync config is local-only and is not included in full data backups:
 
 When `autoSyncEnabled` is true, the app checks on open, focus and foreground return. Auto-sync may upload safe local changes only when the current cloud copy has not moved since this device last synced. It does not automatically create the first cloud copy or replace local data from cloud. `steeler_sync_status_v1` records `lastAutoSyncAttemptAt`, `lastAutoSyncAt`, and `lastAutoSyncReason` so the Data & Backup panel can show recent auto-sync activity.
 
-The previous per-record sync shape is retained only as historical compatibility data. v1.3.3-rc2 uses one current full-data cloud record instead:
+The previous per-record sync shape is retained only as historical compatibility data. v1.3.3-rc3 uses one current full-data cloud record instead:
 
 ```js
 {
@@ -664,7 +666,7 @@ The previous per-record sync shape is retained only as historical compatibility 
   payload: {
     format: "steeler-full-data-sync-record",
     version: 1,
-    appVersion: "1.3.3-rc2",
+    appVersion: "1.3.3-rc3",
     deviceId: "device_...",
     deviceName: "Bill's MacBook Pro",
     backup: DataBackupPayload
@@ -674,7 +676,7 @@ The previous per-record sync shape is retained only as historical compatibility 
 
 Sync Now fetches only the current `full-data-sync` record, then compares this device's current data with the current cloud backup first. If they already match, the app confirms that the device is synced and does not upload another cloud copy. If the device has changes and the cloud record has not changed since this device last synced, the device backup can be saved as the current cloud copy. If the cloud record changed since this device last synced and the data differs, the user chooses either this device's full backup or the cloud full backup. When this device replaces an existing cloud copy, the previous cloud backup is preserved as a `cloud-backup` recovery record.
 
-Using the cloud copy downloads a local safety backup first, then restores the cloud `steeler-data-backup`. v1.3.3-rc2 also compares the incoming passage plans with the current local copy before restore. If the cloud copy is missing richer local Daily Summary content or has no DPP content where the local passage has DPP content, those local sections are preserved and marked pending only when the local passage is at least as new as the cloud passage. Newer cloud-side deletions of Daily Summary or DPP detail are allowed to replace older local detail. The device id key remains local-only and is not restored from the backup.
+Using the cloud copy downloads a local safety backup first, then restores the cloud `steeler-data-backup`. v1.3.3-rc3 also compares the incoming passage plans with the current local copy before restore. If the cloud copy is missing richer local Daily Summary content or has no DPP content where the local passage has DPP content, those local sections are preserved and marked pending only when the local passage is at least as new as the cloud passage and the cloud passage does not carry a DPP-cleared marker. Newer cloud-side deletions of Daily Summary or DPP detail are allowed to replace older local detail. The device id key remains local-only and is not restored from the backup.
 
 Legacy full logbook backup:
 

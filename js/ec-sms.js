@@ -46,17 +46,16 @@ function buildPorList(p, detailedPlan = null){
 }
 
 function getMarineTrafficLink(vessel){
-  const shipId = String(vessel?.marineTrafficShipId || "").trim();
-  if (shipId){
-    return `http://www.marinetraffic.com/en/ais/home/shipid:${shipId}/zoom:14`;
-  }
-
+  const boatName = String(vessel?.boatName || "STEELER").trim();
   const m = String(vessel?.mmsi || "").trim();
-  if (m){
-    return `http://www.marinetraffic.com/en/ais/details/ships/mmsi:${m}`;
-  }
-
-  return "";
+  const shipId = String(vessel?.marineTrafficShipId || "").trim();
+  const query = [
+    boatName,
+    m ? `MMSI ${m}` : "",
+    shipId ? `MarineTraffic shipid ${shipId}` : "",
+    "AIS position"
+  ].filter(Boolean).join(" ");
+  return `https://duckduckgo.com/?q=${encodeURIComponent(query)}`;
 }
 
 function getSmsTimeZoneLabel(timeZone, utcDate = null){
@@ -244,7 +243,7 @@ MMSI: ${mmsi}`;
 
   const sections = [
     intro,
-    (mtLink && includeMt) ? `Our latest position (when in range) is: ${mtLink}` : "",
+    (mtLink && includeMt) ? `To search for our latest AIS position (when in range): ${mtLink}` : "",
     etaInfo.overdueText,
     "The following information may be of interest and should also be passed on to the Coastguard in case of emergency.",
     vesselBlock,

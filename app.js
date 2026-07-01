@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.3.3-rc2";
+const APP_VERSION = "1.3.3-rc3";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -750,12 +750,23 @@ function detailedPlanCollectionContentScore(plan){
   return singleScore + legsScore;
 }
 
+function latestDppClearedAt(plan){
+  if (!plan || typeof plan !== "object") return "";
+  const byLeg = plan.dppClearedAtByLeg && typeof plan.dppClearedAtByLeg === "object"
+    ? Object.values(plan.dppClearedAtByLeg)
+    : [];
+  return latestTimestampFromValues([plan.dppClearedAt, ...byLeg], "");
+}
+
 function cloneDppPlanFields(plan){
   const source = plan && typeof plan === "object" ? plan : {};
   return {
     detailed: cloneJsonSafe(source.detailed, undefined),
     detailedLegs: cloneJsonSafe(source.detailedLegs, undefined),
-    detailedLegIndex: source.detailedLegIndex
+    detailedLegIndex: source.detailedLegIndex,
+    dppUpdatedAt: source.dppUpdatedAt,
+    dppClearedAt: source.dppClearedAt,
+    dppClearedAtByLeg: cloneJsonSafe(source.dppClearedAtByLeg, undefined)
   };
 }
 
@@ -795,11 +806,15 @@ function mergeReceivedPlanSafeguards(remotePlan, localPlan, options = {}){
 
   const remoteDppScore = detailedPlanCollectionContentScore(remotePlan);
   const localDppScore = detailedPlanCollectionContentScore(localPlan);
-  if (canPreserveLocalDetails && localDppScore > 0 && remoteDppScore === 0) {
+  const remoteDppClearedAt = latestDppClearedAt(remotePlan);
+  if (canPreserveLocalDetails && localDppScore > 0 && remoteDppScore === 0 && !remoteDppClearedAt) {
     const dppFields = cloneDppPlanFields(localPlan);
     if (dppFields.detailed !== undefined) mergedPlan.detailed = dppFields.detailed;
     if (dppFields.detailedLegs !== undefined) mergedPlan.detailedLegs = dppFields.detailedLegs;
     if (dppFields.detailedLegIndex !== undefined) mergedPlan.detailedLegIndex = dppFields.detailedLegIndex;
+    if (dppFields.dppUpdatedAt !== undefined) mergedPlan.dppUpdatedAt = dppFields.dppUpdatedAt;
+    if (dppFields.dppClearedAt !== undefined) mergedPlan.dppClearedAt = dppFields.dppClearedAt;
+    if (dppFields.dppClearedAtByLeg !== undefined) mergedPlan.dppClearedAtByLeg = dppFields.dppClearedAtByLeg;
     preserved.push("DPP");
   }
 
@@ -7331,7 +7346,23 @@ function getDetailedPassagePlanForLeg(p, legIdx = null){
 function setDetailedPassagePlanForLeg(p, legIdx, detailed){
   ensureDetailedPassagePlans(p);
   const idx = Math.max(0, Math.min(Number(legIdx) || 0, Math.max(0, getLegCount(p) - 1)));
-  p.plan.detailedLegs[idx] = normaliseDetailedPassagePlan(detailed);
+  const previous = p.plan.detailedLegs[idx] || createBlankDetailedPassagePlan();
+  const previousHadContent = detailedPassagePlanHasContent(previous);
+  const nextDetailed = normaliseDetailedPassagePlan(detailed);
+  const nextHasContent = detailedPassagePlanHasContent(nextDetailed);
+  if (previousHadContent && !nextHasContent) {
+    const clearedAt = nowIso();
+    p.plan.dppUpdatedAt = clearedAt;
+    p.plan.dppClearedAt = clearedAt;
+    p.plan.dppClearedAtByLeg = p.plan.dppClearedAtByLeg && typeof p.plan.dppClearedAtByLeg === "object"
+      ? p.plan.dppClearedAtByLeg
+      : {};
+    p.plan.dppClearedAtByLeg[String(idx)] = clearedAt;
+  } else if (nextHasContent && p.plan.dppClearedAtByLeg && typeof p.plan.dppClearedAtByLeg === "object") {
+    p.plan.dppUpdatedAt = nowIso();
+    delete p.plan.dppClearedAtByLeg[String(idx)];
+  }
+  p.plan.detailedLegs[idx] = nextDetailed;
   if (idx === 0) p.plan.detailed = p.plan.detailedLegs[0];
   return p.plan.detailedLegs[idx];
 }
@@ -12199,7 +12230,7 @@ function injectSafetyEmergencySettingsBlock(){
               <input id="seiEngineToSlip" type="number" min="0" step="1" placeholder="Engine Start → WP1 mins">
               <input id="seiDetailsUrl" placeholder="Published details URL">
               <label class="st-form-field"><input id="seiIncludeDetailsUrl" type="checkbox"> Include details URL in SMS</label>
-              <label class="st-form-field"><input id="seiIncludeMarineTraffic" type="checkbox"> Include MarineTraffic link in SMS</label>
+              <label class="st-form-field"><input id="seiIncludeMarineTraffic" type="checkbox"> Include AIS position search link in SMS</label>
             </div>
           </div>
 

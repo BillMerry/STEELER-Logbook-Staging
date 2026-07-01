@@ -25,6 +25,21 @@ function getDetailedPassagePlanMount(){
   return mount;
 }
 
+function saveDppPassageChange(p, reason = "dpp-change"){
+  if (!p) return;
+  try {
+    const changedAt = new Date().toISOString();
+    p.plan = p.plan && typeof p.plan === "object" ? p.plan : {};
+    p.plan.dppUpdatedAt = changedAt;
+    if (typeof detailedPlanCollectionContentScore === "function" &&
+        detailedPlanCollectionContentScore(p.plan || {}) === 0) {
+      p.plan.dppClearedAt = changedAt;
+    }
+    if (typeof markPassageDirty === "function") markPassageDirty(p, changedAt, reason);
+  } catch(e) {}
+  savePassages();
+}
+
 function renderDetailedPassagePlan(p){
   if (!p) return;
   ensureDetailedPassagePlans(p);
@@ -213,7 +228,7 @@ function renderDetailedPassagePlan(p){
     btn.addEventListener("click", () => {
       readDetailedPassagePlanFromForm();
       setSelectedDetailedPlanLegIndex(p, Number(btn.dataset.dppLeg));
-      savePassages();
+      saveDppPassageChange(p, "dpp-leg-select");
       renderDetailedPassagePlan(p);
       updatePlanSummaryPanel();
     });
@@ -231,7 +246,7 @@ function renderDetailedPassagePlan(p){
       if (!templateName) return;
 
       saveDppTemplate(templateName, activeDetailed);
-      savePassages();
+      saveDppPassageChange(p, "dpp-template-save");
       renderDetailedPassagePlan(p);
       updatePlanSummaryPanel();
     } catch (err) {
@@ -267,7 +282,7 @@ function renderDetailedPassagePlan(p){
       activeDetailed.waypoints.push(savedWaypointToDppWaypoint(saved));
       setDetailedPassagePlanForLeg(p, legIdx, activeDetailed);
       recalcDetailedPassagePlan(p, legIdx);
-      savePassages();
+      saveDppPassageChange(p, "dpp-waypoint-add");
       renderDetailedPassagePlan(p);
       updatePlanSummaryPanel();
     } catch (err) {
@@ -285,7 +300,7 @@ function renderDetailedPassagePlan(p){
       activeDetailed.waypoints.push(routePortToDppWaypoint(selected));
       setDetailedPassagePlanForLeg(p, legIdx, activeDetailed);
       recalcDetailedPassagePlan(p, legIdx);
-      savePassages();
+      saveDppPassageChange(p, "dpp-route-port-add");
       renderDetailedPassagePlan(p);
       updatePlanSummaryPanel();
     } catch (err) {
@@ -304,7 +319,7 @@ function renderDetailedPassagePlan(p){
       const replacement = cloneDetailedPassagePlan(template.detailed, { regenerateIds: true });
       setDetailedPassagePlanForLeg(p, legIdx, replacement);
       recalcDetailedPassagePlan(p, legIdx);
-      savePassages();
+      saveDppPassageChange(p, "dpp-template-load");
       renderDetailedPassagePlan(p);
       updatePlanSummaryPanel();
     } catch (err) {
@@ -349,7 +364,7 @@ function renderDetailedPassagePlan(p){
       includeInEcSms: true
     });
 
-    savePassages();
+    saveDppPassageChange(p, "dpp-waypoint-add");
     renderDetailedPassagePlan(p);
     updatePlanSummaryPanel();
   });
@@ -357,7 +372,7 @@ function renderDetailedPassagePlan(p){
   mount.querySelector("#dppRecalcBtn")?.addEventListener("click", () => {
     readDetailedPassagePlanFromForm();
     recalcDetailedPassagePlan(p, legIdx);
-    savePassages();
+    saveDppPassageChange(p, "dpp-recalculate");
     renderDetailedPassagePlan(p);
     updatePlanSummaryPanel();
   });
@@ -382,7 +397,7 @@ function renderDetailedPassagePlan(p){
     }
 
     recalcDetailedPassagePlan(p, legIdx);
-    savePassages();
+    saveDppPassageChange(p, "dpp-reverse");
     renderDetailedPassagePlan(p);
     updatePlanSummaryPanel();
   });
@@ -399,7 +414,7 @@ function renderDetailedPassagePlan(p){
     const replacement = reverseDetailedPassagePlanFromPrevious(prev);
     setDetailedPassagePlanForLeg(p, legIdx, replacement);
     recalcDetailedPassagePlan(p, legIdx);
-    savePassages();
+    saveDppPassageChange(p, "dpp-reverse-previous");
     renderDetailedPassagePlan(p);
     updatePlanSummaryPanel();
   });
@@ -412,12 +427,12 @@ function renderDetailedPassagePlan(p){
     const dppTimeEl = row.querySelector(".dpp-time");
     dppTimeEl?.addEventListener("input", () => {
       wp.time = dppTimeEl.value || "";
-      savePassages();
+      saveDppPassageChange(p, "dpp-time-change");
     });
 
     row.querySelector(".dpp-name")?.addEventListener("input", (e) => {
       wp.name = e.target.value.trim();
-      savePassages();
+      saveDppPassageChange(p, "dpp-name-change");
       updatePlanSummaryPanel();
     });
 
@@ -438,30 +453,30 @@ function renderDetailedPassagePlan(p){
         wp.coordsText = raw;
       }
 
-      savePassages();
+      saveDppPassageChange(p, "dpp-coords-change");
     });
 
     const dppSpeedEl = row.querySelector(".dpp-speed");
     dppSpeedEl?.addEventListener("input", () => {
       wp.plannedSpeed = (dppSpeedEl.value || "").trim();
-      savePassages();
+      saveDppPassageChange(p, "dpp-speed-change");
     });
 
     const dppTideEl = row.querySelector(".dpp-tide");
     dppTideEl?.addEventListener("input", () => {
       wp.tideKt = (dppTideEl.value || "").trim();
-      savePassages();
+      saveDppPassageChange(p, "dpp-tide-change");
     });
 
     const dppDistanceEl = row.querySelector(".dpp-distance-override");
     dppDistanceEl?.addEventListener("input", () => {
       wp.manualDistToNext = (dppDistanceEl.value || "").trim();
-      savePassages();
+      saveDppPassageChange(p, "dpp-distance-change");
     });
 
     row.querySelector(".dpp-include-sms")?.addEventListener("change", (e) => {
       wp.includeInEcSms = !!e.target.checked;
-      savePassages();
+      saveDppPassageChange(p, "dpp-sms-toggle");
     });
 
     row.querySelector(".dpp-up")?.addEventListener("click", () => {
@@ -471,7 +486,7 @@ function renderDetailedPassagePlan(p){
       const arr = activeDetailed.waypoints;
       [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
       recalcDetailedPassagePlan(p, legIdx);
-      savePassages();
+      saveDppPassageChange(p, "dpp-waypoint-move");
       renderDetailedPassagePlan(p);
       updatePlanSummaryPanel();
     });
@@ -483,7 +498,7 @@ function renderDetailedPassagePlan(p){
       if (idx >= arr.length - 1) return;
       [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
       recalcDetailedPassagePlan(p, legIdx);
-      savePassages();
+      saveDppPassageChange(p, "dpp-waypoint-move");
       renderDetailedPassagePlan(p);
       updatePlanSummaryPanel();
     });
@@ -493,7 +508,7 @@ function renderDetailedPassagePlan(p){
 
       activeDetailed.waypoints.splice(idx, 1);
       recalcDetailedPassagePlan(p, legIdx);
-      savePassages();
+      saveDppPassageChange(p, "dpp-waypoint-delete");
       renderDetailedPassagePlan(p);
       updatePlanSummaryPanel();
     });
@@ -501,19 +516,19 @@ function renderDetailedPassagePlan(p){
 
   mount.querySelector("#dppHazards")?.addEventListener("input", (e) => {
     detailed.hazards = e.target.value;
-    savePassages();
+    saveDppPassageChange(p, "dpp-notes-change");
     updatePlanSummaryPanel();
   });
 
   mount.querySelector("#dppPortsOfRefuge")?.addEventListener("input", (e) => {
     detailed.portsOfRefuge = e.target.value;
-    savePassages();
+    saveDppPassageChange(p, "dpp-notes-change");
     updatePlanSummaryPanel();
   });
 
   mount.querySelector("#dppCrewWelfare")?.addEventListener("input", (e) => {
     detailed.crewWelfare = e.target.value;
-    savePassages();
+    saveDppPassageChange(p, "dpp-notes-change");
     updatePlanSummaryPanel();
   });
 }
@@ -686,7 +701,7 @@ function importDetailedPassagePlanGpx(p){
 
         setDetailedPassagePlanForLeg(p, legIdx, activeDetailed);
         recalcDetailedPassagePlan(p, legIdx);
-        savePassages();
+        saveDppPassageChange(p, "dpp-gpx-import");
         renderDetailedPassagePlan(p);
         updatePlanSummaryPanel();
       } catch (err) {
