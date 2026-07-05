@@ -11,16 +11,27 @@ const DEVICE_ID_KEY = "steeler_device_id_v1";
 const DEVICE_NAME_KEY = "steeler_device_name_v1";
 const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
-const SYNC_RECORD_META_KEY = "steeler_sync_record_meta_v1";
 
-const APP_VERSION = "1.3.3-rc4";
+const APP_VERSION = "1.3.3-rc5";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
-const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
-const LEGACY_STAGING_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
+const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
+const LEGACY_LIVE_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
 const FULL_DATA_SYNC_RECORD_ID = "global:full-data-sync";
 const FULL_DATA_SYNC_RECORD_TYPE = "full-data-sync";
 const AUTO_SYNC_MIN_INTERVAL_MS = 60 * 1000;
+const COMPLETE_DATA_SYNC_KEYS = new Set([
+  STORAGE_KEY,
+  THEME_KEY,
+  PORTS_KEY,
+  "steeler_safety_emergency_info_v1",
+  "steeler_ec_settings_v1",
+  "STEELER_ABBR_DB_V1",
+  DPP_TEMPLATES_KEY,
+  DPP_WAYPOINTS_KEY,
+  FUEL_MANAGEMENT_KEY,
+  LOG_SPLIT_RATIO_KEY
+]);
 const DEFAULT_PASSAGE_TIME_ZONE = "Europe/London";
 const PASSAGE_TIME_ZONES = {
   "Europe/London": "BST",
@@ -30,6 +41,7 @@ const PASSAGE_TIME_ZONES = {
 
 const storageSaveWarningsShown = new Set();
 const storageRecoveryWarningsShown = new Set();
+let suppressLocalSyncTracking = false;
 
 const STORAGE_SAFETY_CONFIG = {
   "steeler_logbook_passages_v5": {
@@ -172,7 +184,7 @@ function loadSyncConfig(){
     ...fallback,
     ...stored,
     version: 1,
-    workerUrl: cleanWorkerUrl === LEGACY_STAGING_SYNC_WORKER_URL ? DEFAULT_SYNC_WORKER_URL : cleanWorkerUrl,
+    workerUrl: cleanWorkerUrl === LEGACY_LIVE_SYNC_WORKER_URL ? DEFAULT_SYNC_WORKER_URL : cleanWorkerUrl,
     token: String(stored?.token || ""),
     autoSyncEnabled: stored?.autoSyncEnabled === true
   };
@@ -248,6 +260,8 @@ function countPendingLocalChanges(){
   (Array.isArray(knownPorts) ? knownPorts : []).forEach((port) => {
     if (port?.syncDirty) count += 1;
   });
+  const status = loadLocalSyncStatus();
+  if (count <= 0 && status.status === "local-pending") return 1;
   return count;
 }
 
@@ -270,7 +284,6 @@ function getFirstActivePassage(){
 }
 
 function recordLocalSyncChange(reason = "local-change", timestamp = nowIso()){
-  if (reason === "ports-change") forgetSyncRecordMeta("global:ports");
   const pending = countPendingLocalChanges();
   saveLocalSyncStatus({
     status: pending > 0 ? "local-pending" : "local-only",
@@ -281,13 +294,38 @@ function recordLocalSyncChange(reason = "local-change", timestamp = nowIso()){
   renderLocalSyncStatus();
 }
 
+function recordCompleteDataPackageChange(reason = "local-change", timestamp = nowIso()){
+  if (suppressLocalSyncTracking) return;
+  saveLocalSyncStatus({
+    status: "local-pending",
+    lastLocalChangeAt: timestamp,
+    lastLocalChangeReason: reason,
+    pendingLocalChanges: Math.max(1, countPendingLocalChanges())
+  });
+  renderLocalSyncStatus();
+  scheduleAutoFullDataSync(reason);
+}
+
+function withSyncTrackingSuppressed(fn){
+  const previous = suppressLocalSyncTracking;
+  suppressLocalSyncTracking = true;
+  try{
+    return fn();
+  }finally{
+    suppressLocalSyncTracking = previous;
+  }
+}
+
 function getLocalSyncSummary(){
   const status = loadLocalSyncStatus();
   const pending = countPendingLocalChanges();
   const deleted = countRecoverableDeletedEntries();
   if (status.pendingLocalChanges !== pending) {
     status.pendingLocalChanges = pending;
-    status.status = pending > 0 ? "local-pending" : (status.status === "full-sync-ok" ? "full-sync-ok" : "local-only");
+    const keepState = ["cloud-changed", "decision-needed", "unable-to-check-cloud", "offline", "sync-error", "no-cloud-copy"].includes(status.status);
+    status.status = keepState
+      ? status.status
+      : (pending > 0 ? "local-pending" : (status.status === "synced" ? "synced" : "local-only"));
     saveLocalSyncStatus(status);
   }
   return {
@@ -331,42 +369,64 @@ function renderLocalSyncStatus(){
   const lastCloudDeviceName = summary.lastObservedFullSyncDeviceName || summary.lastFullSyncDeviceName || summary.lastCloudBackupDeviceName || "";
   const lastCloudDeviceId = summary.lastObservedFullSyncDeviceId || summary.lastFullSyncDeviceId || summary.lastCloudBackupDeviceId || "";
   const cloudDeviceText = displayDeviceName(lastCloudDeviceName, lastCloudDeviceId);
-  const lastSyncText = formatSyncStatusTime(summary.lastSyncAt);
   const autoSyncLastCheck = summary.lastAutoSyncAttemptAt || summary.lastAutoSyncAt || "";
   const autoSyncText = config.autoSyncEnabled
     ? `Auto-sync on${autoSyncLastCheck ? ` · Last check ${formatSyncStatusTime(autoSyncLastCheck)}` : ""}`
     : "Auto-sync off";
   const hasConnection = Boolean(config.workerUrl && config.token);
-  let statusText = "Ready to sync";
-  let statusDetail = "Sync Now checks cloud first, then updates only the copy that needs it.";
+  const checkedText = summary.lastRemoteCheckAt ? formatSyncStatusTime(summary.lastRemoteCheckAt) : "Never";
+  let statusText = "No cloud copy";
+  let statusDetail = "Check cloud, then Sync will create the first cloud copy from this device.";
+  let nextAction = "Check or sync";
   if (!hasConnection) {
-    statusText = "Cloud sync not set up";
-    statusDetail = "Open connection settings and enter the sync details to use cloud sync.";
-  } else if (summary.lastRemoteStatus === "error") {
-    statusText = "Sync needs attention";
-    statusDetail = summary.lastSyncError || "The last cloud check did not complete.";
-  } else if (summary.status === "full-sync-ok" && summary.pendingLocalChanges === 0) {
+    statusText = "Offline / unable to check cloud";
+    statusDetail = "Cloud sync is not set up on this device.";
+    nextAction = "Enter connection settings";
+  } else if (summary.status === "offline" || summary.status === "unable-to-check-cloud") {
+    statusText = "Offline / unable to check cloud";
+    statusDetail = summary.lastSyncError || "The app could not reach cloud. Local work is still saved on this device.";
+    nextAction = "Try again when online";
+  } else if (summary.status === "sync-error") {
+    statusText = "Sync error";
+    statusDetail = summary.lastSyncError || "The last sync did not complete.";
+    nextAction = "Check cloud again";
+  } else if (summary.status === "cloud-changed" || summary.status === "decision-needed") {
+    statusText = summary.status === "decision-needed" ? "Decision needed" : "Cloud changed";
+    statusDetail = displayedCloudAt
+      ? `Cloud was last saved ${formatSyncStatusTime(displayedCloudAt)} by ${cloudDeviceText}. Choose which complete copy to keep.`
+      : "Cloud changed. Choose which complete copy to keep.";
+    nextAction = "Tap Sync and choose";
+  } else if (summary.status === "synced" && summary.pendingLocalChanges === 0) {
     statusText = "Synced";
-    statusDetail = summary.lastSyncAt
-      ? `This device was last synced ${lastSyncText}.`
+    statusDetail = displayedCloudAt
+      ? `Latest cloud save ${formatSyncStatusTime(displayedCloudAt)} by ${cloudDeviceText}.`
       : "This device matches the latest cloud copy.";
+    nextAction = "Nothing needed";
   } else if (summary.pendingLocalChanges > 0) {
-    statusText = "Ready to sync changes";
-    statusDetail = "Sync Now will check cloud first, then save this device's latest changes if it is safe to do so.";
+    statusText = "Local changes pending";
+    statusDetail = "This device has changes waiting to sync. Sync will check cloud before uploading.";
+    nextAction = "Check cloud, then upload if unchanged";
   } else if (displayedCloudAt) {
-    statusText = "Ready to sync";
+    statusText = "Cloud changed";
     statusDetail = `Latest cloud copy was saved ${formatSyncStatusTime(displayedCloudAt)}${cloudDeviceText ? ` by ${cloudDeviceText}` : ""}.`;
+    nextAction = "Choose which complete copy to keep";
   }
   el.innerHTML = `
     <div class="sync-overview-card">
-      <span>Cloud sync</span>
+      <span>Sync status</span>
       <strong>${escapeHtml(statusText)}</strong>
       <p>${escapeHtml(statusDetail)}</p>
     </div>
     <div class="sync-check-panel">
+      <div class="sync-status-grid">
+        <div><span>Last checked</span><strong>${escapeHtml(checkedText)}</strong></div>
+        <div><span>Last cloud save</span><strong>${escapeHtml(displayedCloudAt ? formatSyncStatusTime(displayedCloudAt) : "None")}</strong></div>
+        <div><span>Saved by</span><strong>${escapeHtml(displayedCloudAt ? cloudDeviceText : "None")}</strong></div>
+        <div><span>Next action</span><strong>${escapeHtml(nextAction)}</strong></div>
+      </div>
       <div class="st-action-row">
         <button type="button" id="syncPreviewBtn" class="btn btn-secondary">Check Cloud</button>
-        <button type="button" id="syncFullBtn" class="btn" data-sync-now-btn="1">Sync Now</button>
+        <button type="button" id="syncFullBtn" class="btn" data-sync-now-btn="1">Sync</button>
       </div>
       <p class="hint">${escapeHtml(autoSyncText)}</p>
       <details class="sync-advanced">
@@ -385,20 +445,11 @@ function renderLocalSyncStatus(){
         </label>
         <label class="sync-check-field sync-check-option">
           <span>Auto-sync</span>
-          <span><input id="syncAutoEnabled" type="checkbox"${config.autoSyncEnabled ? " checked" : ""}> Check and sync safe local changes when this app opens or returns to the foreground</span>
+          <span><input id="syncAutoEnabled" type="checkbox"${config.autoSyncEnabled ? " checked" : ""}> Check and upload only when cloud has not changed</span>
         </label>
       </details>
-      <details class="sync-advanced">
-        <summary>Recovery backups</summary>
-        <div class="st-action-row">
-          <button type="button" id="syncRefreshBackupsBtn" class="btn btn-secondary">Refresh Cloud Backups</button>
-        </div>
-      </details>
       <div id="syncPreviewResults" class="sync-preview-results">
-        <p class="hint">Cloud is treated as the main copy. Sync Now checks it first, then confirms before changing anything important.</p>
-      </div>
-      <div id="syncCloudBackups" class="sync-cloud-backups">
-        <p class="hint">Recovery backups are kept when the cloud copy is replaced. They can be downloaded or restored manually.</p>
+        <p class="hint">Sync treats the complete STEELER data backup as one package. No partial merge is performed.</p>
       </div>
       <p id="syncCheckMessage" class="hint">${escapeHtml(summary.lastSyncError || "Ready to sync.")}</p>
     </div>
@@ -558,41 +609,19 @@ function latestPassageTimestamp(p){
 }
 
 function loadSyncRecordMeta(){
-  try{
-    const parsed = JSON.parse(storage.getItem(SYNC_RECORD_META_KEY) || "{}");
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-  }catch{
-    return {};
-  }
+  return {};
 }
 
 function saveSyncRecordMeta(meta){
-  try{
-    storage.setItem(SYNC_RECORD_META_KEY, JSON.stringify(meta && typeof meta === "object" ? meta : {}));
-  }catch(e){
-    console.warn("Could not save sync record metadata", e);
-  }
+  return meta;
 }
 
 function rememberSyncRecordMeta(record){
-  const recordId = String(record?.recordId || "");
-  const clientUpdatedAt = String(record?.clientUpdatedAt || "");
-  if (!recordId || !isValidIsoString(clientUpdatedAt)) return;
-  const meta = loadSyncRecordMeta();
-  meta[recordId] = {
-    clientUpdatedAt,
-    lastChangedDeviceId: String(record?.lastChangedDeviceId || "")
-  };
-  saveSyncRecordMeta(meta);
+  return record;
 }
 
 function forgetSyncRecordMeta(recordId){
-  const cleanRecordId = String(recordId || "");
-  if (!cleanRecordId) return;
-  const meta = loadSyncRecordMeta();
-  if (!meta[cleanRecordId]) return;
-  delete meta[cleanRecordId];
-  saveSyncRecordMeta(meta);
+  return recordId;
 }
 
 function createSyncRecord(recordId, recordType, payload, timestamp, lastChangedDeviceId = getOrCreateDeviceId()){
@@ -865,34 +894,11 @@ function mergeReceivedPassageWithLocalSafeguards(remotePassage, localPassage){
 }
 
 function prepareCloudBackupForRestoreWithSafeguards(backup){
-  const prepared = cloneJsonSafe(backup, null);
-  const preservedPassageIds = new Set();
-  const preservedLabels = new Set();
-  if (!prepared?.data || !Array.isArray(prepared.data.passages)) {
-    return { backup, preservedPassageIds, preservedLabels };
-  }
-
-  const localById = new Map((Array.isArray(passages) ? passages : [])
-    .filter(p => p?.id)
-    .map(p => [String(p.id), p]));
-  prepared.data.passages = prepared.data.passages.map((remotePassage) => {
-    const localPassage = remotePassage?.id ? localById.get(String(remotePassage.id)) : null;
-    const result = mergeReceivedPassageWithLocalSafeguards(remotePassage, localPassage);
-    if (result.preserved.length && remotePassage?.id) {
-      preservedPassageIds.add(String(remotePassage.id));
-      result.preserved.forEach(label => preservedLabels.add(label));
-    }
-    return result.passage;
-  });
-
-  return { backup: prepared, preservedPassageIds, preservedLabels };
+  return { backup, preservedPassageIds: new Set(), preservedLabels: new Set() };
 }
 
 function mergeReceivedPassageWithLocal(remotePassage, localPassage){
-  if (!remotePassage || typeof remotePassage !== "object") return remotePassage;
-  if (!localPassage || typeof localPassage !== "object") return remotePassage;
-
-  return mergeReceivedPassageWithLocalSafeguards(remotePassage, localPassage).passage;
+  return remotePassage;
 }
 
 function applySyncRecord(record){
@@ -954,7 +960,7 @@ function applySyncRecord(record){
     if (data && typeof data === "object") {
       if (data.theme) applyTheme(data.theme);
       if (data.logSplitRatio !== undefined && data.logSplitRatio !== null) {
-        storage.setItem(LOG_SPLIT_RATIO_KEY, String(data.logSplitRatio));
+        saveLocalStorageItem(LOG_SPLIT_RATIO_KEY, String(data.logSplitRatio), "log split setting");
       }
       return true;
     }
@@ -1402,7 +1408,7 @@ function renderFullDataCloudPreview(cloud, note = ""){
         <div class="sync-overview-card">
           <span>Cloud copy</span>
           <strong>None yet</strong>
-          <p>${escapeHtml(note || "Sync Now will create the first cloud copy from this device.")}</p>
+          <p>${escapeHtml(note || "Sync will create the first cloud copy from this device.")}</p>
         </div>
       </div>
     `;
@@ -1428,6 +1434,7 @@ function saveFullDataCloudStatus(status, cloud, extra = {}){
     lastRemoteCheckAt: extra.checkedAt || nowIso(),
     lastRemoteRevision: summary.revision,
     lastFullSyncRevision: summary.revision,
+    lastObservedFullSyncRevision: summary.revision,
     lastFullSyncAt: summary.updatedAt || extra.checkedAt || nowIso(),
     lastFullSyncDeviceId: summary.deviceId || "",
     lastFullSyncDeviceName: summary.deviceName || "",
@@ -1441,10 +1448,27 @@ function saveFullDataCloudStatus(status, cloud, extra = {}){
 function cloudCopyChangedSinceLastSync(cloud){
   if (!cloud?.record) return false;
   const status = loadLocalSyncStatus();
-  const lastSeen = Number(status.lastFullSyncRevision || 0);
+  const lastSeen = Number(status.lastObservedFullSyncRevision || status.lastFullSyncRevision || 0);
   const cloudRevision = Number(cloud.record.serverRevision || 0);
   if (!lastSeen) return true;
   return cloudRevision > lastSeen;
+}
+
+function saveObservedFullDataCloudStatus(status, cloud, extra = {}){
+  const summary = describeFullDataCloudRecord(cloud);
+  return saveLocalSyncStatus({
+    status,
+    lastRemoteStatus: "ok",
+    lastRemoteCheckAt: extra.checkedAt || nowIso(),
+    lastRemoteRevision: summary.revision,
+    lastObservedFullSyncRevision: summary.revision,
+    lastObservedFullSyncAt: summary.updatedAt || "",
+    lastObservedFullSyncDeviceId: summary.deviceId || "",
+    lastObservedFullSyncDeviceName: summary.deviceName || "",
+    lastObservedFullSyncAppVersion: summary.appVersion || "",
+    lastSyncError: "",
+    ...extra
+  });
 }
 
 function clearAllLocalSyncDirty(options = {}){
@@ -1481,9 +1505,9 @@ function clearAllLocalSyncDirty(options = {}){
       portsChanged = true;
     }
   });
-  if (passagesChanged) savePassages();
+  if (passagesChanged) withSyncTrackingSuppressed(() => savePassages());
   if (portsChanged) {
-    saveLocalStorageItem(PORTS_KEY, JSON.stringify({ all: knownPorts, recent: recentPorts }), "ports");
+    withSyncTrackingSuppressed(() => saveLocalStorageItem(PORTS_KEY, JSON.stringify({ all: knownPorts, recent: recentPorts }), "ports"));
     refreshPortUI();
   }
 }
@@ -1516,13 +1540,9 @@ function chooseFullSyncConflictAction(cloud){
 }
 
 async function uploadFullDataCloudCopy(connection, previousCloud, syncedAt){
-  const previousStatus = loadLocalSyncStatus();
   const localBackup = createDataBackupPayload();
-  const records = [];
-  const previousBackup = getFullDataBackupFromRecord(previousCloud?.record);
-  if (previousBackup) records.push(createCloudBackupRecord(previousBackup));
   const currentRecord = createFullDataSyncRecord(localBackup, syncedAt);
-  records.push(currentRecord);
+  const records = [currentRecord];
   const pushed = await pushCloudSyncRecords(connection, records);
   const acceptedCurrent = pushed.accepted.find((record) => record.recordId === FULL_DATA_SYNC_RECORD_ID);
   const cloud = {
@@ -1534,11 +1554,9 @@ async function uploadFullDataCloudCopy(connection, previousCloud, syncedAt){
     serverRevision: acceptedCurrent?.serverRevision || pushed.serverRevision || previousCloud?.serverRevision || 0
   };
   clearAllLocalSyncDirty();
-  saveFullDataCloudStatus("full-sync-ok", cloud, {
+  saveFullDataCloudStatus("synced", cloud, {
     checkedAt: syncedAt,
     lastSyncAt: syncedAt,
-    lastCloudBackupAt: previousBackup ? syncedAt : previousStatus.lastCloudBackupAt || "",
-    lastCloudBackupRecordId: previousBackup ? records[0].recordId : previousStatus.lastCloudBackupRecordId || "",
     lastSyncDirection: "upload"
   });
   return cloud;
@@ -1549,14 +1567,13 @@ async function applyFullDataCloudCopy(cloud, syncedAt){
   if (!backup || backup.format !== DATA_BACKUP_FORMAT || !backup.data || !Array.isArray(backup.data.passages)) {
     throw new Error("Cloud copy is not a valid STEELER data backup.");
   }
-  downloadJsonPayload(createDataBackupPayload(), "STEELER-Before-cloud-sync-backup");
-  const restored = restoreDataBackupObject(backup, {
+  const restored = withSyncTrackingSuppressed(() => restoreDataBackupObject(backup, {
     skipConfirm: true,
     successMessage: "Cloud copy applied successfully."
-  });
+  }));
   if (!restored) throw new Error("Cloud copy was not applied.");
   clearAllLocalSyncDirty();
-  saveFullDataCloudStatus("full-sync-ok", cloud, {
+  saveFullDataCloudStatus("synced", cloud, {
     checkedAt: syncedAt,
     lastSyncAt: syncedAt,
     lastSyncDirection: "download",
@@ -1581,35 +1598,27 @@ async function checkFullDataCloudSync(){
     const summary = describeFullDataCloudRecord(cloud);
     const localBackup = createDataBackupPayload();
     const localMatchesCloud = Boolean(cloud.record && fullDataBackupsMatch(localBackup, cloud.backup));
-    const previousStatus = loadLocalSyncStatus();
-    saveLocalSyncStatus({
-      status: localMatchesCloud ? "full-sync-ok" : "full-sync-check-ok",
-      lastRemoteStatus: "ok",
-      lastRemoteCheckAt: checkedAt,
-      lastRemoteRevision: summary.revision,
-      lastFullSyncRevision: localMatchesCloud ? summary.revision : previousStatus.lastFullSyncRevision || "",
-      lastFullSyncAt: localMatchesCloud ? summary.updatedAt || checkedAt : previousStatus.lastFullSyncAt || "",
-      lastFullSyncDeviceId: localMatchesCloud ? summary.deviceId || "" : previousStatus.lastFullSyncDeviceId || "",
-      lastFullSyncDeviceName: localMatchesCloud ? summary.deviceName || "" : previousStatus.lastFullSyncDeviceName || "",
-      lastFullSyncAppVersion: localMatchesCloud ? summary.appVersion || "" : previousStatus.lastFullSyncAppVersion || "",
-      lastObservedFullSyncRevision: summary.revision,
-      lastObservedFullSyncAt: summary.updatedAt || "",
-      lastObservedFullSyncDeviceId: summary.deviceId || "",
-      lastObservedFullSyncDeviceName: summary.deviceName || "",
-      lastObservedFullSyncAppVersion: summary.appVersion || "",
-      checkedAt,
-      lastSyncAt: localMatchesCloud ? checkedAt : previousStatus.lastSyncAt || "",
-      lastSyncDirection: localMatchesCloud ? "matched" : previousStatus.lastSyncDirection || "",
-      lastSyncError: ""
-    });
+    const changedSinceLastSeen = cloudCopyChangedSinceLastSync(cloud);
+    if (localMatchesCloud) {
+      clearAllLocalSyncDirty();
+      saveFullDataCloudStatus("synced", cloud, {
+        checkedAt,
+        lastSyncAt: checkedAt,
+        lastSyncDirection: "matched"
+      });
+    } else if (!cloud.record) {
+      saveObservedFullDataCloudStatus("no-cloud-copy", cloud, { checkedAt });
+    } else {
+      saveObservedFullDataCloudStatus(changedSinceLastSeen ? "cloud-changed" : "local-pending", cloud, { checkedAt });
+    }
     renderLocalSyncStatus();
-    renderFullDataCloudPreview(cloud, localMatchesCloud ? "This device already matches the cloud copy." : "");
+    renderFullDataCloudPreview(cloud, localMatchesCloud ? "This device already matches the cloud copy." : "Check complete. No data changed.");
     setSyncCheckMessage(cloud.record
       ? (localMatchesCloud ? "This device already matches the cloud copy." : `${summary.text}. No data changed.`)
-      : "No cloud copy found yet. Sync Now will create one from this device.");
+      : "No cloud copy found yet. Sync will create one from this device.");
   }catch(e){
     saveLocalSyncStatus({
-      status: "full-sync-check-error",
+      status: "unable-to-check-cloud",
       lastRemoteStatus: "error",
       lastRemoteCheckAt: checkedAt,
       lastSyncError: e && e.message ? e.message : String(e || "Cloud check failed")
@@ -1646,7 +1655,7 @@ async function runFullDataCloudSync(options = {}){
     renderFullDataCloudPreview(cloud, localMatchesCloud ? "This device already matches the cloud copy." : "");
     if (cloud.record && localMatchesCloud) {
       clearAllLocalSyncDirty();
-      saveFullDataCloudStatus("full-sync-ok", cloud, {
+      saveFullDataCloudStatus("synced", cloud, {
         checkedAt: syncedAt,
         lastSyncAt: syncedAt,
         lastSyncDirection: "matched"
@@ -1659,14 +1668,25 @@ async function runFullDataCloudSync(options = {}){
 
     let choice = "local";
     if (cloudCopyChangedSinceLastSync(cloud)) {
+      saveObservedFullDataCloudStatus(isAutoSync ? "cloud-changed" : "decision-needed", cloud, { checkedAt: syncedAt });
+      renderLocalSyncStatus();
+      if (isAutoSync) {
+        renderFullDataCloudPreview(cloud, "Cloud changed. Auto-sync stopped for manual review.");
+        setSyncCheckMessage("Auto-sync found a cloud change. Choose Sync when you are ready to pick which complete copy to keep.");
+        return;
+      }
       choice = await chooseFullSyncConflictAction(cloud);
       if (choice === "cancel") {
-        setSyncCheckMessage(isAutoSync ? "Auto-sync found a cloud change and was left for review. Nothing changed." : "Sync cancelled. Nothing changed.");
+        saveObservedFullDataCloudStatus("cloud-changed", cloud, { checkedAt: syncedAt });
+        renderLocalSyncStatus();
+        setSyncCheckMessage("Sync cancelled. Nothing changed.");
         return;
       }
     } else if (!cloud.record) {
+      saveObservedFullDataCloudStatus("no-cloud-copy", cloud, { checkedAt: syncedAt });
+      renderLocalSyncStatus();
       if (isAutoSync) {
-        setSyncCheckMessage("Auto-sync skipped. Tap Sync Now to create the first cloud copy from this device.");
+        setSyncCheckMessage("Auto-sync skipped. Tap Sync to create the first cloud copy from this device.");
         return;
       }
       const ok = confirm(
@@ -1678,16 +1698,18 @@ async function runFullDataCloudSync(options = {}){
         return;
       }
     } else {
+      saveObservedFullDataCloudStatus("local-pending", cloud, { checkedAt: syncedAt });
+      renderLocalSyncStatus();
       if (isAutoSync) {
         const pending = countPendingLocalChanges();
         if (pending <= 0) {
-          setSyncCheckMessage("Auto-sync checked cloud. No safe local changes needed uploading.");
+          setSyncCheckMessage("Auto-sync checked cloud. No local package upload was needed.");
           return;
         }
       } else {
         const ok = confirm(
           "Save this device's latest changes to cloud?\n\n" +
-          "Cloud will remain the main copy. The previous cloud copy will be kept in recovery backups."
+          "This device's complete STEELER data package will replace the current cloud copy."
         );
         if (!ok) {
           setSyncCheckMessage("Sync cancelled. Nothing changed.");
@@ -1700,20 +1722,19 @@ async function runFullDataCloudSync(options = {}){
       setSyncCheckMessage("Applying cloud copy to this device...");
       await applyFullDataCloudCopy(cloud, syncedAt);
       renderLocalSyncStatus();
-      renderFullDataCloudPreview(cloud, "Cloud copy applied to this device. A safety backup downloaded first.");
-      setSyncCheckMessage("Cloud copy applied to this device. A safety backup downloaded first.");
+      renderFullDataCloudPreview(cloud, "Cloud copy applied to this device.");
+      setSyncCheckMessage("Cloud copy applied to this device.");
       return;
     }
 
-    setSyncCheckMessage(isAutoSync ? "Auto-sync uploading this device's safe local changes..." : "Uploading this device as the current cloud copy...");
+    setSyncCheckMessage(isAutoSync ? "Auto-sync uploading this device's complete data package..." : "Uploading this device as the current cloud copy...");
     const updatedCloud = await uploadFullDataCloudCopy(connection, cloud, syncedAt);
     renderLocalSyncStatus();
-    renderFullDataCloudPreview(updatedCloud, isAutoSync ? "Auto-sync saved this device's safe local changes to cloud." : "This device is now the current cloud copy.");
+    renderFullDataCloudPreview(updatedCloud, isAutoSync ? "Auto-sync saved this device's complete data package to cloud." : "This device is now the current cloud copy.");
     setSyncCheckMessage(`${isAutoSync ? "Auto-sync complete" : "Sync complete"}. This device is now the cloud copy at revision ${describeFullDataCloudRecord(updatedCloud).revision}.`);
-    refreshCloudBackups({ silent: true });
   }catch(e){
     saveLocalSyncStatus({
-      status: "full-sync-error",
+      status: "sync-error",
       lastRemoteStatus: "error",
       lastRemoteCheckAt: syncedAt,
       lastSyncError: e && e.message ? e.message : String(e || "Full data sync failed")
@@ -2824,12 +2845,16 @@ function loadLocalStorageJsonItem(key, label, fallback, validate){
 
 function saveLocalStorageItem(key, value, label){
   try{
+    const previousValue = storage.getItem(key);
     const cfg = getStorageSafetyConfig(key, label);
     if (cfg) {
       parseStorageJson(value);
       mirrorLocalStorageRaw(key, storage.getItem(key), label);
     }
     storage.setItem(key, value);
+    if (COMPLETE_DATA_SYNC_KEYS.has(key) && previousValue !== value) {
+      recordCompleteDataPackageChange(`${label || key}-change`);
+    }
     return true;
   }catch(e){
     warnStorageSaveFailed(label, e);
@@ -4694,6 +4719,8 @@ function switchToTab(tabId) {
   if (tabId === "planTab" && planForm?.dataset?.openingDpp !== "1") {
     try { showPassagePlanPage(); } catch {}
   }
+
+  scheduleAutoFullDataSync(`tab-${tabId || "change"}`);
 }
 
 // Position formatting helpers: decimal degrees -> dºmm.mmm'H
@@ -5713,7 +5740,7 @@ function restoreDataBackupObject(obj, options = {}){
     saveFuelManagementSettings(obj.data.fuelManagement);
   }
   if (obj.data.settings && obj.data.settings.logSplitRatio) {
-    storage.setItem(LOG_SPLIT_RATIO_KEY, String(obj.data.settings.logSplitRatio));
+    saveLocalStorageItem(LOG_SPLIT_RATIO_KEY, String(obj.data.settings.logSplitRatio), "log split setting");
   }
   applyTheme(obj.data.theme || "day");
   refreshAfterDataRestore();
@@ -6448,7 +6475,7 @@ function setupLogSplitDivider() {
     if (!rect.width) return;
     const ratio = clampLogSplitRatio(((clientX - rect.left) / rect.width) * 100);
     applyLogSplitRatio(ratio);
-    if (persist) storage.setItem(LOG_SPLIT_RATIO_KEY, String(ratio));
+    if (persist) saveLocalStorageItem(LOG_SPLIT_RATIO_KEY, String(ratio), "log split setting");
   };
 
   logSplitDivider.addEventListener("pointerdown", (e) => {
@@ -6478,7 +6505,7 @@ function setupLogSplitDivider() {
       const next = getStoredLogSplitRatio() + (e.key === "ArrowRight" ? step : -step);
       const ratio = clampLogSplitRatio(next);
       applyLogSplitRatio(ratio);
-      storage.setItem(LOG_SPLIT_RATIO_KEY, String(ratio));
+      saveLocalStorageItem(LOG_SPLIT_RATIO_KEY, String(ratio), "log split setting");
     }
   });
 

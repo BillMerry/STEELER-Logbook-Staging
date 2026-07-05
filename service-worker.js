@@ -1,6 +1,6 @@
 // Bump this whenever assets change, to avoid stale PWA caches.
 // Keep in sync with APP_VERSION in app.js for release diagnostics.
-const CACHE_NAME = "steeler-logbook-v1.3.3-rc4";
+const CACHE_NAME = "steeler-logbook-v1.3.3-rc5";
 
 const ASSETS = [
   "./",
