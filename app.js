@@ -12,7 +12,7 @@ const DEVICE_NAME_KEY = "steeler_device_name_v1";
 const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 
-const APP_VERSION = "1.3.3-rc11";
+const APP_VERSION = "1.3.3-rc12";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -983,6 +983,54 @@ function fullDataBackupPackageHash(backup){
   return simpleHashString(stableComparableJson(comparableBackupData(backup)));
 }
 
+function summariseFullDataBackupPackage(backup){
+  const data = backup?.data || {};
+  const passageList = Array.isArray(data.passages) ? data.passages : [];
+  let activePassages = 0;
+  let logEntries = 0;
+  let dailySummaryRows = 0;
+  let dailySummaryRowsWithContent = 0;
+  let dppWaypoints = 0;
+
+  passageList.forEach((passage) => {
+    if (!passage || passage.deleted === true) return;
+    activePassages += 1;
+    if (Array.isArray(passage.entries)) {
+      logEntries += passage.entries.filter((entry) => entry && entry.deleted !== true).length;
+    }
+    const dailySummaries = Array.isArray(passage.plan?.dailySummaries) ? passage.plan.dailySummaries : [];
+    dailySummaryRows += dailySummaries.length;
+    dailySummaryRowsWithContent += dailySummaries.filter((day) => {
+      if (!day || typeof day !== "object") return false;
+      return Object.values(day).some((value) => String(value ?? "").trim());
+    }).length;
+    const detailedPlans = [];
+    if (passage.plan?.detailed) detailedPlans.push(passage.plan.detailed);
+    if (Array.isArray(passage.plan?.detailedLegs)) detailedPlans.push(...passage.plan.detailedLegs);
+    detailedPlans.forEach((plan) => {
+      if (Array.isArray(plan?.waypoints)) dppWaypoints += plan.waypoints.length;
+    });
+  });
+
+  return {
+    hash: backup ? fullDataBackupPackageHash(backup) : "",
+    passages: passageList.length,
+    activePassages,
+    logEntries,
+    dailySummaryRows,
+    dailySummaryRowsWithContent,
+    dppWaypoints,
+    ports: Array.isArray(data.knownPorts?.all) ? data.knownPorts.all.length : 0,
+    dppTemplates: Array.isArray(data.dppTemplates) ? data.dppTemplates.length : 0
+  };
+}
+
+function formatFullDataPackageSummary(summary){
+  if (!summary) return "No package";
+  const shortHash = summary.hash ? summary.hash.slice(0, 8) : "none";
+  return `${summary.activePassages}/${summary.passages} passages · ${summary.logEntries} log entries · ${summary.dailySummaryRows} Daily Summary rows (${summary.dailySummaryRowsWithContent} with content) · ${summary.dppWaypoints} DPP waypoints · ${summary.ports} ports · hash ${shortHash}`;
+}
+
 function summariseNamedListDifference(label, localItems, remoteItems, options = {}){
   const keyField = options.keyField || "id";
   const nameField = options.nameField || "name";
@@ -1235,6 +1283,7 @@ function describeFullDataCloudRecord(cloud){
   const deviceName = record?.lastChangedDeviceName || record?.payload?.deviceName || backup?.exportedByDeviceName || "";
   const passageCount = Array.isArray(backup?.data?.passages) ? backup.data.passages.length : 0;
   const packageHash = record?.payload?.packageHash || (backup ? fullDataBackupPackageHash(backup) : "");
+  const packageSummary = backup ? summariseFullDataBackupPackage(backup) : null;
   return {
     revision: Number(record?.serverRevision || cloud?.serverRevision || 0),
     updatedAt,
@@ -1243,6 +1292,7 @@ function describeFullDataCloudRecord(cloud){
     displayDevice: displayDeviceName(deviceName, deviceId),
     appVersion: record?.payload?.appVersion || backup?.appVersion || "",
     packageHash,
+    packageSummary,
     passageCount,
     text: record
       ? `Cloud revision ${Number(record.serverRevision || cloud?.serverRevision || 0)} · ${formatSyncStatusTime(updatedAt)} · ${displayDeviceName(deviceName, deviceId)}`
@@ -1286,7 +1336,7 @@ function renderFullDataCloudPreview(cloud, note = ""){
       <div class="sync-status-grid">
         <div><span>Last cloud save</span><strong>${escapeHtml(formatSyncStatusTime(summary.updatedAt))}</strong></div>
         <div><span>Saved by</span><strong>${escapeHtml(summary.displayDevice)}</strong></div>
-        <div><span>Cloud data</span><strong>${summary.passageCount} passage${summary.passageCount === 1 ? "" : "s"}</strong></div>
+        <div><span>Cloud data</span><strong>${escapeHtml(formatFullDataPackageSummary(summary.packageSummary))}</strong></div>
       </div>
       <p class="hint">${escapeHtml(note || "Check only. No data was uploaded, downloaded or changed.")}</p>
     </div>
@@ -1384,6 +1434,8 @@ function clearAllLocalSyncDirty(options = {}){
 
 function chooseFullSyncConflictAction(cloud, options = {}){
   const summary = describeFullDataCloudRecord(cloud);
+  const localBackup = createDataBackupPayload();
+  const localSummary = summariseFullDataBackupPackage(localBackup);
   const localDevice = getDeviceName();
   const intro = options.auto
     ? "Auto-sync found a different cloud copy and needs you to choose what to do."
@@ -1396,6 +1448,10 @@ function chooseFullSyncConflictAction(cloud, options = {}){
         <p>${escapeHtml(intro)}</p>
         <p>Cloud was last saved <strong>${escapeHtml(formatSyncStatusTime(summary.updatedAt))}</strong> by <strong>${escapeHtml(summary.displayDevice)}</strong>.</p>
         <p>This device is <strong>${escapeHtml(localDevice)}</strong>.</p>
+        <div class="sync-status-grid">
+          <div><span>Cloud copy</span><strong>${escapeHtml(formatFullDataPackageSummary(summary.packageSummary))}</strong></div>
+          <div><span>This device</span><strong>${escapeHtml(formatFullDataPackageSummary(localSummary))}</strong></div>
+        </div>
         <p>Choose which complete STEELER data package to keep. No partial merge will be performed.</p>
         <div class="st-action-row">
           <button type="button" id="syncUseCloudCopyBtn" class="btn">Use Cloud Copy on This Device</button>
@@ -1438,6 +1494,7 @@ async function uploadFullDataCloudCopy(connection, previousCloud, syncedAt){
     localPackageHash,
     cloudPackageHash: localPackageHash
   });
+  setSyncCheckMessage(`Uploaded and verified: ${formatFullDataPackageSummary(summariseFullDataBackupPackage(localBackup))}.`);
   return cloud;
 }
 
@@ -1446,23 +1503,45 @@ async function applyFullDataCloudCopy(cloud, syncedAt){
   if (!backup || backup.format !== DATA_BACKUP_FORMAT || !backup.data || !Array.isArray(backup.data.passages)) {
     throw new Error("Cloud copy is not a valid STEELER data backup.");
   }
+  const cloudSummary = describeFullDataCloudRecord(cloud);
+  const expectedHash = cloudSummary.packageHash || fullDataBackupPackageHash(backup);
+  const expectedPackageSummary = summariseFullDataBackupPackage(backup);
   const restored = withSyncTrackingSuppressed(() => restoreDataBackupObject(backup, {
     skipConfirm: true,
+    silent: true,
     successMessage: "Cloud copy applied successfully."
   }));
   if (!restored) throw new Error("Cloud copy was not applied.");
   clearAllLocalSyncDirty();
   const restoredBackup = withSyncTrackingSuppressed(() => createDataBackupPayload({ flush: false }));
   const restoredHash = fullDataBackupPackageHash(restoredBackup);
+  const restoredPackageSummary = summariseFullDataBackupPackage(restoredBackup);
+  if (restoredHash !== expectedHash) {
+    const message =
+      "Cloud copy was applied, but verification failed. " +
+      `Cloud package: ${formatFullDataPackageSummary(expectedPackageSummary)}. ` +
+      `This device after restore: ${formatFullDataPackageSummary(restoredPackageSummary)}.`;
+    saveLocalSyncStatus({
+      status: "sync-error",
+      lastRemoteStatus: "error",
+      lastRemoteCheckAt: syncedAt,
+      lastSyncError: message,
+      lastSyncedCloudPackageHash: expectedHash,
+      lastSyncedLocalPackageHash: restoredHash
+    });
+    throw new Error(message);
+  }
   saveFullDataCloudStatus("synced", cloud, {
     checkedAt: syncedAt,
     lastSyncAt: syncedAt,
     lastSyncDirection: "download",
     pendingLocalChanges: 0,
     localPackageHash: restoredHash,
-    cloudPackageHash: describeFullDataCloudRecord(cloud).packageHash,
+    cloudPackageHash: expectedHash,
     lastSyncError: ""
   });
+  setSyncCheckMessage(`Cloud copy applied and verified: ${formatFullDataPackageSummary(restoredPackageSummary)}.`);
+  return restoredPackageSummary;
 }
 
 async function checkFullDataCloudSync(){
@@ -1636,10 +1715,10 @@ async function runFullDataCloudSync(options = {}){
 
     if (choice === "cloud") {
       setSyncCheckMessage("Applying cloud copy to this device...");
-      await applyFullDataCloudCopy(cloud, syncedAt);
+      const restoredPackageSummary = await applyFullDataCloudCopy(cloud, syncedAt);
       renderLocalSyncStatus();
-      renderFullDataCloudPreview(cloud, "Cloud copy applied to this device.");
-      setSyncCheckMessage("Cloud copy applied to this device.");
+      renderFullDataCloudPreview(cloud, `Cloud copy applied and verified: ${formatFullDataPackageSummary(restoredPackageSummary)}.`);
+      setSyncCheckMessage(`Cloud copy applied and verified: ${formatFullDataPackageSummary(restoredPackageSummary)}.`);
       return;
     }
 
@@ -5701,7 +5780,7 @@ function restoreDataBackupObject(obj, options = {}){
   }
   applyTheme(obj.data.theme || "day");
   refreshAfterDataRestore();
-  alert(options.successMessage || "Full STEELER data backup restored successfully.");
+  if (!options.silent) alert(options.successMessage || "Full STEELER data backup restored successfully.");
   return true;
 }
 
