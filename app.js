@@ -12,7 +12,7 @@ const DEVICE_NAME_KEY = "steeler_device_name_v1";
 const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 
-const APP_VERSION = "1.3.3-rc8";
+const APP_VERSION = "1.3.3-rc9";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -759,150 +759,6 @@ function markReceivedRecordClean(record){
     });
   }
   return record;
-}
-
-function cloneDailySummaries(days){
-  return (Array.isArray(days) ? days : []).map((day) => ({ ...day }));
-}
-
-function dailySummaryContentScore(days){
-  return (Array.isArray(days) ? days : []).reduce((score, day) => {
-    const date = String(day?.date || "").trim();
-    const fee = String(day?.fee || "").trim();
-    const notes = String(day?.notes || "").trim();
-    return score + (date ? 1 : 0) + (fee ? 2 : 0) + (notes ? 3 + Math.min(notes.length, 200) : 0);
-  }, 0);
-}
-
-function localDailySummariesAreRicher(localDailySummaries, remoteDailySummaries){
-  if (!localDailySummaries.length) return false;
-  if (!remoteDailySummaries.length) return true;
-  return dailySummaryContentScore(localDailySummaries) > dailySummaryContentScore(remoteDailySummaries)
-    && localDailySummaries.length >= remoteDailySummaries.length;
-}
-
-function detailedPlanContentScore(detailed){
-  if (!detailed || typeof detailed !== "object") return 0;
-  const waypoints = Array.isArray(detailed.waypoints) ? detailed.waypoints : [];
-  const waypointScore = waypoints.reduce((score, wp) => {
-    if (!wp || typeof wp !== "object") return score;
-    const textFields = [
-      wp.name, wp.coords, wp.lat, wp.lon, wp.position, wp.time, wp.actualTime,
-      wp.course, wp.distance, wp.plannedSpeed, wp.tideKt, wp.tideDir,
-      wp.manualDistToNext
-    ];
-    return score + textFields.reduce((sum, value) => sum + (String(value || "").trim() ? 1 : 0), 1);
-  }, 0);
-  const notesScore = ["hazards", "portsOfRefuge", "crewWelfare"].reduce((score, key) => {
-    const value = String(detailed[key] || "").trim();
-    return score + (value ? 3 + Math.min(value.length, 200) : 0);
-  }, 0);
-  return waypointScore + notesScore;
-}
-
-function detailedPlanCollectionContentScore(plan){
-  if (!plan || typeof plan !== "object") return 0;
-  const singleScore = detailedPlanContentScore(plan.detailed);
-  const legsScore = (Array.isArray(plan.detailedLegs) ? plan.detailedLegs : [])
-    .reduce((score, detailed) => score + detailedPlanContentScore(detailed), 0);
-  return singleScore + legsScore;
-}
-
-function latestDppClearedAt(plan){
-  if (!plan || typeof plan !== "object") return "";
-  const byLeg = plan.dppClearedAtByLeg && typeof plan.dppClearedAtByLeg === "object"
-    ? Object.values(plan.dppClearedAtByLeg)
-    : [];
-  return latestTimestampFromValues([plan.dppClearedAt, ...byLeg], "");
-}
-
-function cloneDppPlanFields(plan){
-  const source = plan && typeof plan === "object" ? plan : {};
-  return {
-    detailed: cloneJsonSafe(source.detailed, undefined),
-    detailedLegs: cloneJsonSafe(source.detailedLegs, undefined),
-    detailedLegIndex: source.detailedLegIndex,
-    dppUpdatedAt: source.dppUpdatedAt,
-    dppClearedAt: source.dppClearedAt,
-    dppClearedAtByLeg: cloneJsonSafe(source.dppClearedAtByLeg, undefined)
-  };
-}
-
-function passageDetailSafeguardCanPreserve(remotePassage, localPassage){
-  const remoteChangedAt = latestTimestampFromValues([
-    remotePassage?.updatedAt,
-    remotePassage?.dirtyAt,
-    remotePassage?.createdAt
-  ], "");
-  const localChangedAt = latestTimestampFromValues([
-    localPassage?.updatedAt,
-    localPassage?.dirtyAt,
-    localPassage?.createdAt
-  ], "");
-  if (!remoteChangedAt || !localChangedAt) return true;
-  return localChangedAt >= remoteChangedAt;
-}
-
-function mergeReceivedPlanSafeguards(remotePlan, localPlan, options = {}){
-  const mergedPlan = {
-    ...(remotePlan || {})
-  };
-  const preserved = [];
-  const canPreserveLocalDetails = options.canPreserveLocalDetails !== false;
-
-  const remoteDailySummaries = Array.isArray(remotePlan?.dailySummaries)
-    ? remotePlan.dailySummaries
-    : [];
-  const localDailySummaries = Array.isArray(localPlan?.dailySummaries)
-    ? localPlan.dailySummaries
-    : [];
-
-  if (canPreserveLocalDetails && localDailySummariesAreRicher(localDailySummaries, remoteDailySummaries)) {
-    mergedPlan.dailySummaries = cloneDailySummaries(localDailySummaries);
-    preserved.push("Daily Summary");
-  }
-
-  const remoteDppScore = detailedPlanCollectionContentScore(remotePlan);
-  const localDppScore = detailedPlanCollectionContentScore(localPlan);
-  const remoteDppClearedAt = latestDppClearedAt(remotePlan);
-  if (canPreserveLocalDetails && localDppScore > 0 && remoteDppScore === 0 && !remoteDppClearedAt) {
-    const dppFields = cloneDppPlanFields(localPlan);
-    if (dppFields.detailed !== undefined) mergedPlan.detailed = dppFields.detailed;
-    if (dppFields.detailedLegs !== undefined) mergedPlan.detailedLegs = dppFields.detailedLegs;
-    if (dppFields.detailedLegIndex !== undefined) mergedPlan.detailedLegIndex = dppFields.detailedLegIndex;
-    if (dppFields.dppUpdatedAt !== undefined) mergedPlan.dppUpdatedAt = dppFields.dppUpdatedAt;
-    if (dppFields.dppClearedAt !== undefined) mergedPlan.dppClearedAt = dppFields.dppClearedAt;
-    if (dppFields.dppClearedAtByLeg !== undefined) mergedPlan.dppClearedAtByLeg = dppFields.dppClearedAtByLeg;
-    preserved.push("DPP");
-  }
-
-  return { plan: mergedPlan, preserved };
-}
-
-function mergeReceivedPassageWithLocalSafeguards(remotePassage, localPassage){
-  if (!remotePassage || typeof remotePassage !== "object") return { passage: remotePassage, preserved: [] };
-  if (!localPassage || typeof localPassage !== "object") return { passage: remotePassage, preserved: [] };
-
-  const merged = {
-    ...remotePassage,
-    plan: {
-      ...(remotePassage.plan || {})
-    }
-  };
-  const planMerge = mergeReceivedPlanSafeguards(remotePassage.plan || {}, localPassage.plan || {}, {
-    canPreserveLocalDetails: passageDetailSafeguardCanPreserve(remotePassage, localPassage)
-  });
-  merged.plan = planMerge.plan;
-
-  if (planMerge.preserved.length) {
-    const changedAt = nowIso();
-    merged.updatedAt = changedAt;
-    merged.dirtyAt = changedAt;
-    merged.syncDirty = true;
-    merged.syncStatus = "pending";
-  }
-
-  return { passage: merged, preserved: planMerge.preserved };
 }
 
 function prepareCloudBackupForRestoreWithSafeguards(backup){
@@ -5608,7 +5464,48 @@ function closeModal(){
 
 // --- Backup / Restore ----------------------------------------------
 
+function flushCurrentPlanFormToPassage(reason = "plan-form-sync"){
+  const p = getCurrentPassage();
+  if (!p || !p.plan || !planForm) return false;
+  const beforePlanJson = stableComparableJson(p.plan || {});
+  const previousPlanDate = String(p.plan?.date || "").trim();
+
+  if (typeof planDate !== "undefined" && planDate) p.plan.date = planDate.value;
+  if (typeof planTimeZone !== "undefined" && planTimeZone) p.plan.timeZone = normalisePassageTimeZone(planTimeZone.value || p.plan.timeZone);
+  if (typeof planFrom !== "undefined" && planFrom) p.plan.from = planFrom.value.trim();
+  if (typeof planTo !== "undefined" && planTo) p.plan.to = planTo.value.trim();
+  try { readTransitPortsFromForm(p); } catch(e) {}
+
+  if (typeof planVessel !== "undefined" && planVessel) p.plan.vessel = planVessel.value.trim();
+  if (typeof planSkipper !== "undefined" && planSkipper) p.plan.skipper = planSkipper.value.trim();
+  if (typeof planCrew !== "undefined" && planCrew) p.plan.crew = planCrew.value.trim();
+  if (typeof planSunriseSet !== "undefined" && planSunriseSet) p.plan.sunriseSet = planSunriseSet.value.trim();
+  if (typeof planMoonPhase !== "undefined" && planMoonPhase) p.plan.moonPhase = normaliseMoonPhaseLabel(planMoonPhase.value);
+  if (typeof planMoonRiseSet !== "undefined" && planMoonRiseSet) p.plan.moonRiseSet = planMoonRiseSet.value.trim();
+  if (typeof planTidalCoeff !== "undefined" && planTidalCoeff) p.plan.tidalCoeff = planTidalCoeff.value.trim();
+  if (typeof planCurrents !== "undefined" && planCurrents) p.plan.currents = planCurrents.value.trim();
+  if (typeof planWeather !== "undefined" && planWeather) p.plan.weather = planWeather.value.trim();
+  if (typeof planComms !== "undefined" && planComms) p.plan.comms = planComms.value.trim();
+
+  if (typeof readTideStationsFromForm === "function") {
+    p.plan.tideStations = readTideStationsFromForm();
+    try { ensureAutoTideStations(p); } catch(e) {}
+  }
+  if (typeof readDailySummariesFromForm === "function") {
+    p.plan.dailySummaries = readDailySummariesFromForm();
+    syncDailySummaryDatesWithPassageDate(p, previousPlanDate, p.plan.date);
+  }
+  if (typeof readDetailedPassagePlanFromForm === "function") readDetailedPassagePlanFromForm();
+  if (typeof ensureDetailedPassagePlans === "function") ensureDetailedPassagePlans(p);
+
+  if (stableComparableJson(p.plan || {}) === beforePlanJson) return false;
+  markPassageDirty(p, nowIso(), reason);
+  savePassages();
+  return true;
+}
+
 function createDataBackupPayload(){
+  flushCurrentPlanFormToPassage("backup-package-create");
   normalisePassagesForSync(passages);
   const payload = {
     format: DATA_BACKUP_FORMAT,
