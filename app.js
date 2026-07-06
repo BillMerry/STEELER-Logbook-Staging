@@ -12,11 +12,11 @@ const DEVICE_NAME_KEY = "steeler_device_name_v1";
 const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 
-const APP_VERSION = "1.3.3-rc5";
+const APP_VERSION = "1.3.3-rc6";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
-const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
-const LEGACY_LIVE_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
+const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
+const LEGACY_STAGING_SYNC_WORKER_URL = "https://steeler-logbook-sync-staging.bill-merry-52f.workers.dev";
 const FULL_DATA_SYNC_RECORD_ID = "global:full-data-sync";
 const FULL_DATA_SYNC_RECORD_TYPE = "full-data-sync";
 const AUTO_SYNC_MIN_INTERVAL_MS = 60 * 1000;
@@ -184,7 +184,7 @@ function loadSyncConfig(){
     ...fallback,
     ...stored,
     version: 1,
-    workerUrl: cleanWorkerUrl === LEGACY_LIVE_SYNC_WORKER_URL ? DEFAULT_SYNC_WORKER_URL : cleanWorkerUrl,
+    workerUrl: cleanWorkerUrl === LEGACY_STAGING_SYNC_WORKER_URL ? DEFAULT_SYNC_WORKER_URL : cleanWorkerUrl,
     token: String(stored?.token || ""),
     autoSyncEnabled: stored?.autoSyncEnabled === true
   };
