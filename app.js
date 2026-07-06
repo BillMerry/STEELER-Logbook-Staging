@@ -12,7 +12,7 @@ const DEVICE_NAME_KEY = "steeler_device_name_v1";
 const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 
-const APP_VERSION = "1.3.3-rc9";
+const APP_VERSION = "1.3.3-rc10";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -263,18 +263,8 @@ function countLocalDirtySyncMarkers(){
   return count;
 }
 
-function hasPendingLocalPackageChanges(status = loadLocalSyncStatus()){
-  if (countLocalDirtySyncMarkers() > 0) return true;
-  const localChangedAt = String(status?.lastLocalChangeAt || "");
-  if (!isValidIsoString(localChangedAt)) return false;
-  const lastSyncAt = String(status?.lastSyncAt || "");
-  return !isValidIsoString(lastSyncAt) || localChangedAt > lastSyncAt;
-}
-
 function countPendingLocalChanges(){
-  const dirtyCount = countLocalDirtySyncMarkers();
-  if (dirtyCount > 0) return dirtyCount;
-  return hasPendingLocalPackageChanges() ? 1 : 0;
+  return countLocalDirtySyncMarkers();
 }
 
 function countRecoverableDeletedEntries(){
@@ -330,19 +320,10 @@ function withSyncTrackingSuppressed(fn){
 
 function getLocalSyncSummary(){
   const status = loadLocalSyncStatus();
-  const pending = countPendingLocalChanges();
   const deleted = countRecoverableDeletedEntries();
-  if (status.pendingLocalChanges !== pending) {
-    status.pendingLocalChanges = pending;
-    const keepState = ["cloud-changed", "decision-needed", "unable-to-check-cloud", "offline", "sync-error", "no-cloud-copy"].includes(status.status);
-    status.status = keepState
-      ? status.status
-      : (pending > 0 ? "local-pending" : (status.status === "synced" ? "synced" : "local-only"));
-    saveLocalSyncStatus(status);
-  }
   return {
     ...status,
-    pendingLocalChanges: pending,
+    pendingLocalChanges: Number(status.pendingLocalChanges || 0),
     recoverableDeletedEntries: deleted
   };
 }
@@ -983,6 +964,24 @@ function stableComparableJson(value){
   return JSON.stringify(value ?? "");
 }
 
+function simpleHashString(value){
+  const str = String(value || "");
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < str.length; i += 1) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return `${(h2 >>> 0).toString(16).padStart(8, "0")}${(h1 >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+function fullDataBackupPackageHash(backup){
+  return simpleHashString(stableComparableJson(comparableBackupData(backup)));
+}
+
 function summariseNamedListDifference(label, localItems, remoteItems, options = {}){
   const keyField = options.keyField || "id";
   const nameField = options.nameField || "name";
@@ -1145,6 +1144,7 @@ function getFullDataBackupFromRecord(record){
 function createFullDataSyncRecord(backupPayload, timestamp = nowIso()){
   const deviceId = getOrCreateDeviceId();
   const deviceName = getDeviceName();
+  const packageHash = fullDataBackupPackageHash(backupPayload);
   return {
     recordId: FULL_DATA_SYNC_RECORD_ID,
     recordType: FULL_DATA_SYNC_RECORD_TYPE,
@@ -1160,6 +1160,7 @@ function createFullDataSyncRecord(backupPayload, timestamp = nowIso()){
       appVersion: APP_VERSION,
       deviceId,
       deviceName,
+      packageHash,
       backup: backupPayload
     }
   };
@@ -1232,6 +1233,7 @@ function describeFullDataCloudRecord(cloud){
   const deviceId = record?.lastChangedDeviceId || record?.payload?.deviceId || backup?.exportedByDeviceId || "";
   const deviceName = record?.lastChangedDeviceName || record?.payload?.deviceName || backup?.exportedByDeviceName || "";
   const passageCount = Array.isArray(backup?.data?.passages) ? backup.data.passages.length : 0;
+  const packageHash = record?.payload?.packageHash || (backup ? fullDataBackupPackageHash(backup) : "");
   return {
     revision: Number(record?.serverRevision || cloud?.serverRevision || 0),
     updatedAt,
@@ -1239,6 +1241,7 @@ function describeFullDataCloudRecord(cloud){
     deviceName,
     displayDevice: displayDeviceName(deviceName, deviceId),
     appVersion: record?.payload?.appVersion || backup?.appVersion || "",
+    packageHash,
     passageCount,
     text: record
       ? `Cloud revision ${Number(record.serverRevision || cloud?.serverRevision || 0)} · ${formatSyncStatusTime(updatedAt)} · ${displayDeviceName(deviceName, deviceId)}`
@@ -1259,11 +1262,6 @@ function removeBackupComparisonNoise(value){
 
 function comparableBackupData(backup){
   return removeBackupComparisonNoise(cloneJsonSafe(backup?.data || {}, {}));
-}
-
-function fullDataBackupsMatch(localBackup, cloudBackup){
-  if (!localBackup || !cloudBackup) return false;
-  return stableComparableJson(comparableBackupData(localBackup)) === stableComparableJson(comparableBackupData(cloudBackup));
 }
 
 function renderFullDataCloudPreview(cloud, note = ""){
@@ -1302,6 +1300,7 @@ function saveFullDataCloudStatus(status, cloud, extra = {}){
     lastRemoteCheckAt: extra.checkedAt || nowIso(),
     lastRemoteRevision: summary.revision,
     lastFullSyncRevision: summary.revision,
+    lastSyncedPackageHash: extra.packageHash || summary.packageHash || "",
     lastObservedFullSyncRevision: summary.revision,
     lastFullSyncAt: summary.updatedAt || extra.checkedAt || nowIso(),
     lastFullSyncDeviceId: summary.deviceId || "",
@@ -1316,10 +1315,10 @@ function saveFullDataCloudStatus(status, cloud, extra = {}){
 function cloudCopyChangedSinceLastSync(cloud){
   if (!cloud?.record) return false;
   const status = loadLocalSyncStatus();
-  const lastSeen = Number(status.lastFullSyncRevision || 0);
-  const cloudRevision = Number(cloud.record.serverRevision || 0);
-  if (!lastSeen) return true;
-  return cloudRevision > lastSeen;
+  const lastSyncedHash = String(status.lastSyncedPackageHash || "");
+  const cloudHash = describeFullDataCloudRecord(cloud).packageHash || "";
+  if (!lastSyncedHash) return true;
+  return cloudHash !== lastSyncedHash;
 }
 
 function saveObservedFullDataCloudStatus(status, cloud, extra = {}){
@@ -1431,7 +1430,8 @@ async function uploadFullDataCloudCopy(connection, previousCloud, syncedAt){
     checkedAt: syncedAt,
     lastSyncAt: syncedAt,
     lastSyncDirection: "upload",
-    pendingLocalChanges: 0
+    pendingLocalChanges: 0,
+    packageHash: fullDataBackupPackageHash(localBackup)
   });
   return cloud;
 }
@@ -1452,6 +1452,7 @@ async function applyFullDataCloudCopy(cloud, syncedAt){
     lastSyncAt: syncedAt,
     lastSyncDirection: "download",
     pendingLocalChanges: 0,
+    packageHash: describeFullDataCloudRecord(cloud).packageHash,
     lastSyncError: ""
   });
 }
@@ -1471,21 +1472,32 @@ async function checkFullDataCloudSync(){
     const cloud = await fetchCurrentFullDataCloudRecord(connection);
     const summary = describeFullDataCloudRecord(cloud);
     const localBackup = createDataBackupPayload();
-    const localMatchesCloud = Boolean(cloud.record && fullDataBackupsMatch(localBackup, cloud.backup));
-    const changedSinceLastSeen = cloudCopyChangedSinceLastSync(cloud);
+    const localHash = fullDataBackupPackageHash(localBackup);
+    const localMatchesCloud = Boolean(cloud.record && localHash === summary.packageHash);
+    const lastSyncedHash = String(loadLocalSyncStatus().lastSyncedPackageHash || "");
+    const localChanged = lastSyncedHash ? localHash !== lastSyncedHash : !localMatchesCloud;
+    const cloudChanged = Boolean(cloud.record && (!lastSyncedHash || summary.packageHash !== lastSyncedHash));
     if (localMatchesCloud) {
       clearAllLocalSyncDirty();
       saveFullDataCloudStatus("synced", cloud, {
         checkedAt,
         lastSyncAt: checkedAt,
         lastSyncDirection: "matched",
-        pendingLocalChanges: 0
+        pendingLocalChanges: 0,
+        packageHash: localHash
       });
     } else if (!cloud.record) {
-      saveObservedFullDataCloudStatus("no-cloud-copy", cloud, { checkedAt });
+      saveObservedFullDataCloudStatus("no-cloud-copy", cloud, {
+        checkedAt,
+        localPackageHash: localHash,
+        pendingLocalChanges: 1
+      });
     } else {
-      const hasLocalPending = hasPendingLocalPackageChanges();
-      saveObservedFullDataCloudStatus(changedSinceLastSeen || !hasLocalPending ? "cloud-changed" : "local-pending", cloud, { checkedAt });
+      saveObservedFullDataCloudStatus(cloudChanged ? "cloud-changed" : (localChanged ? "local-pending" : "synced"), cloud, {
+        checkedAt,
+        localPackageHash: localHash,
+        pendingLocalChanges: localChanged ? 1 : 0
+      });
     }
     renderLocalSyncStatus();
     renderFullDataCloudPreview(cloud, localMatchesCloud ? "This device already matches the cloud copy." : "Check complete. No data changed.");
@@ -1526,9 +1538,14 @@ async function runFullDataCloudSync(options = {}){
 
   try{
     const cloud = await fetchCurrentFullDataCloudRecord(connection);
+    const previousStatus = loadLocalSyncStatus();
     const localBackup = createDataBackupPayload();
-    const localMatchesCloud = Boolean(cloud.record && fullDataBackupsMatch(localBackup, cloud.backup));
-    const hasLocalPending = hasPendingLocalPackageChanges();
+    const localHash = fullDataBackupPackageHash(localBackup);
+    const cloudSummary = describeFullDataCloudRecord(cloud);
+    const localMatchesCloud = Boolean(cloud.record && localHash === cloudSummary.packageHash);
+    const lastSyncedHash = String(previousStatus.lastSyncedPackageHash || "");
+    const localChanged = lastSyncedHash ? localHash !== lastSyncedHash : !localMatchesCloud;
+    const cloudChanged = Boolean(cloud.record && (!lastSyncedHash || cloudSummary.packageHash !== lastSyncedHash));
     renderFullDataCloudPreview(cloud, localMatchesCloud ? "This device already matches the cloud copy." : "");
     if (cloud.record && localMatchesCloud) {
       clearAllLocalSyncDirty();
@@ -1536,7 +1553,8 @@ async function runFullDataCloudSync(options = {}){
         checkedAt: syncedAt,
         lastSyncAt: syncedAt,
         lastSyncDirection: "matched",
-        pendingLocalChanges: 0
+        pendingLocalChanges: 0,
+        packageHash: localHash
       });
       renderLocalSyncStatus();
       renderFullDataCloudPreview(cloud, "This device already matches the cloud copy.");
@@ -1545,7 +1563,7 @@ async function runFullDataCloudSync(options = {}){
     }
 
     let choice = "local";
-    if (cloudCopyChangedSinceLastSync(cloud)) {
+    if (cloudChanged) {
       saveObservedFullDataCloudStatus("decision-needed", cloud, { checkedAt: syncedAt });
       renderLocalSyncStatus();
       if (isAutoSync) {
@@ -1560,7 +1578,11 @@ async function runFullDataCloudSync(options = {}){
         return;
       }
     } else if (!cloud.record) {
-      saveObservedFullDataCloudStatus("no-cloud-copy", cloud, { checkedAt: syncedAt });
+      saveObservedFullDataCloudStatus("no-cloud-copy", cloud, {
+        checkedAt: syncedAt,
+        localPackageHash: localHash,
+        pendingLocalChanges: 1
+      });
       renderLocalSyncStatus();
       if (isAutoSync) {
         setSyncCheckMessage("Auto-sync skipped. Tap Sync to create the first cloud copy from this device.");
@@ -1575,10 +1597,14 @@ async function runFullDataCloudSync(options = {}){
         return;
       }
     } else {
-      saveObservedFullDataCloudStatus(hasLocalPending ? "local-pending" : "cloud-changed", cloud, { checkedAt: syncedAt });
+      saveObservedFullDataCloudStatus(localChanged ? "local-pending" : "synced", cloud, {
+        checkedAt: syncedAt,
+        localPackageHash: localHash,
+        pendingLocalChanges: localChanged ? 1 : 0
+      });
       renderLocalSyncStatus();
       if (isAutoSync) {
-        if (!hasLocalPending) {
+        if (!localChanged) {
           renderFullDataCloudPreview(cloud, "Auto-sync checked cloud. No local changes were uploaded.");
           setSyncCheckMessage("Auto-sync checked cloud. No local changes were uploaded.");
           return;
