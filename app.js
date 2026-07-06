@@ -12,7 +12,7 @@ const DEVICE_NAME_KEY = "steeler_device_name_v1";
 const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 
-const APP_VERSION = "1.3.3-rc7";
+const APP_VERSION = "1.3.3-rc8";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -1524,19 +1524,24 @@ function clearAllLocalSyncDirty(options = {}){
   }
 }
 
-function chooseFullSyncConflictAction(cloud){
+function chooseFullSyncConflictAction(cloud, options = {}){
   const summary = describeFullDataCloudRecord(cloud);
+  const localDevice = getDeviceName();
+  const intro = options.auto
+    ? "Auto-sync found a different cloud copy and needs you to choose what to do."
+    : "Cloud changed since this device last synced.";
   return new Promise((resolve) => {
     showModal({
-      title: "Cloud Copy Changed",
+      title: "Sync Decision Needed",
       hideButtons: true,
       bodyHtml: `
-        <p>Cloud was last updated by <strong>${escapeHtml(summary.displayDevice)}</strong>.</p>
-        <p>${escapeHtml(formatSyncStatusTime(summary.updatedAt))} · Revision ${summary.revision}</p>
-        <p>Choose which complete STEELER data copy to keep.</p>
+        <p>${escapeHtml(intro)}</p>
+        <p>Cloud was last saved <strong>${escapeHtml(formatSyncStatusTime(summary.updatedAt))}</strong> by <strong>${escapeHtml(summary.displayDevice)}</strong>.</p>
+        <p>This device is <strong>${escapeHtml(localDevice)}</strong>.</p>
+        <p>Choose which complete STEELER data package to keep. No partial merge will be performed.</p>
         <div class="st-action-row">
-          <button type="button" id="syncKeepThisDeviceBtn" class="btn">Keep This Device</button>
-          <button type="button" id="syncUseCloudCopyBtn" class="btn btn-secondary">Use Cloud Copy</button>
+          <button type="button" id="syncUseCloudCopyBtn" class="btn">Use Cloud Copy on This Device</button>
+          <button type="button" id="syncKeepThisDeviceBtn" class="btn btn-secondary">Keep This Device and Replace Cloud</button>
           <button type="button" id="syncCancelChoiceBtn" class="btn btn-secondary">Cancel</button>
         </div>
       `
@@ -1685,14 +1690,13 @@ async function runFullDataCloudSync(options = {}){
 
     let choice = "local";
     if (cloudCopyChangedSinceLastSync(cloud)) {
-      saveObservedFullDataCloudStatus(isAutoSync ? "cloud-changed" : "decision-needed", cloud, { checkedAt: syncedAt });
+      saveObservedFullDataCloudStatus("decision-needed", cloud, { checkedAt: syncedAt });
       renderLocalSyncStatus();
       if (isAutoSync) {
-        renderFullDataCloudPreview(cloud, "Cloud changed. Auto-sync stopped for manual review.");
-        setSyncCheckMessage("Auto-sync found a cloud change. Choose Sync when you are ready to pick which complete copy to keep.");
-        return;
+        renderFullDataCloudPreview(cloud, "Cloud changed. Auto-sync needs your decision.");
+        setSyncCheckMessage("Auto-sync found a cloud change. Choose which complete copy to keep.");
       }
-      choice = await chooseFullSyncConflictAction(cloud);
+      choice = await chooseFullSyncConflictAction(cloud, { auto: isAutoSync });
       if (choice === "cancel") {
         saveObservedFullDataCloudStatus("cloud-changed", cloud, { checkedAt: syncedAt });
         renderLocalSyncStatus();
