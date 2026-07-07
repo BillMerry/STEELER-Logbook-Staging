@@ -12,7 +12,7 @@ const DEVICE_NAME_KEY = "steeler_device_name_v1";
 const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 
-const APP_VERSION = "1.3.3-rc12";
+const APP_VERSION = "1.3.3-rc13";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -1566,6 +1566,7 @@ async function checkFullDataCloudSync(){
     const lastCloudHash = String(status.lastSyncedCloudPackageHash || status.lastSyncedPackageHash || "");
     const localChanged = lastLocalHash ? localHash !== lastLocalHash : !localMatchesCloud;
     const cloudChanged = Boolean(cloud.record && (lastCloudHash ? summary.packageHash !== lastCloudHash : !localMatchesCloud));
+    const unmatchedKnownBaseline = Boolean(cloud.record && !localMatchesCloud && !localChanged && !cloudChanged);
     if (localMatchesCloud) {
       clearAllLocalSyncDirty();
       saveFullDataCloudStatus("synced", cloud, {
@@ -1583,16 +1584,18 @@ async function checkFullDataCloudSync(){
         pendingLocalChanges: 1
       });
     } else {
-      saveObservedFullDataCloudStatus(cloudChanged ? "cloud-changed" : (localChanged ? "local-pending" : "synced"), cloud, {
+      saveObservedFullDataCloudStatus((cloudChanged || unmatchedKnownBaseline) ? "decision-needed" : (localChanged ? "local-pending" : "sync-error"), cloud, {
         checkedAt,
         localPackageHash: localHash,
         pendingLocalChanges: localChanged ? 1 : 0
       });
     }
     renderLocalSyncStatus();
-    renderFullDataCloudPreview(cloud, localMatchesCloud ? "This device already matches the cloud copy." : "Check complete. No data changed.");
+    renderFullDataCloudPreview(cloud, localMatchesCloud
+      ? "This device already matches the cloud copy."
+      : "This device and cloud do not match. Tap Sync and choose which complete copy to keep.");
     setSyncCheckMessage(cloud.record
-      ? (localMatchesCloud ? "This device already matches the cloud copy." : `${summary.text}. No data changed.`)
+      ? (localMatchesCloud ? "This device already matches the cloud copy." : `${summary.text}. This device and cloud do not match.`)
       : "No cloud copy found yet. Sync will create one from this device.");
   }catch(e){
     saveLocalSyncStatus({
@@ -1637,6 +1640,7 @@ async function runFullDataCloudSync(options = {}){
     const lastCloudHash = String(previousStatus.lastSyncedCloudPackageHash || previousStatus.lastSyncedPackageHash || "");
     const localChanged = lastLocalHash ? localHash !== lastLocalHash : !localMatchesCloud;
     const cloudChanged = Boolean(cloud.record && (lastCloudHash ? cloudSummary.packageHash !== lastCloudHash : !localMatchesCloud));
+    const unmatchedKnownBaseline = Boolean(cloud.record && !localMatchesCloud && !localChanged && !cloudChanged);
     renderFullDataCloudPreview(cloud, localMatchesCloud ? "This device already matches the cloud copy." : "");
     if (cloud.record && localMatchesCloud) {
       clearAllLocalSyncDirty();
@@ -1655,16 +1659,16 @@ async function runFullDataCloudSync(options = {}){
     }
 
     let choice = "local";
-    if (cloudChanged) {
+    if (cloudChanged || unmatchedKnownBaseline) {
       saveObservedFullDataCloudStatus("decision-needed", cloud, { checkedAt: syncedAt });
       renderLocalSyncStatus();
       if (isAutoSync) {
-        renderFullDataCloudPreview(cloud, "Cloud changed. Auto-sync needs your decision.");
-        setSyncCheckMessage("Auto-sync found a cloud change. Choose which complete copy to keep.");
+        renderFullDataCloudPreview(cloud, "This device and cloud do not match. Auto-sync needs your decision.");
+        setSyncCheckMessage("Auto-sync found that this device and cloud do not match. Choose which complete copy to keep.");
       }
       choice = await chooseFullSyncConflictAction(cloud, { auto: isAutoSync });
       if (choice === "cancel") {
-        saveObservedFullDataCloudStatus("cloud-changed", cloud, { checkedAt: syncedAt });
+        saveObservedFullDataCloudStatus("decision-needed", cloud, { checkedAt: syncedAt });
         renderLocalSyncStatus();
         setSyncCheckMessage("Sync cancelled. Nothing changed.");
         return;
