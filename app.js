@@ -12,7 +12,7 @@ const DEVICE_NAME_KEY = "steeler_device_name_v1";
 const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 
-const APP_VERSION = "1.3.3-rc13";
+const APP_VERSION = "1.3.3-rc14";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -5723,14 +5723,14 @@ function exportDppTemplatesBackup() {
   URL.revokeObjectURL(url);
 }
 
-function refreshAfterDataRestore(){
+function refreshAfterDataRestore(options = {}){
   refreshHomePassageList();
   currentPassageId = getFirstActivePassage()?.id || null;
   loadPassageIntoUI();
   refreshPortUI();
   try { injectSafetyEmergencySettingsBlock(); } catch(e) {}
   try { injectFuelManagementSettingsBlock(); } catch(e) {}
-  importDppTemplateWaypointsToLibrary();
+  if (options.importDppTemplateWaypoints !== false) importDppTemplateWaypointsToLibrary();
   renderDppTemplatesManager();
   renderDppWaypointsManager();
   try { updatePlanSummaryPanel(); } catch(e) {}
@@ -5762,8 +5762,7 @@ function restoreDataBackupObject(obj, options = {}){
   const portsPayload = obj.data.knownPorts || {};
   knownPorts = Array.isArray(portsPayload.all) ? portsPayload.all : [];
   recentPorts = Array.isArray(portsPayload.recent) ? portsPayload.recent : [];
-  cleanPortsInPlace();
-  savePorts();
+  saveLocalStorageItem(PORTS_KEY, JSON.stringify({ all: knownPorts, recent: recentPorts }), "ports");
 
   if (obj.data.safetyInfo) {
     saveLocalStorageItem(SAFETY_INFO_KEY, JSON.stringify(obj.data.safetyInfo), "Safety / Emergency Info");
@@ -5771,8 +5770,8 @@ function restoreDataBackupObject(obj, options = {}){
   if (obj.data.legacyEcSettings) {
     saveLocalStorageItem(EC_SETTINGS_KEY, JSON.stringify(obj.data.legacyEcSettings), "legacy emergency contact settings");
   }
-  if (obj.data.dppTemplates) saveDppTemplateStore(obj.data.dppTemplates);
-  if (obj.data.dppWaypoints) saveDppWaypointStore(obj.data.dppWaypoints);
+  if (obj.data.dppTemplates) saveDppTemplateStore(obj.data.dppTemplates, { preserveUpdatedAt: true });
+  if (obj.data.dppWaypoints) saveDppWaypointStore(obj.data.dppWaypoints, { preserveUpdatedAt: true });
   if (obj.data.weatherAbbreviations) {
     saveLocalStorageItem(ABBR_DB_KEY, JSON.stringify(obj.data.weatherAbbreviations), "weather abbreviations");
   }
@@ -5783,7 +5782,7 @@ function restoreDataBackupObject(obj, options = {}){
     saveLocalStorageItem(LOG_SPLIT_RATIO_KEY, String(obj.data.settings.logSplitRatio), "log split setting");
   }
   applyTheme(obj.data.theme || "day");
-  refreshAfterDataRestore();
+  refreshAfterDataRestore({ importDppTemplateWaypoints: false });
   if (!options.silent) alert(options.successMessage || "Full STEELER data backup restored successfully.");
   return true;
 }
@@ -7484,9 +7483,9 @@ function loadDppTemplateStore(){
   return normaliseDppTemplateStore(stored);
 }
 
-function saveDppTemplateStore(store){
+function saveDppTemplateStore(store, options = {}){
   const clean = normaliseDppTemplateStore(store);
-  clean.updatedAt = new Date().toISOString();
+  if (!options.preserveUpdatedAt) clean.updatedAt = new Date().toISOString();
   return saveLocalStorageItem(DPP_TEMPLATES_KEY, JSON.stringify(clean), "DPP templates");
 }
 
@@ -7634,9 +7633,9 @@ function loadDppWaypointStore(){
   return normaliseDppWaypointStore(stored);
 }
 
-function saveDppWaypointStore(store){
+function saveDppWaypointStore(store, options = {}){
   const clean = normaliseDppWaypointStore(store);
-  clean.updatedAt = new Date().toISOString();
+  if (!options.preserveUpdatedAt) clean.updatedAt = new Date().toISOString();
   return saveLocalStorageItem(DPP_WAYPOINTS_KEY, JSON.stringify(clean), "DPP waypoints");
 }
 
