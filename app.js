@@ -11,8 +11,9 @@ const DEVICE_ID_KEY = "steeler_device_id_v1";
 const DEVICE_NAME_KEY = "steeler_device_name_v1";
 const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
+const WEATHER_ABBR_ENABLED_KEY = "steeler_weather_abbreviations_enabled_v1";
 
-const APP_VERSION = "1.3.3-rc15";
+const APP_VERSION = "1.3.3-rc16";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -29,7 +30,8 @@ const COMPLETE_DATA_SYNC_KEYS = new Set([
   DPP_TEMPLATES_KEY,
   DPP_WAYPOINTS_KEY,
   FUEL_MANAGEMENT_KEY,
-  LOG_SPLIT_RATIO_KEY
+  LOG_SPLIT_RATIO_KEY,
+  WEATHER_ABBR_ENABLED_KEY
 ]);
 const DEFAULT_PASSAGE_TIME_ZONE = "Europe/London";
 const PASSAGE_TIME_ZONES = {
@@ -336,6 +338,14 @@ function formatSyncStatusTime(value){
   }catch{
     return value;
   }
+}
+
+function weatherAbbreviationsEnabled(){
+  return storage.getItem(WEATHER_ABBR_ENABLED_KEY) !== "0";
+}
+
+function saveWeatherAbbreviationsEnabled(enabled){
+  saveLocalStorageItem(WEATHER_ABBR_ENABLED_KEY, enabled ? "1" : "0", "weather abbreviations setting");
 }
 
 function updateAutoSyncFooterStatus(summary = null){
@@ -4680,6 +4690,7 @@ function switchToTab(tabId) {
         if (typeof planMoonPhase !== "undefined" && planMoonPhase) p.plan.moonPhase = normaliseMoonPhaseLabel(planMoonPhase.value);
         if (typeof planMoonRiseSet !== "undefined" && planMoonRiseSet) p.plan.moonRiseSet = planMoonRiseSet.value.trim();
         if (typeof planTidalCoeff !== "undefined" && planTidalCoeff) p.plan.tidalCoeff = planTidalCoeff.value.trim();
+        if (typeof planCategories !== "undefined" && planCategories) p.plan.categories = normaliseCategoryList(planCategories.value);
         if (typeof planCurrents !== "undefined" && planCurrents) p.plan.currents = planCurrents.value.trim();
         if (typeof planWeather !== "undefined" && planWeather) p.plan.weather = planWeather.value.trim();
         if (typeof planComms !== "undefined" && planComms) p.plan.comms = planComms.value.trim();
@@ -4827,6 +4838,7 @@ const planPortsGrid = document.getElementById("planPortsGrid");
 const planVessel = document.getElementById("planVessel");
 const planSkipper = document.getElementById("planSkipper");
 const planCrew = document.getElementById("planCrew");
+const planCategories = document.getElementById("planCategories");
 const planSunriseSet = document.getElementById("planSunriseSet");
 const planMoonPhase = document.getElementById("planMoonPhase");
 const planMoonRiseSet = document.getElementById("planMoonRiseSet");
@@ -5598,6 +5610,7 @@ function flushCurrentPlanFormToPassage(reason = "plan-form-sync"){
   if (typeof planVessel !== "undefined" && planVessel) p.plan.vessel = planVessel.value.trim();
   if (typeof planSkipper !== "undefined" && planSkipper) p.plan.skipper = planSkipper.value.trim();
   if (typeof planCrew !== "undefined" && planCrew) p.plan.crew = planCrew.value.trim();
+  if (typeof planCategories !== "undefined" && planCategories) p.plan.categories = normaliseCategoryList(planCategories.value);
   if (typeof planSunriseSet !== "undefined" && planSunriseSet) p.plan.sunriseSet = planSunriseSet.value.trim();
   if (typeof planMoonPhase !== "undefined" && planMoonPhase) p.plan.moonPhase = normaliseMoonPhaseLabel(planMoonPhase.value);
   if (typeof planMoonRiseSet !== "undefined" && planMoonRiseSet) p.plan.moonRiseSet = planMoonRiseSet.value.trim();
@@ -5645,7 +5658,8 @@ function createDataBackupPayload(options = {}){
       weatherAbbreviations: loadAbbrDb(),
       fuelManagement: loadFuelManagementSettings(),
       settings: {
-        logSplitRatio: storage.getItem(LOG_SPLIT_RATIO_KEY) || ""
+        logSplitRatio: storage.getItem(LOG_SPLIT_RATIO_KEY) || "",
+        weatherAbbreviationsEnabled: weatherAbbreviationsEnabled()
       },
       localSyncStatus: getLocalSyncSummary()
     }
@@ -5777,6 +5791,9 @@ function restoreDataBackupObject(obj, options = {}){
   }
   if (obj.data.settings && obj.data.settings.logSplitRatio) {
     saveLocalStorageItem(LOG_SPLIT_RATIO_KEY, String(obj.data.settings.logSplitRatio), "log split setting");
+  }
+  if (obj.data.settings && Object.prototype.hasOwnProperty.call(obj.data.settings, "weatherAbbreviationsEnabled")) {
+    saveLocalStorageItem(WEATHER_ABBR_ENABLED_KEY, obj.data.settings.weatherAbbreviationsEnabled === false ? "0" : "1", "weather abbreviations setting");
   }
   applyTheme(obj.data.theme || "day");
   refreshAfterDataRestore({ importDppTemplateWaypoints: false });
@@ -6100,6 +6117,7 @@ function clonePassagePlanForCopy(plan) {
     vessel: copy.vessel || "STEELER",
     skipper: copy.skipper || "",
     crew: copy.crew || "",
+    categories: Array.isArray(copy.categories) ? normaliseCategoryList(copy.categories) : String(copy.categories || ""),
     sunriseSet: copy.sunriseSet || "",
     moonPhase: copy.moonPhase || "",
     moonRiseSet: copy.moonRiseSet || "",
@@ -6275,6 +6293,104 @@ function getPassageDateValue(passage) {
   return passage.plan?.date || passage.createdAt?.slice(0, 10) || "";
 }
 
+function normaliseCategoryList(value){
+  const raw = Array.isArray(value)
+    ? value
+    : String(value || "").split(/[,\n;]/);
+  const seen = new Set();
+  return raw
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .filter((item) => {
+      const key = item.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function normalisePassageCategories(passage){
+  const value = passage?.plan?.categories ?? passage?.categories ?? "";
+  return normaliseCategoryList(value);
+}
+
+function formatFuelConsumption(fuelValue, nmValue){
+  const fuel = _num(fuelValue);
+  const nm = _num(nmValue);
+  if (fuel === null || nm === null || nm <= 0) return "–";
+  return `${(fuel / nm).toFixed(2)} l/NM`;
+}
+
+function getPassageEstimatedFuelText(passage){
+  const fuel = getPlanPageDetailedTotals(passage).fuel;
+  return fuel && fuel !== "–" ? fuel : "";
+}
+
+function makePortLinkHtml(name, portId = ""){
+  const cleanName = String(name || "").trim();
+  if (!cleanName) return "";
+  const port = portId ? findPortItemById(portId) : findPortItemByName(cleanName);
+  if (!port) return escapeHtml(cleanName);
+  return `<button type="button" class="inline-port-link" data-port-link="${escapeHtml(port.id || "")}" data-port-name="${escapeHtml(portName(port))}">${escapeHtml(cleanName)}</button>`;
+}
+
+function linkKnownPortNamesInText(text){
+  const ports = (knownPorts || [])
+    .map((port) => ({ port, name: portName(port) }))
+    .filter((item) => item.name && item.name.length >= 3)
+    .sort((a, b) => b.name.length - a.name.length);
+  const source = String(text || "");
+  if (!source || !ports.length) return escapeHtml(source).replace(/\n/g, "<br>");
+  const isWordChar = (ch) => /[A-Za-z0-9À-ÿ]/.test(ch || "");
+  let html = "";
+  let index = 0;
+  while (index < source.length) {
+    let hit = null;
+    for (const item of ports) {
+      const slice = source.slice(index, index + item.name.length);
+      if (slice.toLowerCase() !== item.name.toLowerCase()) continue;
+      if (isWordChar(source[index - 1]) || isWordChar(source[index + item.name.length])) continue;
+      hit = { ...item, shown: slice };
+      break;
+    }
+    if (hit) {
+      html += `<button type="button" class="inline-port-link" data-port-link="${escapeHtml(hit.port.id || "")}" data-port-name="${escapeHtml(hit.name)}">${escapeHtml(hit.shown)}</button>`;
+      index += hit.name.length;
+    } else {
+      html += escapeHtml(source[index]);
+      index += 1;
+    }
+  }
+  return html.replace(/\n/g, "<br>");
+}
+
+function routeTextToPortLinks(passage){
+  const plan = passage?.plan || {};
+  const parts = [];
+  parts.push(makePortLinkHtml(plan.from || "", plan.fromPortId || ""));
+  (Array.isArray(plan.transitPorts) ? plan.transitPorts : []).forEach((port) => {
+    const name = typeof port === "string" ? port : port?.name;
+    const id = typeof port === "object" ? port?.portId : "";
+    if (String(name || "").trim()) parts.push(makePortLinkHtml(name, id));
+  });
+  parts.push(makePortLinkHtml(plan.to || "", plan.toPortId || ""));
+  return parts.filter(Boolean).join(" &rarr; ") || escapeHtml(getRouteNames(passage).join(" → ") || "?");
+}
+
+function openPortFromInlineLink(portId = "", portLabel = ""){
+  const port = portId ? findPortItemById(portId) : findPortItemByName(portLabel);
+  const name = port ? portName(port) : String(portLabel || "").trim();
+  if (!name) return;
+  switchToTab("settingsTab");
+  setTimeout(() => {
+    const modal = document.getElementById("portsModal");
+    const overlay = document.getElementById("portsModalOverlay");
+    renderPortsManagerList(name);
+    modal?.classList.remove("hidden");
+    overlay?.classList.remove("hidden");
+  }, 50);
+}
+
 function passageMatchesHomeFilter(passage) {
   const status = getPassageDashboardStatus(passage);
   if (homePassageFilterMode === "active") return passage.id === currentPassageId || status === "Under Way";
@@ -6289,6 +6405,7 @@ function passageMatchesHomeSearch(passage) {
     getRouteNames(passage).join(" "),
     getPassageDateValue(passage),
     getPassageDashboardStatus(passage),
+    normalisePassageCategories(passage).join(" "),
     passage.plan?.skipper || "",
     passage.plan?.crew || ""
   ].join(" ").toLowerCase();
@@ -6301,18 +6418,82 @@ function getPassageDashboardMetrics(passage) {
   const summary = status === "Complete"
     ? computePassageLogSummary(passage)
     : computeLegLogSummary(passage, legIdx);
+  const distance = summary.gLog || summary.nmG || "–";
+  const estimatedFuel = getPassageEstimatedFuelText(passage);
+  const fuelUsedText = summary.fuelUsed && summary.fuelUsed !== "–"
+    ? `${summary.fuelUsed}${estimatedFuel ? ` (${estimatedFuel} est.)` : ""}`
+    : (estimatedFuel ? `– (${estimatedFuel} est.)` : "–");
 
   return [
     { label: "Under Way", value: summary.durationText || "–" },
     { label: "Engine Hours", value: summary.ehText || "–" },
-    { label: "Fuel Used", value: summary.fuelUsed || "–" },
-    { label: "NM(G)", value: summary.gLog || summary.nmG || "–" }
+    { label: "Fuel Used", value: fuelUsedText },
+    { label: "l/NM", value: formatFuelConsumption(summary.fuelUsed, distance) },
+    { label: "NM(G)", value: distance }
   ].map(m => `
     <span class="st-metric-chip passage-metric">
       <span>${escapeHtml(m.label)}</span>
       <strong>${escapeHtml(m.value && m.value !== "undefined" ? String(m.value) : "–")}</strong>
     </span>
   `).join("");
+}
+
+function computePassageCategoryNumbers(passage){
+  const summary = computePassageLogSummary(passage);
+  const fuel = _num(summary.fuelUsed) || 0;
+  const nm = _num(summary.gLog) || 0;
+  const engineStart = _num(passage?.plan?.engineHoursStart);
+  const engineEnd = _num(passage?.finish?.engineHoursEnd);
+  const engineHours = engineStart !== null && engineEnd !== null && engineEnd >= engineStart
+    ? engineEnd - engineStart
+    : 0;
+  let underwayMinutes = 0;
+  for (let i = 0; i < getLegCount(passage); i += 1) {
+    const legMetrics = computeLegMetricsFromEntries(passage, i);
+    if (legMetrics.durationMinutes !== null) underwayMinutes += legMetrics.durationMinutes;
+  }
+  return { fuel, nm, engineHours, underwayMinutes };
+}
+
+function renderHomeCategorySummary(sourcePassages){
+  const byCategory = new Map();
+  (sourcePassages || []).forEach((passage) => {
+    const categories = normalisePassageCategories(passage);
+    if (!categories.length) return;
+    const numbers = computePassageCategoryNumbers(passage);
+    categories.forEach((category) => {
+      const existing = byCategory.get(category.toLowerCase()) || {
+        label: category,
+        passages: 0,
+        nm: 0,
+        fuel: 0,
+        engineHours: 0,
+        underwayMinutes: 0
+      };
+      existing.passages += 1;
+      existing.nm += numbers.nm;
+      existing.fuel += numbers.fuel;
+      existing.engineHours += numbers.engineHours;
+      existing.underwayMinutes += numbers.underwayMinutes;
+      byCategory.set(category.toLowerCase(), existing);
+    });
+  });
+  if (!byCategory.size) return "";
+  const cards = Array.from(byCategory.values())
+    .sort((a, b) => a.label.localeCompare(b.label))
+    .map((item) => {
+      const fuelPerNm = item.fuel > 0 && item.nm > 0 ? `${(item.fuel / item.nm).toFixed(2)} l/NM` : "–";
+      return `
+        <div class="category-summary-card">
+          <strong>${escapeHtml(item.label)}</strong>
+          <span>${item.passages} passage${item.passages === 1 ? "" : "s"}</span>
+          <span>${item.nm ? item.nm.toFixed(1) : "–"} NM · ${_fmtDurationFromMinutes(item.underwayMinutes) || "–"} UW</span>
+          <span>${item.fuel ? item.fuel.toFixed(1) : "–"} L fuel · ${item.engineHours ? item.engineHours.toFixed(1) : "–"} EH</span>
+          <span>${fuelPerNm}</span>
+        </div>
+      `;
+    }).join("");
+  return `<div class="home-category-summary">${cards}</div>`;
 }
 
 function getPassageStatusClass(status) {
@@ -6367,20 +6548,28 @@ function refreshHomePassageList() {
     return;
   }
 
+  const categorySummaryHtml = renderHomeCategorySummary(visiblePassages);
+  if (categorySummaryHtml) {
+    const summaryWrap = document.createElement("div");
+    summaryWrap.innerHTML = categorySummaryHtml;
+    homePassageList.appendChild(summaryWrap.firstElementChild);
+  }
+
   visiblePassages.forEach(passage => {
     const card = document.createElement("div");
     card.className = "passage-card" + (passage.id === currentPassageId ? " selected" : "");
 
     const date = getPassageDateValue(passage);
-    const routeText = getRouteNames(passage).join(" → ") || "?";
     const status = getPassageDashboardStatus(passage);
     const entriesCount = activeLogEntries(passage).length;
+    const categories = normalisePassageCategories(passage);
 
     const left = document.createElement("div");
     left.className = "passage-card-left";
     left.innerHTML = `
-      <div class="passage-card-title">${escapeHtml(routeText)}</div>
+      <div class="passage-card-title">${routeTextToPortLinks(passage)}</div>
       <div class="passage-card-meta"><span>${escapeHtml(date)}</span><span>${entriesCount} entries</span><span class="st-status-chip status-${escapeHtml(getPassageStatusClass(status))}">${escapeHtml(status)}</span></div>
+      ${categories.length ? `<div class="passage-category-chips">${categories.map(category => `<span>${escapeHtml(category)}</span>`).join("")}</div>` : ""}
     `;
 
     const summary = document.createElement("div");
@@ -6444,7 +6633,7 @@ function refreshHomePassageList() {
     };
 
     card.addEventListener("pointerdown", (e) => {
-      if (e.target.closest(".passage-copy-btn, .passage-delete-btn")) return;
+      if (e.target.closest(".passage-copy-btn, .passage-delete-btn, .inline-port-link")) return;
       clearHomeCardLongPress();
       homeCardLongPressTimer = setTimeout(() => {
         card.dataset.openedByLongPress = "1";
@@ -6456,7 +6645,7 @@ function refreshHomePassageList() {
     card.addEventListener("pointerleave", clearHomeCardLongPress);
     card.addEventListener("pointercancel", clearHomeCardLongPress);
     card.addEventListener("dblclick", (e) => {
-      if (e.target.closest(".passage-copy-btn, .passage-delete-btn")) return;
+      if (e.target.closest(".passage-copy-btn, .passage-delete-btn, .inline-port-link")) return;
       e.preventDefault();
       e.stopPropagation();
       selectHomePassage(passage, { openLog: true });
@@ -6465,7 +6654,7 @@ function refreshHomePassageList() {
     card.addEventListener("click", (e) => {
       if (card.dataset.justSwiped === "1") return;
       if (card.dataset.openedByLongPress === "1") return;
-      if (e.target.closest(".passage-copy-btn, .passage-delete-btn")) return;
+      if (e.target.closest(".passage-copy-btn, .passage-delete-btn, .inline-port-link")) return;
       selectHomePassage(passage, { openLog: false });
     });
 
@@ -6996,6 +7185,7 @@ function createPassage() {
       vessel: "STEELER",
       skipper: "",
       crew: "",
+      categories: "",
       sunriseSet: "",
       moonPhase: "",
       moonRiseSet: "",
@@ -7060,6 +7250,7 @@ function loadPlanIntoForm(p) {
 planVessel.value = p.plan.vessel || "STEELER";
   planSkipper.value = p.plan.skipper || "";
   planCrew.value = p.plan.crew || "";
+  if (planCategories) planCategories.value = normalisePassageCategories(p).join(", ");
   planSunriseSet.value = p.plan.sunriseSet || "";
   if (planMoonPhase) {
     const d = p.plan.date || p.createdAt?.slice(0,10) || "";
@@ -9082,6 +9273,7 @@ function saveAbbrDb(db){
 }
 
 function applyAbbrDbToText(text, provider, category){
+  if (!weatherAbbreviationsEnabled()) return String(text ?? "");
   // v0.7.7: Flat DB — provider/category ignored.
   const db = loadAbbrDb();
   const rules = Array.isArray(db.rules) ? db.rules : [];
@@ -9435,6 +9627,7 @@ planForm.addEventListener("submit", async (e) => {
 p.plan.vessel = planVessel.value.trim();
   p.plan.skipper = planSkipper.value.trim();
   p.plan.crew = planCrew.value.trim();
+  if (planCategories) p.plan.categories = normaliseCategoryList(planCategories.value);
   p.plan.sunriseSet = planSunriseSet.value.trim();
   if (planMoonPhase) p.plan.moonPhase = normaliseMoonPhaseLabel(planMoonPhase.value);
   if (planMoonRiseSet) p.plan.moonRiseSet = planMoonRiseSet.value.trim();
@@ -9498,6 +9691,7 @@ function updatePlanSummaryPanel() {
   const moonRiseSet = p.plan.moonRiseSet || "";
   const tidalCoeff = p.plan.tidalCoeff || "";
   const tideStations = p.plan.tideStations || [];
+  const categories = normalisePassageCategories(p);
   const currents = p.plan.currents || "";
   const weather = p.plan.weather || "";
 		const comms = p.plan.comms || "";
@@ -9523,7 +9717,7 @@ function updatePlanSummaryPanel() {
 
   const tideStationsBlocks = tideStations.map(ts => {
     const stationName = (ts.name || "").trim();
-    const nameHtml = stationName ? `<p><strong>${escapeHtml(stationName)}</strong></p>` : "";
+    const nameHtml = stationName ? `<p><strong>${makePortLinkHtml(stationName)}</strong></p>` : "";
 
     const ev = Array.isArray(ts.events) && ts.events.length
       ? ts.events.slice()
@@ -9577,6 +9771,8 @@ function updatePlanSummaryPanel() {
       <div class="col plan-summary-col plan-summary-col-left">
         <div class="block plan-link" data-goto="detailedPassagePlanSection">
           <p class="section-title">ROUTE SUMMARY</p>
+          <p class="route-port-links">${routeTextToPortLinks(p)}</p>
+          ${categories.length ? `<p class="passage-category-chips">${categories.map(category => `<span>${escapeHtml(category)}</span>`).join("")}</p>` : ""}
           ${detailedWpHtml}
           <p style="margin-top:0.5rem;"><strong>Hazards:</strong> ${detailedHazardsHtml}</p>
           <p><strong>Ports of Refuge:</strong> ${detailedRefugeHtml}</p>
@@ -9585,7 +9781,7 @@ function updatePlanSummaryPanel() {
 
         <div class="block plan-link" data-goto="planComms">
           <p class="section-title">COMMS / PILOTAGE</p>
-          <p>${comms ? linkifyNoteHtml(comms) : "<em>–</em>"}</p>
+          <p>${comms ? linkKnownPortNamesInText(comms) : "<em>–</em>"}</p>
         </div>
 
         <div class="block plan-link" data-goto="planTidalCoeff">
@@ -9596,7 +9792,7 @@ function updatePlanSummaryPanel() {
 
         <div class="block plan-link" data-goto="planCurrents">
           <p class="section-title">TIDAL CURRENTS / FLOWS</p>
-          <p>${currents ? escapeHtml(currents).replace(/\n/g, "<br>") : "<em>–</em>"}</p>
+          <p>${currents ? linkKnownPortNamesInText(currents) : "<em>–</em>"}</p>
         </div>
 
         <div class="block">
@@ -9699,7 +9895,7 @@ function setupPlanSummaryIndependentScroll(){
 planSummaryPanel.addEventListener("pointerdown", holdNoteLinkTap, true);
 planSummaryPanel.addEventListener("touchstart", holdNoteLinkTap, true);
 planSummaryPanel.addEventListener("click", (e) => {
-  if (e.target.closest("a")) return;
+  if (e.target.closest("a, .inline-port-link")) return;
   const target = e.target.closest(".plan-link");
   if (!target) return;
   const fieldId = target.dataset.goto;
@@ -11354,13 +11550,18 @@ function renderLogEntries() {
     tdNotes.className = 'log-display-cell log-notes-cell';
     tdNotes.addEventListener('click', (ev) => {
       ev.stopPropagation();
+      const portLink = ev.target.closest(".inline-port-link");
+      if (portLink) {
+        openPortFromInlineLink(portLink.getAttribute("data-port-link") || "", portLink.getAttribute("data-port-name") || portLink.textContent || "");
+        return;
+      }
       if (ev.target.closest("a")) return;
       openEntryDialog(entry);
     });
 
     const notesText = document.createElement('div');
     notesText.className = 'log-notes-display';
-    notesText.innerHTML = entry.notes ? linkifyNoteHtml(entry.notes) : '—';
+    notesText.innerHTML = entry.notes ? linkKnownPortNamesInText(entry.notes) : '—';
     activateNoteLinks(notesText);
     tdNotes.appendChild(notesText);
 
@@ -11394,7 +11595,10 @@ function renderLogEntries() {
 
     tdNotes.appendChild(actions);
     tr.appendChild(tdNotes);
-    tr.addEventListener('click', () => openEntryDialog(entry));
+    tr.addEventListener('click', (ev) => {
+      if (ev.target.closest(".inline-port-link")) return;
+      openEntryDialog(entry);
+    });
 
     logEntriesContainer.appendChild(tr);
 
@@ -11412,6 +11616,7 @@ function renderLogEntries() {
       bits.push(`Engine hours: ${s.ehText}`);
       bits.push(`Fuel ${s.fuelStart}%→${s.fuelEnd}%`);
       bits.push(`Fuel used: ${s.fuelUsed}`);
+      bits.push(`l/NM: ${formatFuelConsumption(s.fuelUsed, s.nmG)}`);
       bits.push(`NM(G): ${s.nmG}`);
       bits.push(`Under Way: ${s.durationText}`);
 
@@ -11670,6 +11875,7 @@ function updateLogSummary() {
   const html = `<strong>Total:</strong>
     Engine hours: ${total.ehText} |
     Fuel Used: ${total.fuelUsed} |
+    l/NM: ${formatFuelConsumption(total.fuelUsed, total.gLog)} |
     Fuel ${total.fuelStart}%→${total.fuelEnd}% |
     NM(G): ${total.gLog} |
     Under Way: ${total.durationText}`;
@@ -11753,6 +11959,14 @@ homePassageSortBtn?.addEventListener("click", () => {
   homePassageSortMode = homePassageSortMode === "newest" ? "oldest" : "newest";
   homePassageSortBtn.textContent = homePassageSortMode === "newest" ? "Date" : "Oldest";
   refreshHomePassageList();
+});
+
+document.addEventListener("click", (ev) => {
+  const link = ev.target.closest("[data-port-link], [data-port-name]");
+  if (!link) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  openPortFromInlineLink(link.getAttribute("data-port-link") || "", link.getAttribute("data-port-name") || link.textContent || "");
 });
 
 // --- Cache / service-worker reset ----------------------------------------
@@ -11866,6 +12080,10 @@ function reorderSettingsBlocksAndInjectWx() {
               <button type="button" id="wxAbbrResetBtn" class="btn btn-secondary">Reset defaults</button>
               <button type="button" id="wxAbbrClearBtn" class="btn btn-secondary">Clear all</button>
             </div>
+            <label class="sync-check-option weather-abbr-toggle">
+              <span>Use weather abbreviations</span>
+              <span><input id="wxAbbrEnabled" type="checkbox"> Apply abbreviation rules when forecasts are fetched or previewed</span>
+            </label>
             <p class="hint">Define abbreviation / expansion rules for Met Office and Météo-France forecasts.</p>
             <div id="wxAbbrEditorWrap" class="st-stack"></div>
           </section>
@@ -11942,6 +12160,14 @@ function setupWeatherShorthandEditorUI(){
   const importBtn = document.getElementById("wxAbbrImportBtn");
   const resetBtn  = document.getElementById("wxAbbrResetBtn");
   const clearBtn  = document.getElementById("wxAbbrClearBtn");
+  const enabledToggle = document.getElementById("wxAbbrEnabled");
+  if (enabledToggle) {
+    enabledToggle.checked = weatherAbbreviationsEnabled();
+    enabledToggle.addEventListener("change", () => {
+      saveWeatherAbbreviationsEnabled(enabledToggle.checked);
+      rebuildPreview();
+    });
+  }
 
   const topRow = mk("div", { class:"st-action-row" }, [searchInp]);
 
