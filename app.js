@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const WEATHER_ABBR_ENABLED_KEY = "steeler_weather_abbreviations_enabled_v1";
 
-const APP_VERSION = "1.3.3-rc16";
+const APP_VERSION = "1.3.3-rc17";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -3676,6 +3676,44 @@ function createNewPortFromSettings(){
 }
 
 
+function closePortsManagerModal(){
+  const modal = document.getElementById("portsModal");
+  const overlay = document.getElementById("portsModalOverlay");
+  modal?.classList.add("hidden");
+  modal?.setAttribute("aria-hidden", "true");
+  overlay?.classList.add("hidden");
+}
+
+function openPortsManagerModal(openName = ""){
+  const modal = document.getElementById("portsModal");
+  const overlay = document.getElementById("portsModalOverlay");
+  const closeBtn = document.getElementById("portsModalClose");
+  if (!modal) return;
+  if (closeBtn && closeBtn.dataset.bound !== "1") {
+    closeBtn.dataset.bound = "1";
+    closeBtn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      closePortsManagerModal();
+    });
+  }
+  if (overlay && overlay.dataset.bound !== "1") {
+    overlay.dataset.bound = "1";
+    overlay.addEventListener("click", closePortsManagerModal);
+  }
+  renderPortsManagerList(openName);
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+  overlay?.classList.remove("hidden");
+  if (openName) {
+    setTimeout(() => {
+      const row = modal.querySelector("[data-port-open='1']");
+      row?.scrollIntoView({ block: "center", behavior: "smooth" });
+      row?.querySelector(".ports-name-input")?.focus({ preventScroll: true });
+    }, 60);
+  }
+}
+
 function renderPortsManagerList(openName = "") {
   const lists = Array.from(new Set([
     ...document.querySelectorAll("[data-ports-manager-list]"),
@@ -3701,7 +3739,11 @@ function renderPortsManagerList(openName = "") {
     const row = document.createElement("div");
     row.className = "ports-row st-list-card st-edit-list-row";
     row.tabIndex = 0;
-    if (String(name) === String(openName)) row.classList.add("is-editing");
+    const isOpenTarget = String(name).toLowerCase() === String(openName).toLowerCase();
+    if (isOpenTarget) {
+      row.classList.add("is-editing", "port-open-target");
+      row.dataset.portOpen = "1";
+    }
 
     const left = document.createElement("div");
     left.className = "ports-left st-list-card-main";
@@ -3910,19 +3952,19 @@ function setupPortsManagerModal() {
 
   if (!openBtn || !modal) return;
 
-  const open = () => {
-    renderPortsManagerList();
-    modal.classList.remove("hidden");
-    if (overlay) overlay.classList.remove("hidden");
-  };
-  const close = () => {
-    modal.classList.add("hidden");
-    if (overlay) overlay.classList.add("hidden");
-  };
-
-  openBtn.addEventListener("click", open);
-  if (closeBtn) closeBtn.addEventListener("click", close);
-  if (overlay) overlay.addEventListener("click", close);
+  openBtn.addEventListener("click", () => openPortsManagerModal());
+  if (closeBtn && closeBtn.dataset.bound !== "1") {
+    closeBtn.dataset.bound = "1";
+    closeBtn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      closePortsManagerModal();
+    });
+  }
+  if (overlay && overlay.dataset.bound !== "1") {
+    overlay.dataset.bound = "1";
+    overlay.addEventListener("click", closePortsManagerModal);
+  }
 }
 
 function setupSettingsCardToggles(){
@@ -6382,13 +6424,7 @@ function openPortFromInlineLink(portId = "", portLabel = ""){
   const name = port ? portName(port) : String(portLabel || "").trim();
   if (!name) return;
   switchToTab("settingsTab");
-  setTimeout(() => {
-    const modal = document.getElementById("portsModal");
-    const overlay = document.getElementById("portsModalOverlay");
-    renderPortsManagerList(name);
-    modal?.classList.remove("hidden");
-    overlay?.classList.remove("hidden");
-  }, 50);
+  setTimeout(() => openPortsManagerModal(name), 50);
 }
 
 function passageMatchesHomeFilter(passage) {
@@ -6455,7 +6491,7 @@ function computePassageCategoryNumbers(passage){
   return { fuel, nm, engineHours, underwayMinutes };
 }
 
-function renderHomeCategorySummary(sourcePassages){
+function renderPassageCategorySummary(sourcePassages){
   const byCategory = new Map();
   (sourcePassages || []).forEach((passage) => {
     const categories = normalisePassageCategories(passage);
@@ -6493,7 +6529,7 @@ function renderHomeCategorySummary(sourcePassages){
         </div>
       `;
     }).join("");
-  return `<div class="home-category-summary">${cards}</div>`;
+  return `<div class="passage-category-summary">${cards}</div>`;
 }
 
 function getPassageStatusClass(status) {
@@ -6546,13 +6582,6 @@ function refreshHomePassageList() {
     p.className = "hint";
     homePassageList.appendChild(p);
     return;
-  }
-
-  const categorySummaryHtml = renderHomeCategorySummary(visiblePassages);
-  if (categorySummaryHtml) {
-    const summaryWrap = document.createElement("div");
-    summaryWrap.innerHTML = categorySummaryHtml;
-    homePassageList.appendChild(summaryWrap.firstElementChild);
   }
 
   visiblePassages.forEach(passage => {
@@ -12614,6 +12643,7 @@ function renderFuelManagementSettings(){
   const resetAtEl = document.getElementById("fuelMgmtResetAt");
   const resetLevelEl = document.getElementById("fuelMgmtResetLevel");
   const statsEl = document.getElementById("fuelMgmtStats");
+  const analyticsEl = document.getElementById("passageAnalyticsSummary");
   if (!resetAtEl || !resetLevelEl || !statsEl) return;
 
   const stats = computeFuelManagementStats();
@@ -12632,6 +12662,9 @@ function renderFuelManagementSettings(){
     <span class="st-metric-chip"><span>Fuel Bought</span><strong>${escapeHtml(bought)}</strong></span>
     <span class="st-metric-chip"><span>Avg Cost</span><strong>${escapeHtml(avg)}</strong></span>
   `;
+  if (analyticsEl) {
+    analyticsEl.innerHTML = renderPassageCategorySummary(activePassages()) || '<p class="hint">Add Passage Categories on the Plan page to see grouped mileage, fuel and engine-hour summaries here.</p>';
+  }
 }
 
 function saveFuelManagementFromSettings(fullReset = false){
@@ -12668,8 +12701,8 @@ function injectFuelManagementSettingsBlock(){
           <div class="settings-card-main">
             <span class="settings-card-icon" aria-hidden="true">FL</span>
             <div>
-              <h3>Fuel Management</h3>
-              <p>Tank level reset and simple fuel statistics.</p>
+              <h3>Passage Analytics &amp; Fuel</h3>
+              <p>Tank level, fuel use and category summaries.</p>
             </div>
           </div>
           <button type="button" id="toggleFuelManagementBtn" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>›</button>
@@ -12692,6 +12725,10 @@ function injectFuelManagementSettingsBlock(){
               <button type="button" id="fuelMgmtFullBtn" class="btn btn-primary">Reset Tank Full</button>
               <button type="button" id="fuelMgmtSaveBtn" class="btn btn-secondary">Save Tank Level</button>
             </div>
+          </section>
+          <section class="settings-panel-card st-panel st-stack">
+            <div class="st-panel-title">Passage Categories</div>
+            <div id="passageAnalyticsSummary"></div>
           </section>
         </div>
       </div>
@@ -12783,11 +12820,4 @@ if ("serviceWorker" in navigator) {
       console.warn("Service worker registration failed", err);
     }
   });
-}
-
-function closePortsManagerModal(){
-  const modal = document.getElementById("portsModal");
-  const overlay = document.getElementById("portsModalOverlay");
-  if (modal) modal.classList.add("hidden");
-  if (overlay) overlay.classList.add("hidden");
 }

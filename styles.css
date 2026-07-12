@@ -1103,9 +1103,19 @@ body[data-theme="night"] .ports-delete { border-color: rgba(255,255,255,0.18); c
   flex-direction: column;
   overflow: hidden;
 }
+#portsModal .modal-close{
+  position:relative;
+  z-index:1;
+  pointer-events:auto;
+}
 #portsModal .modal-body{
   overflow: auto;
   -webkit-overflow-scrolling: touch;
+}
+
+.ports-row.port-open-target{
+  border-color:var(--st-accent-border);
+  box-shadow:inset 0 0 0 1px var(--st-accent-border), var(--st-shadow-card);
 }
 
 /* --- Tide paste modal layering fix ---
@@ -2111,7 +2121,7 @@ body[data-theme="night"] .app-header h1{
   line-height:1.1;
 }
 
-.home-category-summary{
+.passage-category-summary{
   display:grid;
   grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));
   gap:var(--st-space-2);
