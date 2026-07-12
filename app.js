@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const WEATHER_ABBR_ENABLED_KEY = "steeler_weather_abbreviations_enabled_v1";
 
-const APP_VERSION = "1.3.3-rc18";
+const APP_VERSION = "1.3.3-rc19";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -6372,8 +6372,7 @@ function makePortLinkHtml(name, portId = ""){
   const cleanName = String(name || "").trim();
   if (!cleanName) return "";
   const port = portId ? findPortItemById(portId) : findPortItemByName(cleanName);
-  if (!port) return escapeHtml(cleanName);
-  return `<button type="button" class="inline-port-link" data-port-link="${escapeHtml(port.id || "")}" data-port-name="${escapeHtml(portName(port))}">${escapeHtml(cleanName)}</button>`;
+  return `<button type="button" class="inline-port-link" data-port-link="${escapeHtml(port?.id || "")}" data-port-name="${escapeHtml(port ? portName(port) : cleanName)}">${escapeHtml(cleanName)}</button>`;
 }
 
 function linkKnownPortNamesInText(text){
