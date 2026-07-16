@@ -5287,11 +5287,11 @@ function openPortDetailsModal({ title = "Port Details", port = {}, suggestedDisp
         <p id="portDetailsLookupHint" class="hint">${mapHref ? `<a href="${escapeHtml(mapHref)}" target="_blank" rel="noopener noreferrer">Check on Apple Maps</a>` : "Coordinates can be added now or later."}</p>
         <label class="st-labelled-field" style="margin-top:0.65rem">
           <span>Comms / Pilotage</span>
-          <textarea id="portDetailsComms" rows="2" placeholder="VHF channels, phone numbers, pilotage notes...">${escapeHtml(comms)}</textarea>
+          <div id="portDetailsComms" class="ports-comment-input ports-note-editor" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="VHF channels, phone numbers, pilotage notes..."></div>
         </label>
         <label class="st-labelled-field" style="margin-top:0.65rem">
           <span>Private Notes</span>
-          <textarea id="portDetailsPrivateNotes" rows="2" placeholder="Berthing tips, facilities, local reminders...">${escapeHtml(privateNotes)}</textarea>
+          <div id="portDetailsPrivateNotes" class="ports-comment-input ports-note-editor" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="Berthing tips, facilities, local reminders..."></div>
         </label>
         <div class="st-action-row" style="margin-top:0.8rem">
           <button type="button" id="portDetailsSave" class="btn">Save Port</button>
@@ -5304,6 +5304,23 @@ function openPortDetailsModal({ title = "Port Details", port = {}, suggestedDisp
       closeModal();
       resolve(value);
     };
+
+    const portDetailsComms = document.getElementById("portDetailsComms");
+    const portDetailsPrivateNotes = document.getElementById("portDetailsPrivateNotes");
+    [
+      [portDetailsComms, comms],
+      [portDetailsPrivateNotes, privateNotes]
+    ].forEach(([editor, value]) => {
+      setEditableNoteText(editor, value);
+      editor?.addEventListener("blur", () => {
+        setEditableNoteText(editor, getEditableNoteText(editor));
+      });
+      editor?.addEventListener("paste", (ev) => {
+        ev.preventDefault();
+        const text = ev.clipboardData?.getData("text/plain") || "";
+        document.execCommand("insertText", false, text);
+      });
+    });
 
     document.getElementById("portDetailsLookup")?.addEventListener("click", async () => {
       const lookupName = normalisePortDisplay(document.getElementById("portDetailsName")?.value || "");
@@ -5338,8 +5355,8 @@ function openPortDetailsModal({ title = "Port Details", port = {}, suggestedDisp
       const result = savePortDetailsFromFlow({
         name: document.getElementById("portDetailsName")?.value || "",
         coordText: document.getElementById("portDetailsCoords")?.value || "",
-        commsPilotage: document.getElementById("portDetailsComms")?.value || "",
-        privateNotes: document.getElementById("portDetailsPrivateNotes")?.value || ""
+        commsPilotage: getEditableNoteText(document.getElementById("portDetailsComms")),
+        privateNotes: getEditableNoteText(document.getElementById("portDetailsPrivateNotes"))
       });
       if (!result.ok) {
         alert(result.message || "Could not save port details.");
