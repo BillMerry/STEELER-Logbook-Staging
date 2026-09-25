@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const WEATHER_ABBR_ENABLED_KEY = "steeler_weather_abbreviations_enabled_v1";
 
-const APP_VERSION = "1.3.5-rc5";
+const APP_VERSION = "1.3.5-rc6";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -10435,9 +10435,15 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
             </label>
 
             <label class="entry-dialog-field manual-log-refuel-fields" ${isRefuelEntry ? "" : "hidden"}>
-              <span>Fuel used since previous refill (L), optional</span>
-              <input id="dlgRefuelUsed" type="number" inputmode="decimal" min="0" step="0.1" value="${escapeHtml(entry.refuel?.fuelUsedSincePrevious ?? "")}" placeholder="Calculate from log readings">
-              <small>Leave blank to calculate from cumulative leg readings. Enter a known interval total to override that calculation; this does not change the tank estimate.</small>
+              <span>Refill location</span>
+              <input id="dlgRefuelLocation" type="text" list="refuelLocationOptions" value="${escapeHtml(entry.refuel?.location || "")}" placeholder="Port or fuel berth">
+              <datalist id="refuelLocationOptions">${knownPorts.map(port => `<option value="${escapeHtml(portName(port))}"></option>`).join("")}</datalist>
+            </label>
+
+            <label class="entry-dialog-field manual-log-full-refill-fields" ${isRefuelEntry && entry.refuel?.tankFull ? "" : "hidden"}>
+              <span>Fuel used since previous full refill (L), optional</span>
+              <input id="dlgRefuelUsed" type="number" inputmode="decimal" min="0" step="0.1" value="${escapeHtml(refillFullUseInputValue(pForDialog, entry))}" placeholder="Calculate from log readings">
+              <small>For full refills only. Leave blank to use log readings, or enter the total used since the previous full refill. This does not change the tank estimate.</small>
             </label>
 
             <label class="entry-dialog-check manual-log-refuel-fields" ${isRefuelEntry ? "" : "hidden"}>
@@ -10471,7 +10477,8 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
           'dlgWpSelect',
           'dlgRefuelLitres',
           'dlgRefuelCost',
-          'dlgRefuelUsed'
+          'dlgRefuelUsed',
+          'dlgRefuelLocation'
         ]);
         if (document.getElementById("dlgRefuel")?.checked) {
           if (!(fuelNonnegative(vals.dlgRefuelLitres) > 0)) {
@@ -10568,9 +10575,11 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
           if (refuelNote) notes = notes ? `${notes}\n${refuelNote}` : refuelNote;
           entry.entryType = entry.entryType === "wp-reached" ? "wp-reached" : "refuel";
           entry.refuel = {
+            ...(entry.refuel || {}),
+            location: String(vals.dlgRefuelLocation || "").trim(),
             litres: litres != null ? Number(litres.toFixed(1)) : "",
             cost: cost != null ? Number(cost.toFixed(2)) : "",
-            fuelUsedSincePrevious: fuelNonnegative(vals.dlgRefuelUsed) ?? "",
+            fuelUsedSinceFull: fuelNonnegative(vals.dlgRefuelUsed) ?? "",
             costPerLitre: (cost != null && litres > 0) ? Number((cost / litres).toFixed(3)) : "",
             tankFull,
             tankRemaining: tankRemaining != null ? Number(tankRemaining.toFixed(1)) : "",
@@ -10639,9 +10648,12 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
     wpSelect?.addEventListener("change", () => {
       if (wpCheck?.checked) appendUniqueNoteLine(selectedWaypointNote());
     });
+    const toggleFullRefillField = () => toggleFields(".manual-log-full-refill-fields", !!refuelCheck?.checked && !!document.getElementById("dlgRefuelFull")?.checked);
     refuelCheck?.addEventListener("change", () => {
       toggleFields(".manual-log-refuel-fields", refuelCheck.checked);
+      toggleFullRefillField();
     });
+    document.getElementById("dlgRefuelFull")?.addEventListener("change", toggleFullRefillField);
 
     // CL-083: Prefill Lat/Lon for NEW manual entries
     if (isNew) {
@@ -12896,8 +12908,7 @@ function renderOvernightStats(items) {
     const rank = all.findIndex(r => r.nights === run.nights) + 1;
     return `<tr><td>${rank}</td><td>${escapeHtml(run.from)}</td><td>${escapeHtml(run.to)}</td><td>${run.nights}</td></tr>`;
   }).join("");
-  return `<div class="st-panel-title">Consecutive nights on board</div>
-    <p class="hint">Runs are built automatically from OOB dates across all passages, ranked longest first. Dates identify the start of each night; today and future nights are excluded. An unmarked date breaks a run.</p>
+  return `    <p class="hint">Runs are built automatically from OOB dates across all passages, ranked longest first. Dates identify the start of each night; today and future nights are excluded. An unmarked date breaks a run.</p>
     ${rows ? `<div class="analytics-table-scroll" tabindex="0" role="region" aria-label="Ranked overnight runs"><table class="analytics-table"><thead><tr><th scope="col">Rank</th><th scope="col">First night</th><th scope="col">Last night</th><th scope="col">Nights</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p>No completed nights recorded yet. Tick OOB in Daily Summary.</p>'}
     ${stats.invalidDates ? '<p class="hint">OOB records with missing or invalid dates are excluded.</p>' : ""}`;
 }
@@ -12959,7 +12970,7 @@ function computeRefillHistory(items, today = localDateInputValue()) {
           for (let i=sourceIndex; i<=index; i++) buckets[i].issues.add("A leg spans a refill without a boundary fuel reading");
         }
       }
-      previousByLeg.set(key, {used,index,atRefill:!!entry.refuel});
+      previousByLeg.set(key, {used,index,atRefill:entry.refuel?.tankFull === true});
     } else if (entry.entryType === "shutdown") {
       buckets[index].issues.add("A shutdown has no fuel reading");
     }
@@ -12969,62 +12980,75 @@ function computeRefillHistory(items, today = localDateInputValue()) {
         buckets[index].issues.add("A refill has no valid amount");
       }
       rows.push({...event, bucket:buckets[index], filled, cost:fuelNonnegative(entry.refuel.cost), full:entry.refuel.tankFull === true});
-      index++;
-      buckets.push({used:0,readings:0,issues:new Set()});
+      if (entry.refuel.tankFull === true) {
+        index++;
+        buckets.push({used:0,readings:0,issues:new Set()});
+      }
     }
   }
-  for (let i=0; i<rows.length; i++) {
-    const row=rows[i], previous=rows[i-1];
-    const manual=fuelNonnegative(row.entry.refuel.fuelUsedSincePrevious);
-    row.nights=previous ? nights.filter(date => date>=previous.date && date<row.date).length : null;
-    row.used=manual !== null ? manual : previous && row.bucket.readings && !row.bucket.issues.size && !undated.length ? row.bucket.used : null;
+  let previousFull=null;
+  let pending=[];
+  for (const row of rows) {
+    row.purchaseFilled=row.filled;
+    row.purchaseCost=row.cost;
+    row.used=row.difference=row.nights=row.perNight=row.price=null;
+    pending.push(row);
+    if (!row.full) continue;
+    for (const part of pending) if (!part.full) part.includedIn=row.date;
+    row.hasPartials=pending.some(r=>!r.full);
+    const total=key => pending.every(r=>r[key] !== null) ? pending.reduce((n,r)=>n+r[key],0) : null;
+    row.filled=total("purchaseFilled");
+    row.cost=total("purchaseCost");
+    row.from=previousFull?.date || "";
+    row.nights=previousFull ? nights.filter(date => date>=previousFull.date && date<row.date).length : null;
+    const manual=fuelNonnegative(row.entry.refuel.fuelUsedSinceFull);
+    // rc5 overrides described intervals between every refill. Never reinterpret a partial interval as a full cycle.
+    const legacy=pending.length===1 && !Object.hasOwn(row.entry.refuel,"fuelUsedSinceFull") ? fuelNonnegative(row.entry.refuel.fuelUsedSincePrevious) : null;
+    row.used=previousFull ? manual ?? legacy ?? (row.bucket.readings && !row.bucket.issues.size && !undated.length ? row.bucket.used : null) : null;
     row.difference=row.filled !== null && row.used !== null ? row.filled-row.used : null;
     row.perNight=row.difference !== null && row.nights>0 ? row.difference/row.nights : null;
     row.price=row.cost !== null && row.filled>0 ? row.cost/row.filled : null;
-    row.note=manual !== null ? "Entered interval use" : !previous ? "No previous refill" : [...row.bucket.issues].join("; ") || (!row.bucket.readings ? "No recorded fuel use" : "From leg readings");
-    if (undated.length && manual === null && previous) row.note="Undated refill: interval needs review";
-    if (!row.full || previous && !previous.full) row.note += "; partial-fill interval includes tank-level changes";
+    row.note=!previousFull ? "First full refill: starting point" : row.used === null ? "Add a known full-to-full fuel total if the log readings are incomplete." : "";
+    previousFull=row;
+    pending=[];
   }
-  for (const event of undated) rows.push({...event,filled:fuelNonnegative(event.entry.refuel.litres),cost:fuelNonnegative(event.entry.refuel.cost),price:fuelNonnegative(event.entry.refuel.litres)>0 && fuelNonnegative(event.entry.refuel.cost)!==null ? fuelNonnegative(event.entry.refuel.cost)/fuelNonnegative(event.entry.refuel.litres) : null,used:null,difference:null,nights:null,perNight:null,note:"Missing/invalid refill date",full:event.entry.refuel.tankFull===true});
-  const cycles=[];
-  let fullIndex=-1;
-  for (let i=0;i<rows.length;i++) {
-    if (!rows[i].full || !rows[i].date) continue;
-    if (fullIndex>=0 && i-fullIndex>1) {
-      const parts=rows.slice(fullIndex+1,i+1);
-      const total=key => parts.every(r=>r[key] !== null && r[key] !== undefined) ? parts.reduce((n,r)=>n+r[key],0) : null;
-      const filled=total("filled"),cost=total("cost"),used=total("used"),nights=total("nights");
-      const difference=filled !== null && used !== null ? filled-used : null;
-      cycles.push({from:rows[fullIndex].date,to:rows[i].date,filled,cost,used,nights,difference,price:filled>0 && cost !== null ? cost/filled : null,perNight:difference !== null && nights>0 ? difference/nights : null});
-    }
-    fullIndex=i;
-  }
-  const sum = key => rows.filter(r=>r[key] !== null && r[key] !== undefined).reduce((n,r)=>n+r[key],0);
-  const count = key => rows.filter(r=>r[key] !== null && r[key] !== undefined).length;
-  const priced=rows.filter(r=>r.cost !== null && r.filled>0);
-  const paired=rows.filter(r=>r.difference !== null && r.nights>0);
-  return {rows, cycles, sum, count,
+  for (const event of undated) rows.push({...event,filled:fuelNonnegative(event.entry.refuel.litres),cost:fuelNonnegative(event.entry.refuel.cost),price:null,used:null,difference:null,nights:null,perNight:null,note:"Missing refill date",full:event.entry.refuel.tankFull===true});
+  const completed=rows.filter(row=>row.full && row.date);
+  const cycles=completed.filter(row=>row.from);
+  const sum = key => completed.filter(r=>r[key] !== null && r[key] !== undefined).reduce((n,r)=>n+r[key],0);
+  const count = key => completed.filter(r=>r[key] !== null && r[key] !== undefined).length;
+  const priced=completed.filter(r=>r.cost !== null && r.filled>0);
+  const paired=completed.filter(r=>r.difference !== null && r.nights>0);
+  return {rows, cycles, pending, sum, count,
     price:priced.length ? priced.reduce((n,r)=>n+r.cost,0)/priced.reduce((n,r)=>n+r.filled,0) : null,
     perNight:paired.length ? paired.reduce((n,r)=>n+r.difference,0)/paired.reduce((n,r)=>n+r.nights,0) : null};
+}
+
+function refillFullUseInputValue(passage, entry) {
+  if (Object.hasOwn(entry.refuel || {}, "fuelUsedSinceFull")) return entry.refuel.fuelUsedSinceFull;
+  const row=computeRefillHistory(passages).rows.find(r=>r.passage.id===passage?.id && r.entry.id===entry.id);
+  return row?.full && row.from && !row.hasPartials ? entry.refuel?.fuelUsedSincePrevious ?? "" : "";
 }
 
 function renderRefillHistory(items) {
   const data=computeRefillHistory(items);
   const number=(value,places=1) => value === null || value === undefined ? "–" : value.toFixed(places);
-  const cells=(row, average=false) => `<td>${number(row.filled)}</td><td>${number(row.cost,2)}</td><td>${number(row.price,3)}</td><td>${number(row.used)}</td><td>${number(row.difference)}</td><td>${number(row.nights,average ? 1 : 0)}</td><td>${number(row.perNight,2)}</td>`;
-  const footer=(average) => {
+  const cells=(row,average=false) => `<td>${number(row.filled)}</td><td>${number(row.cost,2)}</td><td>${number(row.price,3)}</td><td>${number(row.used)}</td><td>${number(row.difference)}</td><td>${number(row.nights,average ? 1 : 0)}</td><td>${number(row.perNight,2)}</td>`;
+  const footer=average => {
     const values={price:data.price,perNight:data.perNight};
     for (const key of ["filled","cost","used","difference","nights"]) values[key]=data.count(key) ? data.sum(key)/(average ? data.count(key) : 1) : null;
-    return `<tr><th scope="row">${average ? "Average / refill" : "Totals"}</th><td></td>${cells(values,average)}</tr>`;
+    return `<tr><th scope="row">${average ? "Average / full refill" : "Full-refill totals"}</th><td></td>${cells(values,average)}</tr>`;
   };
-  const rows=data.rows.slice().reverse().map(row => `<tr><th scope="row">${escapeHtml(row.date || "Unknown date")}<details class="refill-row-details"><summary>Details</summary><span>${escapeHtml(row.note)}</span></details></th><td>${row.full ? "Full" : "Partial"}</td>${cells(row)}</tr>`).join("");
-  return `<div class="st-panel-title">Refill history</div>
-    <p class="hint">On narrow screens, swipe the table sideways to see all columns. Open a row’s Details for its calculation basis.</p>
-    <p class="hint">Refills are recorded in Log → New Log Entry → Refuel. Edit the original entry to correct a purchase or enter fuel used since the previous refill.</p>
-    ${rows ? `<div class="analytics-table-scroll" tabindex="0" role="region" aria-label="Fuel refill history"><table class="analytics-table refill-table"><thead><tr><th scope="col">Date</th><th scope="col">Fill</th><th scope="col">Filled (L)</th><th scope="col">Cost (£)</th><th scope="col">£ / L</th><th scope="col">Recorded use (L)</th><th scope="col">Difference (L)</th><th scope="col">OOB nights</th><th scope="col">Difference / night (L)</th></tr></thead><tbody>${rows}</tbody><tfoot>${footer(false)}${footer(true)}</tfoot></table></div>` : '<p>No refills recorded yet.</p>'}
-    ${data.cycles.length ? `<div class="st-panel-title">Full-to-full comparisons including partial fills</div><div class="analytics-table-scroll" tabindex="0" role="region" aria-label="Full-to-full refill comparisons"><table class="analytics-table refill-table"><thead><tr><th>From full refill</th><th>To full refill</th><th>Filled (L)</th><th>Cost (£)</th><th>£ / L</th><th>Recorded use (L)</th><th>Difference (L)</th><th>OOB nights</th><th>Difference / night (L)</th></tr></thead><tbody>${data.cycles.slice().reverse().map(row=>`<tr><th scope="row">${escapeHtml(row.from)}</th><td>${escapeHtml(row.to)}</td>${cells(row)}</tr>`).join("")}</tbody></table></div>` : ""}
-    <p class="hint">Difference = filled − recorded use. It may reflect additional consumption, recording error or tank-level changes; partial fills are not a direct measure of extra consumption. Nights include the earlier refill night and exclude the later refill night. No nights means no per-night rate.</p>
-    <p class="hint">Totals exclude unavailable values (–). Average £/L = total known cost ÷ matching litres. Average difference/night = total difference ÷ matching nights for intervals with at least one recorded night. The first refill has no inferred interval. Missing boundary readings need review; interval use can be entered explicitly on the refill.</p>`;
+  const rows=data.rows.slice().reverse().map(row => {
+    const location=String(row.entry.refuel.location || "").trim() || "Not recorded";
+    const heading=`<th scope="row">${escapeHtml(row.date || "Unknown date")}<details class="refill-row-details"><summary>Location</summary><span>${escapeHtml(location)}</span></details></th><td>${row.full ? "Full" : "Partial"}</td>`;
+    if (!row.full) return `<tr class="partial-refill-row">${heading}<td>${number(row.purchaseFilled ?? row.filled)}</td><td>${number(row.purchaseCost ?? row.cost,2)}</td><td colspan="5">${row.includedIn ? `Included in full refill on ${escapeHtml(row.includedIn)}` : "To be added to the next full refill"}</td></tr>`;
+    return `<tr>${heading}${cells(row)}</tr>${row.note ? `<tr><td colspan="9" class="hint refill-note">${escapeHtml(row.note)}</td></tr>` : ""}`;
+  }).join("");
+  return `<p class="hint">Full refills compare with the previous full refill. Filled litres and cost include all partial fills in that period. Partial rows are purchase records only and are not counted twice in totals.</p>
+    ${rows ? `<div class="analytics-table-scroll" tabindex="0" role="region" aria-label="Fuel refill history"><table class="analytics-table refill-table"><thead><tr><th scope="col">Date</th><th scope="col">Fill</th><th scope="col">Filled incl. partials (L)</th><th scope="col">Cost (£)</th><th scope="col">£ / L</th><th scope="col">Recorded use (L)</th><th scope="col">Difference (L)</th><th scope="col">OOB nights</th><th scope="col">Difference / night (L)</th></tr></thead><tbody>${rows}</tbody><tfoot>${footer(false)}${footer(true)}</tfoot></table></div>` : '<p>No refills recorded yet.</p>'}
+    <p class="hint">Record or edit refills in the Log, including their location. The first full refill establishes the starting point. Pending partial fills are excluded from full-refill totals until the next full refill.</p>
+    <p class="hint">Difference = filled − recorded use over the same full-to-full period. Nights start on the earlier full-refill date and end before the later one. Missing readings show –; no nights means no per-night rate. Average £/L and difference/night use matching totals. Swipe sideways on narrow screens.</p>`;
 }
 
 function renderFuelManagementSettings(){
@@ -13120,18 +13144,20 @@ function injectFuelManagementSettingsBlock(){
             </div>
             </details>
           </section>
-          <section class="settings-panel-card st-panel st-stack">
+          <details id="refillHistoryCard" class="settings-panel-card st-panel analytics-disclosure">
+            <summary class="st-panel-title">Refill history</summary>
             <div id="refillHistory" class="st-stack"></div>
-          </section>
-          <section class="settings-panel-card st-panel st-stack">
+          </details>
+          <details id="overnightStatsCard" class="settings-panel-card st-panel analytics-disclosure">
+            <summary class="st-panel-title">Consecutive nights on board</summary>
             <div id="overnightStats" class="st-stack"></div>
-          </section>
-          <section class="settings-panel-card st-panel st-stack">
-            <div class="st-panel-title">Passage Analytics</div>
+          </details>
+          <details id="passageAnalyticsCard" class="settings-panel-card st-panel analytics-disclosure">
+            <summary class="st-panel-title">Passage Analytics</summary>
             <div id="passageAnalyticsControls"></div>
             <p class="hint">Average speed uses distance ÷ under-way time for legs with both readings. Nights use their OOB dates for year/month grouping and count once within each group. Other metrics use passage dates. Groups can overlap when passages share nights or categories. View choices are saved on this device.</p>
             <div id="passageAnalyticsSummary"></div>
-          </section>
+          </details>
         </div>
       </div>
     `;
