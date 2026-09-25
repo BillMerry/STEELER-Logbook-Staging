@@ -67,7 +67,7 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
       const fits=await page.evaluate(() => {
         const row=document.querySelector('.daily-summary-row');
         const checkbox=row.querySelector('.ds-oob');
-        return row.scrollWidth<=row.clientWidth+1 && checkbox.getBoundingClientRect().width>0;
+        return row.scrollWidth<=row.clientWidth+1 && checkbox.getBoundingClientRect().width>0 && getComputedStyle(checkbox.parentElement).display==='flex' && getComputedStyle(checkbox.parentElement).flexDirection==='row';
       });
       assert.ok(fits,`OOB Daily Summary fits at ${width}px`);
     }
