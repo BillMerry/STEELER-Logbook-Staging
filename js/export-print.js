@@ -156,9 +156,9 @@ function exportCurrentPassageToCsv() {
   lines.push("");
 
   lines.push("Daily Summary");
-  lines.push("Date,Mooring fee,Notes");
+  lines.push("Date,Overnight on board,Mooring fee,Notes");
   (p.plan.dailySummaries || []).forEach(ds => {
-    lines.push([ds.date || "", ds.fee || "", ds.notes || ""].map(quote).join(","));
+    lines.push([ds.date || "", ds.overnightOnBoard === true ? "Yes" : "", ds.fee || "", ds.notes || ""].map(quote).join(","));
   });
   lines.push("");
 

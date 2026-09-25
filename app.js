@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const WEATHER_ABBR_ENABLED_KEY = "steeler_weather_abbreviations_enabled_v1";
 
-const APP_VERSION = "1.3.5-rc3";
+const APP_VERSION = "1.3.5-rc4";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -6183,6 +6183,7 @@ function clonePassagePlanForCopy(plan) {
   copy.dailySummaries = Array.isArray(copy.dailySummaries)
     ? copy.dailySummaries.map((day, idx) => ({
       ...day,
+      overnightOnBoard: false,
       id: `ds_${now}_${idx}_${Math.random().toString(36).slice(2)}`
     }))
     : [];
@@ -7381,7 +7382,7 @@ function createPassage() {
       engineHoursStart: "",
       fuelStartPercent: "",
       dailySummaries: [
-        { id: "ds_" + Date.now(), date: today, fee: "", notes: "" }
+        { id: "ds_" + Date.now(), date: today, fee: "", notes: "", overnightOnBoard: false }
       ],
       detailed: {
         waypoints: [],
@@ -7674,6 +7675,7 @@ function syncDailySummaryDatesWithPassageDate(p, previousDate, nextDate) {
   let changed = false;
   p.plan.dailySummaries = p.plan.dailySummaries.map((day) => {
     const current = String(day?.date || "").trim();
+    if (day?.overnightOnBoard === true && current) return day;
     const isInitialCreatedDate = createdDate && current === createdDate && current !== next;
     if (!current || (prev && current === prev) || isInitialCreatedDate) {
       changed = true;
@@ -7716,6 +7718,10 @@ function renderDailySummaries(p) {
       </button>
     `;
 
+    const oobLabel = document.createElement("label");
+    oobLabel.className = "ds-oob-label";
+    oobLabel.innerHTML = `<input type="checkbox" class="ds-oob" ${d.overnightOnBoard === true ? "checked" : ""}> Overnight on board (OOB)`;
+    row.querySelector(".ds-row").after(oobLabel);
     row.querySelector(".remove-daily-summary").addEventListener("click", () => {
       p.plan.dailySummaries = readDailySummariesFromForm();
       p.plan.dailySummaries.splice(index, 1);
@@ -7733,6 +7739,7 @@ function readDailySummariesFromForm() {
     days.push({
       id: row.dataset.id || ("ds_" + Date.now() + "_" + Math.random().toString(36).slice(2)),
       date: row.querySelector(".ds-date").value,
+      overnightOnBoard: row.querySelector(".ds-oob").checked,
       fee: row.querySelector(".ds-fee").value.trim(),
       notes: row.querySelector(".ds-notes").value.trim()
     });
@@ -9006,7 +9013,7 @@ addDailySummaryBtn.addEventListener("click", () => {
   const p = getCurrentPassage();
   if (!p) return;
   p.plan.dailySummaries = readDailySummariesFromForm();
-  p.plan.dailySummaries.push({ id: "ds_" + Date.now(), date: getDailySummaryDefaultDate(p), fee: "", notes: "" });
+  p.plan.dailySummaries.push({ id: "ds_" + Date.now(), date: getDailySummaryDefaultDate(p), fee: "", notes: "", overnightOnBoard: false });
   renderDailySummaries(p);
 });
 
@@ -9946,7 +9953,7 @@ function updatePlanSummaryPanel() {
         const dateLabel = ds.date ? formatDateShort(ds.date) : "No date";
         const feeLabel  = ds.fee  ? ` – ${escapeHtml(ds.fee)}` : "";
         const notesLabel = ds.notes ? ` – ${linkifyNoteHtml(ds.notes)}` : "";
-        return `<div class="daily-summary-item plan-link" data-goto="dailySummariesContainer">${escapeHtml(dateLabel)}${feeLabel}${notesLabel}</div>`;
+        return `<div class="daily-summary-item plan-link" data-goto="dailySummariesContainer">${escapeHtml(dateLabel)}${ds.overnightOnBoard === true ? " – OOB" : ""}${feeLabel}${notesLabel}</div>`;
       }).join("")
     : '<p class="plan-link" data-goto="dailySummariesContainer"><em>–</em></p>';
   
@@ -12795,6 +12802,66 @@ function injectSafetyEmergencySettingsBlock(){
   }
 }
 
+// OOB dates identify the night beginning on that date, independently of passage boundaries.
+function overnightDateOrdinal(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
+  const ms = Date.parse(value + "T00:00:00Z");
+  return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === value ? ms / 86400000 : null;
+}
+
+function computeOvernightStats(items, today = localDateInputValue()) {
+  const dates = new Set();
+  const refuels = [];
+  let invalidDates = 0;
+  for (const p of items || []) {
+    if (!p || p.deleted === true) continue;
+    for (const day of p.plan?.dailySummaries || []) {
+      if (!day || day.deleted === true || day.overnightOnBoard !== true) continue;
+      if (overnightDateOrdinal(day.date) === null) { invalidDates++; continue; }
+      // Today's night and future plans are not yet completed nights.
+      if (day.date < today) dates.add(day.date);
+    }
+    for (const entry of p.entries || []) {
+      if (!entry || entry.deleted === true || !(Number(entry.refuel?.litres) > 0)) continue;
+      const raw = String(entry.time || "");
+      const instant = new Date(raw);
+      const date = /(?:Z|[+-]\d{2}:?\d{2})$/.test(raw) && instant && Number.isFinite(instant.getTime())
+        ? localDateInputValue(instant, getPassageTimeZone(p)) : raw.slice(0, 10);
+      if (overnightDateOrdinal(date) === null || date > today) continue;
+      refuels.push({ date, full: entry.refuel.tankFull === true, sortKey: date + raw.slice(10) });
+    }
+  }
+  const nights = [...dates].sort();
+  let longest = 0, latest = 0, previous = null;
+  for (const date of nights) {
+    const ordinal = overnightDateOrdinal(date);
+    latest = previous !== null && ordinal === previous + 1 ? latest + 1 : 1;
+    longest = Math.max(longest, latest);
+    previous = ordinal;
+  }
+  refuels.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+  const count = (from, to) => nights.filter(date => date >= from && date < to).length;
+  const intervals = refuels.slice(1).map((end, i) => ({from: refuels[i].date, to: end.date, nights: count(refuels[i].date, end.date)}));
+  const full = refuels.filter(r => r.full);
+  const fullIntervals = full.slice(1).map((end, i) => ({from: full[i].date, to: end.date, nights: count(full[i].date, end.date)}));
+  return {total: nights.length, longest, latest, latestDate: nights.at(-1) || "", invalidDates,
+    sinceRefuel: refuels.length ? count(refuels.at(-1).date, today) : null,
+    sinceFull: full.length ? count(full.at(-1).date, today) : null, intervals, fullIntervals};
+}
+
+function renderOvernightStats(items) {
+  const stats = computeOvernightStats(items);
+  const chip = (label, value) => `<span class="st-metric-chip"><span>${escapeHtml(label)}</span><strong>${value == null ? "–" : value}</strong></span>`;
+  const periods = (label, rows) => `<details><summary>${label}</summary>${rows.length
+    ? rows.slice().reverse().map(r => `<p>${escapeHtml(formatDateShort(r.from))} to ${escapeHtml(formatDateShort(r.to))}: <strong>${r.nights}</strong> recorded nights</p>`).join("")
+    : '<p>Two dated refills are needed to show a completed interval.</p>'}</details>`;
+  return `<div class="st-panel-title">Nights on board</div><div class="st-metric-strip">${chip("Recorded nights", stats.total)}${chip("Longest consecutive run", stats.longest)}${chip("Latest recorded run", stats.latest)}${chip("Since last refill", stats.sinceRefuel)}${chip("Since last full refill", stats.sinceFull)}</div>
+    <p class="hint">Tick OOB in Daily Summary for the night beginning on that date. Only nights before today count, once per date across all passages. Unmarked nights are not counted.${stats.latestDate ? ` Latest run ends ${escapeHtml(formatDateShort(stats.latestDate))}.` : ""}</p>
+    <p class="hint">Refill intervals include the night after the earlier refill and exclude the night after the later refill. These are recorded-night counts, not an estimate of heater or generator fuel use.</p>
+    ${stats.invalidDates ? '<p class="hint">Some OOB records have missing or invalid dates and are excluded.</p>' : ""}
+    ${periods("Nights between refills", stats.intervals)}${periods("Nights between full refills", stats.fullIntervals)}`;
+}
+
 function renderFuelManagementSettings(){
   const resetAtEl = document.getElementById("fuelMgmtResetAt");
   const resetLevelEl = document.getElementById("fuelMgmtResetLevel");
@@ -12818,6 +12885,8 @@ function renderFuelManagementSettings(){
     <span class="st-metric-chip"><span>Fuel Bought</span><strong>${escapeHtml(bought)}</strong></span>
     <span class="st-metric-chip"><span>Avg Cost</span><strong>${escapeHtml(avg)}</strong></span>
   `;
+  const nightsEl = document.getElementById("overnightStats");
+  if (nightsEl) nightsEl.innerHTML = renderOvernightStats(passages);
   if (analyticsEl) {
     renderPassageAnalytics();
   }
@@ -12881,6 +12950,9 @@ function injectFuelManagementSettingsBlock(){
               <button type="button" id="fuelMgmtFullBtn" class="btn btn-primary">Reset Tank Full</button>
               <button type="button" id="fuelMgmtSaveBtn" class="btn btn-secondary">Save Tank Level</button>
             </div>
+          </section>
+          <section class="settings-panel-card st-panel st-stack">
+            <div id="overnightStats" class="st-stack"></div>
           </section>
           <section class="settings-panel-card st-panel st-stack">
             <div class="st-panel-title">Passage Analytics</div>
