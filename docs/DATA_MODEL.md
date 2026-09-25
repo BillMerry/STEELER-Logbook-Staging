@@ -516,7 +516,7 @@ Stored in `steeler_fuel_management_v1`.
 }
 ```
 
-Fuel management processes logged fuel entries in chronological order. A full-tank refuel starts the tank estimate from `tankCapacity` and resets the displayed fuel-used total. A partial refuel adds the entered litres to the current estimate, capped at `tankCapacity`; if the entry has a stored tank remaining value, that exact estimate is used. The displayed fuel used counts the latest `fuelUsed` value per passage leg after the most recent full-tank or manual baseline. If no logged refuel entries exist, the saved manual `resetAt` / `resetLevel` fields act as the fallback baseline.
+Fuel management processes active fuel entries by their actual timestamps. A full-tank refuel starts the tank estimate from `tankCapacity` and resets the displayed fuel-used total while retaining per-leg cumulative counters. A partial refuel adds litres to the current estimate, capped at `tankCapacity`; a stored tank remaining value is only a fallback when no estimate exists. Recorded use is accumulated from increases in each leg’s `fuelUsed` counter. Until a valid full refill is logged, `resetAt` / `resetLevel` supply the opening baseline, with earlier readings retained only as counter baselines. See the rc5 refill-history section below for reconciliation rules.
 
 ## Backup Payloads
 
