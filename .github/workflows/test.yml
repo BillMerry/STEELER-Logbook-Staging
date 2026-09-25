@@ -18,3 +18,7 @@ jobs:
       - run: |
           python3 -m http.server 8765 --bind 127.0.0.1 &
           npm test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oob-preview
+          path: test-results/*.png

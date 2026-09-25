@@ -10,7 +10,73 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(process.env.TEST_URL || 'http://127.0.0.1:8765');
   await page.waitForFunction(() => typeof renderPassageAnalytics === 'function');
-  assert.equal(await page.evaluate(() => APP_VERSION), '1.3.5-rc3');
+  assert.equal(await page.evaluate(() => APP_VERSION), '1.3.5-rc4');
+  const oob = await page.evaluate(async () => {
+    const day = date => ({date, overnightOnBoard:true, fee:'',notes:''});
+    const fixture = {id:'oob',plan:{date:'2026-03-27',dailySummaries:[...['2026-03-27','2026-03-28','2026-03-29','2026-03-30','2026-04-02','2026-04-03'].map(day),day('bad'),{date:'2026-04-01'}]},entries:[
+      {id:'r1',time:'2026-03-27T10:00',refuel:{litres:100,tankFull:true}},
+      {id:'r2',time:'2026-03-29T10:00',refuel:{litres:20,tankFull:false}},
+      {id:'r3',time:'2026-04-02T10:00',refuel:{litres:100,tankFull:true}},
+      {id:'deleted',deleted:true,time:'2026-03-28T10:00',refuel:{litres:100,tankFull:true}}
+    ]};
+    const duplicate = {id:'dup',plan:{dailySummaries:[day('2026-03-28')]},entries:[]};
+    const deleted = {id:'gone',deleted:true,plan:{dailySummaries:[day('2026-03-31')]},entries:[]};
+    const stats=computeOvernightStats([fixture,duplicate,deleted],'2026-04-03');
+    const empty=computeOvernightStats([], '2026-04-03');
+    renderDailySummaries(fixture);
+    const loaded=document.querySelector('.ds-oob').checked;
+    document.querySelector('.ds-oob').checked=false;
+    const unchecked=readDailySummariesFromForm()[0].overnightOnBoard;
+    document.querySelector('.ds-oob').checked=true;
+    fixture.plan.dailySummaries=readDailySummariesFromForm();
+    const read=fixture.plan.dailySummaries[0].overnightOnBoard;
+    syncDailySummaryDatesWithPassageDate(fixture,'2026-03-27','2026-04-10');
+    const retainedDate=fixture.plan.dailySummaries[0].date;
+    passages=[fixture]; currentPassageId='oob'; ensureDetailedPassagePlans(fixture); loadPassageIntoUI();
+    const backup=JSON.parse(JSON.stringify(createDataBackupPayload()));
+    await applyFullDataCloudCopy({backup,record:{payload:{backup}}},nowIso());
+    const restored=passages.find(p=>p.id==='oob').plan.dailySummaries[0].overnightOnBoard;
+    const copied=clonePassagePlanForCopy(fixture.plan).dailySummaries[0].overnightOnBoard;
+    return {stats,empty,loaded,unchecked,read,retainedDate,restored,copied};
+  });
+  assert.equal(oob.stats.total,5);
+  assert.equal(oob.stats.longest,4);
+  assert.equal(oob.stats.latest,1);
+  assert.equal(oob.stats.latestDate,'2026-04-02');
+  assert.equal(oob.stats.sinceRefuel,1);
+  assert.equal(oob.stats.sinceFull,1);
+  assert.deepEqual(oob.stats.intervals.map(r=>r.nights),[2,2]);
+  assert.deepEqual(oob.stats.fullIntervals.map(r=>r.nights),[4]);
+  assert.equal(oob.stats.invalidDates,1);
+  assert.equal(oob.empty.total,0);
+  assert.equal(oob.empty.sinceRefuel,null);
+  assert.equal(oob.copied,false);
+  assert.equal(oob.loaded,true);
+  assert.equal(oob.unchecked,false);
+  assert.equal(oob.read,true);
+  assert.equal(oob.restored,true);
+  assert.equal(oob.retainedDate,'2026-03-27');
+  if (!process.env.DOM_TEST) {
+    await page.evaluate(() => {
+      const p=getCurrentPassage();
+      renderDailySummaries({...p,plan:{...p.plan,dailySummaries:p.plan.dailySummaries.slice(0,2)}});
+      switchToTab('planTab');
+    });
+    for (const width of [1024,390]) {
+      await page.setViewportSize({width,height:900});
+      const fits=await page.evaluate(() => {
+        const row=document.querySelector('.daily-summary-row');
+        const checkbox=row.querySelector('.ds-oob');
+        return row.scrollWidth<=row.clientWidth+1 && checkbox.getBoundingClientRect().width>0 && getComputedStyle(checkbox.parentElement).display==='flex' && getComputedStyle(checkbox.parentElement).flexDirection==='row';
+      });
+      assert.ok(fits,`OOB Daily Summary fits at ${width}px`);
+    }
+    await page.setViewportSize({width:1024,height:900});
+    await page.locator('#planDailySummaryCard').screenshot({path:'test-results/oob-daily.png'});
+    await page.evaluate(() => { switchToTab('settingsTab'); document.getElementById('fuelManagementPanel').hidden=false; renderFuelManagementSettings(); });
+    await page.locator('#overnightStats').screenshot({path:'test-results/oob-stats.png'});
+  }
+  console.log('PASS: OOB dates, deduplication, DST streaks, partial/full refill intervals, deleted/future exclusion, form and backup persistence');
   const calculations = await page.evaluate(() => {
     const original = { waypoints: [{id:'w1',name:'Test',lat:50,lon:-1,time:'10:00',actualTime:'11:00',plannedSpeed:'8'}] };
     const cleaned = cloneDetailedPassagePlan(original, {resetActualTimes:true,regenerateIds:true});

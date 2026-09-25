@@ -743,3 +743,12 @@ DPP Template import merges by template name: matching names are updated, and new
 `steeler_passage_analytics_view_v1` stores `{dimension, metrics}`. Dimension is one of category/year/month/origin/destination/status/all; metric IDs are passages/nm/underwayMinutes/fuel/engineHours/averageSpeed/fuelPerNm. Unknown values are filtered; malformed JSON falls back to defaults. Empty metrics is an intentional selection. This display preference is excluded from the complete data package and does not mark voyage data dirty.
 
 No durable passage schema or Worker protocol changes. Template creation/reuse clears `actualTime` in the cloned waypoints while preserving the original passage record. Old template data is not rewritten during backup restore.
+
+
+### Overnight on board (1.3.5-rc4)
+
+Daily Summary rows have optional boolean `overnightOnBoard`. Only strict `true` records a night; existing rows remain unrecorded. The date denotes the night beginning that day. Aggregate unique valid dates across non-deleted passages/rows, excluding today/future dates from completed counts. Runs use UTC calendar-day ordinals to avoid DST errors. Missing dates break a run and are never inferred from passage duration.
+
+Refill intervals use dated, non-deleted log entries with positive refuel litres. Include OOB dates >= earlier refill date and < later refill date. Full-to-full periods include intermediate partial fills without resetting night counts. No baseline yields unavailable since-refill counts. These statistics are independent of fuel tank reset controls and do not adjust consumption or remaining fuel. Refuel dates with offsets use the passage time zone.
+
+Plan copies clear OOB; editing a passage date does not move an already-recorded OOB date. Whole-package backups/sync retain the field. An older client can drop it when editing Daily Summaries, so use rc4 or later on all devices editing these records.

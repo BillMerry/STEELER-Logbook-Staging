@@ -42,3 +42,8 @@ Acceptance: disconnected/stale data cannot masquerade as current; manual operati
 4. NMEA simulator and transport feasibility precede any onboard integration.
 
 Each increment gets its own Testbed candidate, fixtures, regression checks and staging acceptance before live promotion. No schema migration or chart/NMEA dependency is introduced by 1.3.5-rc1.
+
+
+## Incremental replacement of spreadsheet recording
+
+Keep the spreadsheet running with manual entry while adding useful app fields incrementally. Generic summary CSV work is deferred. First step in 1.3.5-rc4: Daily Summary OOB and recorded-night/refill-interval metrics. Later: standalone daily activity, stationary engine runs, and main-worksheet fuel reconciliation (recorded use versus actual refill; Cummins/Raymarine gauge comparison). No automatic attribution of discrepancies or gauge calibration. Historical import follows agreed recording semantics.
