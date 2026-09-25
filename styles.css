@@ -2072,7 +2072,7 @@ body[data-theme="night"] .app-header h1{
 }
 
 .passage-card-main{
-  grid-template-columns:minmax(12rem,0.85fr) minmax(0,2.15fr) 1.25rem;
+  grid-template-columns:minmax(15rem,1.2fr) minmax(23rem,1.8fr) 1.5rem;
   gap:var(--st-space-3);
   align-items:center;
   padding:var(--st-space-3);
@@ -2095,7 +2095,7 @@ body[data-theme="night"] .app-header h1{
 
 .passage-card-summary{
   display:grid;
-  grid-template-columns:repeat(6,minmax(0,1fr));
+  grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) minmax(0,1.3fr) minmax(0,0.65fr) minmax(0,0.7fr) minmax(0,1.05fr);
   gap:var(--st-space-2);
   opacity:1;
   font-size:0.78rem;
@@ -2733,9 +2733,6 @@ body[data-theme="night"] .settings-card-icon{
     grid-template-columns:1fr;
   }
 
-  .passage-card-summary{
-    grid-template-columns:repeat(6,minmax(0,1fr));
-  }
 
   .passage-card-chevron{
     display:none;
@@ -2775,9 +2772,6 @@ body[data-theme="night"] .settings-card-icon{
     padding:var(--st-space-3) var(--st-space-3) 4rem;
   }
 
-  .passage-card-summary{
-    grid-template-columns:repeat(6,minmax(0,1fr));
-  }
 }
 
 /* --- v1.1.0-rc2 Operational Log UI ------------------------------------- */
