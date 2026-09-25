@@ -737,3 +737,9 @@ DPP Template import merges by template name: matching names are updated, and new
 - Before destructive imports or migrations, preserve a way to export or recover the previous raw data.
 - `js/safety-emergency.js` owns Safety/Emergency defaults, contact normalisation and legacy EC migration, but it preserves the keys and shapes documented above.
 - `js/live-data.js` is currently a no-op boundary for future NMEA/liveData. It must not write saved log entries or replace manually entered passage data.
+
+## 1.3.5-rc1 device-local analytics view
+
+`steeler_passage_analytics_view_v1` stores `{dimension, metrics}`. Dimension is one of category/year/month/origin/destination/status/all; metric IDs are passages/nm/underwayMinutes/fuel/engineHours/averageSpeed/fuelPerNm. Unknown values are filtered; malformed JSON falls back to defaults. Empty metrics is an intentional selection. This display preference is excluded from the complete data package and does not mark voyage data dirty.
+
+No durable passage schema or Worker protocol changes. Template creation/reuse clears `actualTime` in the cloned waypoints while preserving the original passage record. Old template data is not rewritten during backup restore.

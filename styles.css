@@ -3797,3 +3797,6 @@ body[data-theme="night"] .log-entry-row:nth-child(even) .log-display-cell{
     grid-template-columns:1fr !important;
   }
 }
+
+.analytics-metric-option { display: inline-flex; align-items: center; gap: .4rem; margin: .4rem .8rem .4rem 0; }
+.analytics-metric-option input { width: auto; }

@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const WEATHER_ABBR_ENABLED_KEY = "steeler_weather_abbreviations_enabled_v1";
 
-const APP_VERSION = "1.3.3-rc19";
+const APP_VERSION = "1.3.5-rc1";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -449,7 +449,7 @@ function renderLocalSyncStatus(){
         </label>
         <label class="sync-check-field sync-check-option">
           <span>Auto-sync</span>
-          <span><input id="syncAutoEnabled" type="checkbox"${config.autoSyncEnabled ? " checked" : ""}> Check and upload only when cloud has not changed</span>
+          <span><input id="syncAutoEnabled" type="checkbox"${config.autoSyncEnabled ? " checked" : ""}> Sync automatically; ask only when both copies have changed</span>
         </label>
       </details>
       <div id="syncPreviewResults" class="sync-preview-results">
@@ -1442,13 +1442,30 @@ function clearAllLocalSyncDirty(options = {}){
   }
 }
 
+function describeSyncDifferences(localBackup, cloudBackup){
+  const local = comparableBackupData(localBackup);
+  const remote = comparableBackupData(cloudBackup);
+  const left = new Map((local.passages || []).map(p => [p.id, p]));
+  const right = new Map((remote.passages || []).map(p => [p.id, p]));
+  const labels = [];
+  new Set([...left.keys(), ...right.keys()]).forEach(id => {
+    if (stableComparableJson(left.get(id)) === stableComparableJson(right.get(id))) return;
+    const p = left.get(id) || right.get(id);
+    labels.push(`${getPassageDateValue(p)}: ${p.plan?.from || "?"} → ${p.plan?.to || "?"}`);
+  });
+  const names = { knownPorts: "Ports", dppTemplates: "Saved passage plans", dppWaypoints: "Saved waypoints", safetyInfo: "Safety information", fuelManagement: "Fuel settings", settings: "Settings", theme: "Display theme", weatherAbbreviations: "Weather abbreviations", legacyEcSettings: "Emergency contacts" };
+  new Set([...Object.keys(local), ...Object.keys(remote)]).forEach(key => {
+    if (key !== "passages" && stableComparableJson(local[key]) !== stableComparableJson(remote[key])) labels.push(names[key] || key);
+  });
+  return labels.length > 8 ? [...labels.slice(0, 8), `And ${labels.length - 8} more differences`] : labels;
+}
+
 function chooseFullSyncConflictAction(cloud, options = {}){
   const summary = describeFullDataCloudRecord(cloud);
   const localBackup = createDataBackupPayload();
-  const localSummary = summariseFullDataBackupPackage(localBackup);
-  const localDevice = getDeviceName();
+  const differences = describeSyncDifferences(localBackup, cloud?.backup || getFullDataBackupFromRecord(cloud?.record));
   const intro = options.auto
-    ? "Auto-sync found a different cloud copy and needs you to choose what to do."
+    ? "This device and cloud have both changed since the last sync."
     : "Cloud changed since this device last synced.";
   return new Promise((resolve) => {
     showModal({
@@ -1457,12 +1474,9 @@ function chooseFullSyncConflictAction(cloud, options = {}){
       bodyHtml: `
         <p>${escapeHtml(intro)}</p>
         <p>Cloud was last saved <strong>${escapeHtml(formatSyncStatusTime(summary.updatedAt))}</strong> by <strong>${escapeHtml(summary.displayDevice)}</strong>.</p>
-        <p>This device is <strong>${escapeHtml(localDevice)}</strong>.</p>
-        <div class="sync-status-grid">
-          <div><span>Cloud copy</span><strong>${escapeHtml(formatFullDataPackageSummary(summary.packageSummary))}</strong></div>
-          <div><span>This device</span><strong>${escapeHtml(formatFullDataPackageSummary(localSummary))}</strong></div>
-        </div>
-        <p>Choose which complete STEELER data package to keep. No partial merge will be performed.</p>
+        <p>Differences to review:</p>
+        <ul>${differences.map(label => `<li>${escapeHtml(label)}</li>`).join("")}</ul>
+        <p>Choose the complete copy to keep. This replaces the other copy, including changes outside this list.</p>
         <div class="st-action-row">
           <button type="button" id="syncUseCloudCopyBtn" class="btn">Use Cloud Copy on This Device</button>
           <button type="button" id="syncKeepThisDeviceBtn" class="btn btn-secondary">Keep This Device and Replace Cloud</button>
@@ -1627,20 +1641,27 @@ function setFullDataSyncBusy(isBusy){
   });
 }
 
+let fullDataSyncRunning = false;
+
 async function runFullDataCloudSync(options = {}){
+  if (fullDataSyncRunning) return;
   const isAutoSync = options.auto === true;
+  if (isAutoSync && !modalOverlay.classList.contains("hidden")) return;
   const connection = getSavedSyncConnection();
   if (connection.error) {
     setSyncCheckMessage(connection.error);
     if (!isAutoSync) alert(connection.error);
     return;
   }
+  fullDataSyncRunning = true;
   setFullDataSyncBusy(true);
   setSyncCheckMessage(isAutoSync ? "Auto-sync checking cloud copy..." : "Checking cloud copy before sync...");
   const syncedAt = nowIso();
 
   try{
     const cloud = await fetchCurrentFullDataCloudRecord(connection);
+    // A user may open an entry dialog while the cloud request is in flight.
+    if (isAutoSync && !modalOverlay.classList.contains("hidden")) return;
     const previousStatus = loadLocalSyncStatus();
     const localBackup = createDataBackupPayload();
     const localHash = fullDataBackupPackageHash(localBackup);
@@ -1669,7 +1690,16 @@ async function runFullDataCloudSync(options = {}){
     }
 
     let choice = "local";
-    if (cloudChanged || unmatchedKnownBaseline) {
+    if (isAutoSync && cloud.record && (!lastLocalHash || !lastCloudHash || unmatchedKnownBaseline)) {
+      saveObservedFullDataCloudStatus("decision-needed", cloud, { checkedAt: syncedAt });
+      renderLocalSyncStatus();
+      setSyncCheckMessage("Tap Sync to establish a matching baseline before automatic sync can continue.");
+      return;
+    }
+    if (cloud.record && !localChanged && cloudChanged) {
+      if (isAutoSync && !modalOverlay.classList.contains("hidden")) return;
+      choice = "cloud";
+    } else if (cloudChanged || unmatchedKnownBaseline) {
       saveObservedFullDataCloudStatus("decision-needed", cloud, { checkedAt: syncedAt });
       renderLocalSyncStatus();
       if (isAutoSync) {
@@ -1751,6 +1781,7 @@ async function runFullDataCloudSync(options = {}){
     renderLocalSyncStatus();
     setSyncCheckMessage(`Sync failed: ${e && e.message ? e.message : e}`);
   }finally{
+    fullDataSyncRunning = false;
     setFullDataSyncBusy(false);
   }
 }
@@ -4881,6 +4912,7 @@ const planVessel = document.getElementById("planVessel");
 const planSkipper = document.getElementById("planSkipper");
 const planCrew = document.getElementById("planCrew");
 const planCategories = document.getElementById("planCategories");
+document.getElementById("choosePassageCategories")?.addEventListener("click", openPassageCategoryPicker);
 const planSunriseSet = document.getElementById("planSunriseSet");
 const planMoonPhase = document.getElementById("planMoonPhase");
 const planMoonRiseSet = document.getElementById("planMoonRiseSet");
@@ -5846,9 +5878,9 @@ function restoreDataBackupObject(obj, options = {}){
     saveLocalStorageItem(ABBR_DB_KEY, JSON.stringify(obj.data.weatherAbbreviations), "weather abbreviations");
   }
   if (obj.data.fuelManagement) {
-    saveFuelManagementSettings(obj.data.fuelManagement);
+    saveFuelManagementSettings(obj.data.fuelManagement, { preserveResetAt: true });
   }
-  if (obj.data.settings && obj.data.settings.logSplitRatio) {
+  if (obj.data.settings && Object.prototype.hasOwnProperty.call(obj.data.settings, "logSplitRatio")) {
     saveLocalStorageItem(LOG_SPLIT_RATIO_KEY, String(obj.data.settings.logSplitRatio), "log split setting");
   }
   if (obj.data.settings && Object.prototype.hasOwnProperty.call(obj.data.settings, "weatherAbbreviationsEnabled")) {
@@ -5956,7 +5988,7 @@ function importDppTemplatesBackupFile(file) {
           name,
           createdAt: existing?.createdAt || tpl.createdAt || new Date().toISOString(),
           updatedAt: tpl.updatedAt || new Date().toISOString(),
-          detailed: cloneDetailedPassagePlan(tpl.detailed, { regenerateIds: true })
+          detailed: cloneDetailedPassagePlan(tpl.detailed, { regenerateIds: true, resetActualTimes: true })
         });
       });
 
@@ -6156,9 +6188,9 @@ function clonePassagePlanForCopy(plan) {
     : [];
 
   if (typeof cloneDetailedPassagePlan === "function") {
-    copy.detailed = cloneDetailedPassagePlan(copy.detailed, { regenerateIds: true });
+    copy.detailed = cloneDetailedPassagePlan(copy.detailed, { regenerateIds: true, resetActualTimes: true });
     copy.detailedLegs = Array.isArray(copy.detailedLegs)
-      ? copy.detailedLegs.map(d => cloneDetailedPassagePlan(d, { regenerateIds: true }))
+      ? copy.detailedLegs.map(d => cloneDetailedPassagePlan(d, { regenerateIds: true, resetActualTimes: true }))
       : [];
   } else {
     copy.detailed = cloneJsonSafe(copy.detailed, { waypoints: [], hazards: "", portsOfRefuge: "", crewWelfare: "" });
@@ -6488,7 +6520,8 @@ function getPassageDashboardMetrics(passage) {
     { label: "Engine Hours", value: summary.ehText || "–" },
     { label: "Fuel Used", value: fuelUsedText },
     { label: "l/NM", value: formatFuelConsumption(summary.fuelUsed, distance) },
-    { label: "NM(G)", value: distance }
+    { label: "NM(G)", value: distance },
+    { label: "Average speed", value: (() => { const m = passageAverageSpeed(passage, status === "Complete" ? null : legIdx); return m.speed === null ? "–" : `${m.speed.toFixed(1)} kn`; })() }
   ].map(m => `
     <span class="st-metric-chip passage-metric">
       <span>${escapeHtml(m.label)}</span>
@@ -6499,60 +6532,112 @@ function getPassageDashboardMetrics(passage) {
 
 function computePassageCategoryNumbers(passage){
   const summary = computePassageLogSummary(passage);
-  const fuel = _num(summary.fuelUsed) || 0;
-  const nm = _num(summary.gLog) || 0;
+  const fuel = _num(summary.fuelUsed);
+  const nm = _num(summary.gLog);
   const engineStart = _num(passage?.plan?.engineHoursStart);
   const engineEnd = _num(passage?.finish?.engineHoursEnd);
   const engineHours = engineStart !== null && engineEnd !== null && engineEnd >= engineStart
     ? engineEnd - engineStart
-    : 0;
-  let underwayMinutes = 0;
+    : null;
+  let underwayMinutes = null;
+  let economyFuel = 0, economyDistance = 0;
   for (let i = 0; i < getLegCount(passage); i += 1) {
     const legMetrics = computeLegMetricsFromEntries(passage, i);
-    if (legMetrics.durationMinutes !== null) underwayMinutes += legMetrics.durationMinutes;
+    if (legMetrics.durationMinutes !== null) underwayMinutes = (underwayMinutes || 0) + legMetrics.durationMinutes;
+    if (legMetrics.fuelUsed !== null && legMetrics.fuelUsed >= 0 && legMetrics.nmG !== null && legMetrics.nmG > 0) {
+      economyFuel += legMetrics.fuelUsed;
+      economyDistance += legMetrics.nmG;
+    }
   }
-  return { fuel, nm, engineHours, underwayMinutes };
+  return { fuel, nm, engineHours, underwayMinutes, economyFuel, economyDistance };
 }
 
-function renderPassageCategorySummary(sourcePassages){
-  const byCategory = new Map();
-  (sourcePassages || []).forEach((passage) => {
-    const categories = normalisePassageCategories(passage);
-    if (!categories.length) return;
+const PASSAGE_ANALYTICS_KEY = "steeler_passage_analytics_view_v1";
+const ANALYTICS_DIMENSIONS = { category: "Category", year: "Year", month: "Year / month", origin: "Origin", destination: "Destination", status: "Passage status", all: "All passages" };
+const ANALYTICS_METRICS = { passages: "Passages", nm: "Distance (NM)", underwayMinutes: "Under way", fuel: "Fuel (L)", engineHours: "Engine hours", averageSpeed: "Average speed (kn)", fuelPerNm: "Fuel (L/NM)" };
+
+function loadPassageAnalyticsView(){
+  try {
+    const saved = JSON.parse(storage.getItem(PASSAGE_ANALYTICS_KEY) || "null");
+    return {
+      dimension: Object.hasOwn(ANALYTICS_DIMENSIONS, saved?.dimension) ? saved.dimension : "category",
+      metrics: Array.isArray(saved?.metrics) ? saved.metrics.filter(k => Object.hasOwn(ANALYTICS_METRICS, k)) : Object.keys(ANALYTICS_METRICS)
+    };
+  } catch(e) { return { dimension: "category", metrics: Object.keys(ANALYTICS_METRICS) }; }
+}
+
+function passageAverageSpeed(passage, legIndex = null){
+  let distance = 0, minutes = 0;
+  const indices = legIndex === null ? Array.from({length: getLegCount(passage)}, (_, i) => i) : [legIndex];
+  for (const i of indices) {
+    const m = computeLegMetricsFromEntries(passage, i);
+    if (m.nmG === null || m.durationMinutes === null || m.durationMinutes <= 0 || m.nmG < 0) continue;
+    distance += m.nmG;
+    minutes += m.durationMinutes;
+  }
+  return { distance, minutes, speed: minutes > 0 ? distance * 60 / minutes : null };
+}
+
+function renderPassageCategorySummary(sourcePassages, view = loadPassageAnalyticsView()){
+  const groups = new Map();
+  (sourcePassages || []).filter(p => !isDeletedPassage(p)).forEach(passage => {
+    const date = getPassageDateValue(passage);
+    const labels = view.dimension === "category" ? normalisePassageCategories(passage) : [
+      view.dimension === "year" ? date.slice(0, 4) :
+      view.dimension === "month" ? date.slice(0, 7) :
+      view.dimension === "origin" ? passage.plan?.from :
+      view.dimension === "destination" ? passage.plan?.to :
+      view.dimension === "status" ? getPassageDashboardStatus(passage) : "All passages"
+    ];
+    if (!labels.length) labels.push("Uncategorised");
     const numbers = computePassageCategoryNumbers(passage);
-    categories.forEach((category) => {
-      const existing = byCategory.get(category.toLowerCase()) || {
-        label: category,
-        passages: 0,
-        nm: 0,
-        fuel: 0,
-        engineHours: 0,
-        underwayMinutes: 0
-      };
-      existing.passages += 1;
-      existing.nm += numbers.nm;
-      existing.fuel += numbers.fuel;
-      existing.engineHours += numbers.engineHours;
-      existing.underwayMinutes += numbers.underwayMinutes;
-      byCategory.set(category.toLowerCase(), existing);
+    const speed = passageAverageSpeed(passage);
+    labels.forEach(value => {
+      const label = String(value || "Unknown").trim() || "Unknown";
+      const key = label.toLowerCase();
+      const item = groups.get(key) || { label, passages: 0, nm: 0, fuel: 0, engineHours: 0, underwayMinutes: 0, speedDistance: 0, speedMinutes: 0, economyFuel: 0, economyDistance: 0, counts: {} };
+      item.passages++;
+      for (const k of ["nm", "fuel", "engineHours", "underwayMinutes"]) {
+        if (numbers[k] !== null) { item[k] += numbers[k]; item.counts[k] = (item.counts[k] || 0) + 1; }
+      }
+      item.economyFuel += numbers.economyFuel;
+      item.economyDistance += numbers.economyDistance;
+      item.speedDistance += speed.distance;
+      item.speedMinutes += speed.minutes;
+      groups.set(key, item);
     });
   });
-  if (!byCategory.size) return "";
-  const cards = Array.from(byCategory.values())
-    .sort((a, b) => a.label.localeCompare(b.label))
-    .map((item) => {
-      const fuelPerNm = item.fuel > 0 && item.nm > 0 ? `${(item.fuel / item.nm).toFixed(2)} l/NM` : "–";
-      return `
-        <div class="category-summary-card">
-          <strong>${escapeHtml(item.label)}</strong>
-          <span>${item.passages} passage${item.passages === 1 ? "" : "s"}</span>
-          <span>${item.nm ? item.nm.toFixed(1) : "–"} NM · ${_fmtDurationFromMinutes(item.underwayMinutes) || "–"} UW</span>
-          <span>${item.fuel ? item.fuel.toFixed(1) : "–"} L fuel · ${item.engineHours ? item.engineHours.toFixed(1) : "–"} EH</span>
-          <span>${fuelPerNm}</span>
-        </div>
-      `;
-    }).join("");
-  return `<div class="passage-category-summary">${cards}</div>`;
+  if (!groups.size) return '<p class="hint">No passages to summarise.</p>';
+  if (!view.metrics.length) return '<p class="hint">Choose at least one metric.</p>';
+  return `<div class="passage-category-summary">${[...groups.values()].sort((a,b) => a.label.localeCompare(b.label)).map(item => {
+    const values = { passages: item.passages, nm: item.counts.nm ? item.nm.toFixed(1) : "–", fuel: item.counts.fuel ? item.fuel.toFixed(1) : "–", engineHours: item.counts.engineHours ? item.engineHours.toFixed(1) : "–", underwayMinutes: item.counts.underwayMinutes ? _fmtDurationFromMinutes(item.underwayMinutes) : "–", averageSpeed: item.speedMinutes > 0 ? (item.speedDistance * 60 / item.speedMinutes).toFixed(1) : "–", fuelPerNm: item.economyDistance > 0 ? (item.economyFuel / item.economyDistance).toFixed(2) : "–" };
+    return `<div class="category-summary-card"><strong>${escapeHtml(item.label)}</strong>${view.metrics.map(k => `<span>${escapeHtml(ANALYTICS_METRICS[k])}: ${escapeHtml(String(values[k]))}</span>`).join("")}</div>`;
+  }).join("")}</div>`;
+}
+
+function renderPassageAnalytics(){
+  const controls = document.getElementById("passageAnalyticsControls");
+  const summary = document.getElementById("passageAnalyticsSummary");
+  if (!controls || !summary) return;
+  const view = loadPassageAnalyticsView();
+  controls.innerHTML = `<label>Group by <select id="analyticsDimension">${Object.entries(ANALYTICS_DIMENSIONS).map(([key,label]) => `<option value="${key}"${view.dimension === key ? " selected" : ""}>${label}</option>`).join("")}</select></label><fieldset><legend>Show metrics</legend>${Object.entries(ANALYTICS_METRICS).map(([key,label]) => `<label class="analytics-metric-option"><input type="checkbox" data-analytics-metric="${key}"${view.metrics.includes(key) ? " checked" : ""}> ${label}</label>`).join("")}</fieldset>`;
+  summary.innerHTML = renderPassageCategorySummary(activePassages(), view);
+  controls.onchange = () => {
+    const next = { dimension: controls.querySelector("select").value, metrics: [...controls.querySelectorAll("input:checked")].map(el => el.dataset.analyticsMetric) };
+    try { storage.setItem(PASSAGE_ANALYTICS_KEY, JSON.stringify(next)); } catch(e) { warnStorageSaveFailed("analytics preferences", e); }
+    summary.innerHTML = renderPassageCategorySummary(activePassages(), next);
+  };
+}
+
+function openPassageCategoryPicker(){
+  const categories = normaliseCategoryList(activePassages().flatMap(normalisePassageCategories)).sort((a,b) => a.localeCompare(b));
+  const selected = normaliseCategoryList(planCategories.value);
+  showModal({ title: "Passage categories", bodyHtml: categories.length ? categories.map((category,i) => `<label class="analytics-metric-option"><input type="checkbox" data-category-index="${i}"${selected.some(v => v.toLowerCase() === category.toLowerCase()) ? " checked" : ""}> ${escapeHtml(category)}</label>`).join("") : '<p>No saved categories yet. Type a category in the Plan field to create one.</p>', onOk: () => {
+    const picked = [...modalBody.querySelectorAll("input:checked")].map(el => categories[Number(el.dataset.categoryIndex)]);
+    const unsaved = selected.filter(value => !categories.some(c => c.toLowerCase() === value.toLowerCase()));
+    planCategories.value = normaliseCategoryList([...picked, ...unsaved]).join(", ");
+    planCategories.dispatchEvent(new Event("change", { bubbles: true }));
+  }});
 }
 
 function getPassageStatusClass(status) {
@@ -7750,7 +7835,7 @@ function saveDppTemplate(name, detailed){
     name: cleanName,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
-    detailed: cloneDetailedPassagePlan(detailed, { regenerateIds: true })
+    detailed: cloneDetailedPassagePlan(detailed, { regenerateIds: true, resetActualTimes: true })
   };
 
   if (existing) {
@@ -8170,7 +8255,7 @@ function openDppTemplateEditor(id){
       const updatedDetailed = readDppTemplateEditorForm();
       updateDppTemplate(id, {
         name,
-        detailed: cloneDetailedPassagePlan(updatedDetailed, { regenerateIds: true })
+        detailed: cloneDetailedPassagePlan(updatedDetailed, { regenerateIds: true, resetActualTimes: true })
       });
       renderDppTemplatesManager();
       try { renderDetailedPassagePlan(getCurrentPassage()); } catch(e) {}
@@ -8461,7 +8546,7 @@ function saveSettingsDppWorkspace(){
   const detailed = readSettingsDppWorkspaceForm();
   updateDppTemplate(settingsDppWorkspaceState.templateId, {
     name,
-    detailed: cloneDetailedPassagePlan(detailed, { regenerateIds: true })
+    detailed: cloneDetailedPassagePlan(detailed, { regenerateIds: true, resetActualTimes: true })
   });
   settingsDppWorkspaceState.name = name;
   settingsDppWorkspaceState.detailed = cloneDetailedPassagePlan(detailed);
@@ -8722,7 +8807,7 @@ function renderSettingsDppWorkspace(){
     const selected = getDppTemplateById(selectedId);
     if (!selected) return;
     if (!confirm(`Replace this Detailed Passage Plan workspace with "${selected.name}"?`)) return;
-    settingsDppWorkspaceState.detailed = cloneDetailedPassagePlan(selected.detailed, { regenerateIds: true });
+    settingsDppWorkspaceState.detailed = cloneDetailedPassagePlan(selected.detailed, { regenerateIds: true, resetActualTimes: true });
     renderSettingsDppWorkspace();
   });
 
@@ -10952,14 +11037,14 @@ function loadFuelManagementSettings(){
   };
 }
 
-function saveFuelManagementSettings(settings){
+function saveFuelManagementSettings(settings, options = {}){
   const clean = {
     ...defaultFuelManagementSettings(),
     ...(settings || {})
   };
   clean.tankCapacity = numberOrNull(clean.tankCapacity) || STEELER_FUEL_TANK_CAPACITY_L;
   clean.resetLevel = Math.max(0, Math.min(clean.tankCapacity, numberOrNull(clean.resetLevel) ?? clean.tankCapacity));
-  clean.resetAt = clean.resetAt || localDateTimeInputValue(new Date());
+  if (!options.preserveResetAt) clean.resetAt = clean.resetAt || localDateTimeInputValue(new Date());
   saveLocalStorageItem(FUEL_MANAGEMENT_KEY, JSON.stringify(clean), "fuel management");
   return clean;
 }
@@ -11930,7 +12015,8 @@ function updateLogSummary() {
     l/NM: ${formatFuelConsumption(total.fuelUsed, total.gLog)} |
     Fuel ${total.fuelStart}%→${total.fuelEnd}% |
     NM(G): ${total.gLog} |
-    Under Way: ${total.durationText}`;
+    Under Way: ${total.durationText} |
+    Average speed: ${(() => { const m = passageAverageSpeed(p); return m.speed === null ? "–" : `${m.speed.toFixed(1)} kn`; })()}`;
 
   logSummaryPanel.innerHTML = html;
 }
@@ -12686,7 +12772,7 @@ function renderFuelManagementSettings(){
     <span class="st-metric-chip"><span>Avg Cost</span><strong>${escapeHtml(avg)}</strong></span>
   `;
   if (analyticsEl) {
-    analyticsEl.innerHTML = renderPassageCategorySummary(activePassages()) || '<p class="hint">Add Passage Categories on the Plan page to see grouped mileage, fuel and engine-hour summaries here.</p>';
+    renderPassageAnalytics();
   }
 }
 
@@ -12750,7 +12836,9 @@ function injectFuelManagementSettingsBlock(){
             </div>
           </section>
           <section class="settings-panel-card st-panel st-stack">
-            <div class="st-panel-title">Passage Categories</div>
+            <div class="st-panel-title">Passage Analytics</div>
+            <div id="passageAnalyticsControls"></div>
+            <p class="hint">Average speed uses distance ÷ under-way time for legs with both readings. Category groups overlap when a passage has several categories. View choices are saved on this device.</p>
             <div id="passageAnalyticsSummary"></div>
           </section>
         </div>
