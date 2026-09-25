@@ -10,7 +10,8 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(process.env.TEST_URL || 'http://127.0.0.1:8765');
   await page.waitForFunction(() => typeof renderPassageAnalytics === 'function');
-  assert.equal(await page.evaluate(() => APP_VERSION), '1.3.5-rc5');
+  assert.equal(await page.evaluate(() => APP_VERSION), '1.3.5-rc6');
+  assert.deepEqual(await page.evaluate(()=>['refillHistoryCard','overnightStatsCard','passageAnalyticsCard'].map(id=>document.getElementById(id).open)),[false,false,false]);
   const oob = await page.evaluate(async () => {
     const day = date => ({date, overnightOnBoard:true, fee:'',notes:''});
     const fixture = {id:'oob',plan:{date:'2026-03-27',dailySummaries:[...['2026-03-27','2026-03-28','2026-03-29','2026-03-30','2026-04-02','2026-04-03'].map(day),day('bad'),{date:'2026-04-01'}]},entries:[
@@ -74,6 +75,17 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
     await page.setViewportSize({width:1024,height:900});
     await page.locator('#planDailySummaryCard').screenshot({path:'test-results/oob-daily.png'});
     await page.evaluate(() => { switchToTab('settingsTab'); document.getElementById('fuelManagementPanel').hidden=false; renderFuelManagementSettings(); });
+    const disclosures=await page.evaluate(()=>{
+      return ['refillHistoryCard','overnightStatsCard','passageAnalyticsCard'].map(id=>{
+        const card=document.getElementById(id); card.open=false;
+        const compact=card.getBoundingClientRect().height<100;
+        card.querySelector('summary').click(); const opens=card.open;
+        card.querySelector('summary').click(); return compact && opens && !card.open;
+      });
+    });
+    assert.deepEqual(disclosures,[true,true,true]);
+    await page.locator('#fuelManagementPanel').screenshot({path:'test-results/collapsed-analytics.png'});
+    await page.evaluate(()=>document.getElementById('overnightStatsCard').open=true);
     await page.locator('#overnightStats').screenshot({path:'test-results/oob-stats.png'});
   }
   console.log('PASS: OOB dates, deduplication, DST streaks, partial/full refill intervals, deleted/future exclusion, form and backup persistence');
@@ -83,7 +95,7 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
     const p={id:'fuel',plan:{date:'2026-01-01',timeZone:'UTC',dailySummaries:['2026-01-01','2026-01-02','2026-01-03','2026-01-04','2026-01-08','2026-01-09'].map(night)},entries:[
       ref('r0','2026-01-01T10:00','0',100,100,true),
       {id:'u1',time:'2026-01-02T12:00',fuelUsed:'40'},
-      ref('r1','2026-01-03T10:00','100',60,72,false),
+      ref('r1','2026-01-03T10:00','',60,72,false),
       ref('r2','2026-01-05T10:00','180',150,180,true),
       {id:'u2',time:'2026-01-05T13:00',fuelUsed:'200'},
       ref('r3','2026-01-06T10:00','0',20,0,true,1),
@@ -115,9 +127,9 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
   });
   assert.equal(fuel.rows.length,6);
   assert.equal(fuel.rows[0].used,null);
-  assert.deepEqual(fuel.rows.slice(1,4).map(r=>r.used),[100,80,20]);
-  assert.deepEqual(fuel.rows.slice(1,4).map(r=>r.difference),[-40,70,0]);
-  assert.deepEqual(fuel.rows.slice(1,4).map(r=>r.nights),[2,2,0]);
+  assert.deepEqual(fuel.rows.slice(1,4).map(r=>r.used),[null,180,20]);
+  assert.deepEqual(fuel.rows.slice(1,4).map(r=>r.difference),[null,30,0]);
+  assert.deepEqual(fuel.rows.slice(1,4).map(r=>r.nights),[null,4,0]);
   assert.equal(fuel.rows[3].price,0);
   assert.equal(fuel.rows[3].perNight,null);
   assert.equal(fuel.rows[4].price,null);
@@ -126,7 +138,7 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
   assert.equal(fuel.totalFilled,345);
   assert.ok(Math.abs(fuel.price-352/330)<1e-9);
   assert.equal(fuel.perNight,7.5);
-  assert.equal(fuel.cycles.length,1);
+  assert.equal(fuel.cycles.length,4);
   assert.equal(fuel.cycles[0].filled,210);
   assert.equal(fuel.cycles[0].used,180);
   assert.equal(fuel.cycles[0].difference,30);
@@ -142,13 +154,17 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
   assert.equal(fuel.openingHidden,true);
   assert.equal(fuel.noRefillNights,true);
   assert.equal(fuel.nightsOption,true);
-  assert.match(fuel.html,/Full-to-full comparisons/);
-  assert.match(fuel.html,/Totals/);
-  assert.match(fuel.html,/Average \/ refill/);
+  assert.doesNotMatch(fuel.html,/<summary>Details/);
+  assert.match(fuel.html,/<summary>Location/);
+  assert.match(fuel.html,/Included in full refill on 2026-01-05/);
+  assert.match(fuel.html,/Full-refill totals/);
+  assert.match(fuel.html,/Average \/ full refill/);
   if (!process.env.DOM_TEST) {
     await page.evaluate(() => {switchToTab('settingsTab');document.getElementById('fuelManagementPanel').hidden=false;renderFuelManagementSettings();});
     await page.setViewportSize({width:1024,height:1500});
+    await page.evaluate(()=>document.getElementById('refillHistoryCard').open=true);
     await page.locator('#refillHistory').screenshot({path:'test-results/refill-history.png'});
+    await page.evaluate(()=>document.getElementById('overnightStatsCard').open=true);
     await page.locator('#overnightStats').screenshot({path:'test-results/overnight-runs.png'});
     await page.setViewportSize({width:390,height:900});
     const fits=await page.evaluate(()=>document.getElementById('refillHistory').getBoundingClientRect().width<=390);
@@ -156,23 +172,39 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
     await page.setViewportSize({width:1024,height:768});
   }
   console.log('PASS: refill reconciliation, partial-fill cycle, weighted rates, missing/zero readings, interval override, tank continuity, ranked runs and dated OOB analytics');
+  const fullCycles=await page.evaluate(()=>{
+    const ref=(id,date,litres,cost,full,fuelUsed='')=>({id,time:date+'T10:00',fuelUsed,refuel:{litres,cost,tankFull:full}});
+    const p={id:'cycle',plan:{timeZone:'UTC'},entries:[ref('f1','2026-01-01',100,100,true,'0'),ref('p1','2026-01-02',60,60,false),ref('p2','2026-01-03',40,40,false),ref('f2','2026-01-05',150,150,true,'180'),ref('pending','2026-01-07',20,20,false)]};
+    p.entries[3].refuel.fuelUsedSincePrevious=80;
+    const data=computeRefillHistory([p]);
+    const row=data.rows[3];
+    const result={used:row.used,filled:row.filled,difference:row.difference,total:data.sum('filled'),pending:data.pending.length,partials:data.rows.filter(r=>!r.full).map(r=>r.used)};
+    p.entries[3].refuel.fuelUsedSinceFull=190;
+    result.override=computeRefillHistory([p]).rows[3].used;
+    p.entries[1].deleted=true;
+    result.afterDeletion=computeRefillHistory([p]).rows[2].filled;
+    return result;
+  });
+  assert.deepEqual(fullCycles,{used:180,filled:250,difference:70,total:350,pending:1,partials:[null,null,null],override:190,afterDeletion:190});
+  console.log('PASS: multiple partials need no readings, full cycles avoid double counting, pending partials and legacy overrides stay separate');
   const refillForm = await page.evaluate(async () => {
     const p=passages[0];
     currentPassageId=p.id;
     ensureDetailedPassagePlans(p); loadPassageIntoUI();
-    const entry={id:'new-refill',time:'2026-01-11T10:00',leg:4,refuel:{litres:20,cost:0,fuelUsedSincePrevious:0,tankFull:false}};
+    const entry={id:'new-refill',time:'2026-01-11T10:00',leg:4,refuel:{litres:20,cost:0,fuelUsedSinceFull:0,tankFull:true,location:'Cowes'}};
     const pending=openManualEntryDialog(entry,{isNew:true,passage:p});
     const zeroShown=document.getElementById('dlgRefuelCost').value==='0' && document.getElementById('dlgRefuelUsed').value==='0';
     document.getElementById('dlgRefuelUsed').value='12.5';
+    document.getElementById('dlgRefuelLocation').value='Lymington Fuel';
     modalOkBtn.click();
     await pending;
     p.entries.push(entry);
     const backup=JSON.parse(JSON.stringify(createDataBackupPayload()));
     await applyFullDataCloudCopy({backup,record:{payload:{backup}}},nowIso());
     const restored=passages[0].entries.find(e=>e.id==='new-refill').refuel;
-    return {zeroShown,used:restored.fuelUsedSincePrevious,cost:restored.cost,price:restored.costPerLitre};
+    return {zeroShown,location:restored.location,used:restored.fuelUsedSinceFull,cost:restored.cost,price:restored.costPerLitre};
   });
-  assert.deepEqual(refillForm,{zeroShown:true,used:12.5,cost:0,price:0});
+  assert.deepEqual(refillForm,{zeroShown:true,location:'Lymington Fuel',used:12.5,cost:0,price:0});
   console.log('PASS: refill form retains zero cost, saves interval use and survives verified backup restore');
   const baseline = await page.evaluate(() => {
     const saved=loadFuelManagementSettings();

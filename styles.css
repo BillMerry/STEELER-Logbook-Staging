@@ -3824,3 +3824,7 @@ body[data-theme="night"] .log-entry-row:nth-child(even) .log-display-cell{
 .refill-row-details summary { cursor: pointer; }
 body[data-theme="night"] .analytics-table thead th, body[data-theme="night"] .analytics-table tfoot { background: #18232b; }
 #fuelMgmtStats { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: .4rem; }
+
+.analytics-disclosure > summary { cursor: pointer; display: list-item; margin: 0; }
+.analytics-disclosure[open] > summary { margin-bottom: .8rem; }
+.partial-refill-row td[colspan], .refill-note { text-align: left; white-space: normal; }

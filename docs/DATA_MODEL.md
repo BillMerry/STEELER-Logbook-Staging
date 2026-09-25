@@ -762,3 +762,11 @@ Use actual entry timestamps for chronological fuel processing (legacy HH:mm uses
 Refill reconciliation uses deltas of nonnegative readings. Missing prior refill, missing interval readings, decreasing readings, undated refills or absent readings where a leg spans a refill make inferred interval use unavailable. Explicit interval use is available for review/correction. Filling litres minus recorded use is signed; only full-to-full periods support a like-for-like tank comparison. Supplemental completed cycles combine partial fills. Per-night rate needs positive recorded nights. Aggregate unit prices use only priced litres; aggregate per-night rates use matching differences/nights with positive nights, excluding zero-night intervals from both numerator and denominator.
 
 Analytics metric `nights` uses unique completed OOB dates within a group. Year/month groups use night dates, including periods crossed by a passage. Ranked consecutive runs are derived from calendar dates, longest first then latest end date, with equal lengths sharing rank. Other grouping dimensions can overlap.
+
+### Full-refill reporting (1.3.5-rc6)
+
+Replaces rc5's per-refill reporting. Only full refills close fuel-use intervals. Partial fills do not split cumulative readings, so their missing fuel readings cannot invalidate a full-to-full interval. Full rows aggregate `purchaseFilled`/`purchaseCost` since the preceding full refill and unique OOB dates over those full boundaries. Partial rows have no derived comparisons. Full-row totals exclude partial rows and pending partials to avoid double counting. The first full row includes its purchases but has no inferred use/difference/night interval.
+
+`refuel.location` holds user-entered location text with optional saved-port suggestions. No location is inferred from passage endpoints. `refuel.fuelUsedSinceFull` is the optional full-period override. The old `fuelUsedSincePrevious` is preserved and applied only when there are no intervening partial fills and no newer full-period field. Compatible older overrides are prefilled when editing so adding a location does not discard them.
+
+The three analytics wrappers use native details/summary controls, initially closed and independent. Refreshes replace their content without replacing the wrappers, preserving open state.
