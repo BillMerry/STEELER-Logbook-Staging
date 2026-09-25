@@ -2072,7 +2072,7 @@ body[data-theme="night"] .app-header h1{
 }
 
 .passage-card-main{
-  grid-template-columns:minmax(15rem,1.2fr) minmax(23rem,1.8fr) 1.5rem;
+  grid-template-columns:minmax(12rem,0.85fr) minmax(0,2.15fr) 1.25rem;
   gap:var(--st-space-3);
   align-items:center;
   padding:var(--st-space-3);
@@ -2095,7 +2095,7 @@ body[data-theme="night"] .app-header h1{
 
 .passage-card-summary{
   display:grid;
-  grid-template-columns:repeat(5,minmax(5.6rem,1fr));
+  grid-template-columns:repeat(6,minmax(0,1fr));
   gap:var(--st-space-2);
   opacity:1;
   font-size:0.78rem;
@@ -2734,7 +2734,7 @@ body[data-theme="night"] .settings-card-icon{
   }
 
   .passage-card-summary{
-    grid-template-columns:repeat(2,minmax(0,1fr));
+    grid-template-columns:repeat(6,minmax(0,1fr));
   }
 
   .passage-card-chevron{
@@ -2776,7 +2776,7 @@ body[data-theme="night"] .settings-card-icon{
   }
 
   .passage-card-summary{
-    grid-template-columns:1fr;
+    grid-template-columns:repeat(6,minmax(0,1fr));
   }
 }
 
@@ -3800,3 +3800,15 @@ body[data-theme="night"] .log-entry-row:nth-child(even) .log-display-cell{
 
 .analytics-metric-option { display: inline-flex; align-items: center; gap: .4rem; margin: .4rem .8rem .4rem 0; }
 .analytics-metric-option input { width: auto; }
+
+/* Six compact Home metrics remain together at every viewport width. */
+.passage-card-summary { gap: .25rem; }
+.passage-card-summary .passage-metric {
+  min-width: 0;
+  padding: .35rem .3rem;
+  min-height: 3rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: .72rem;
+}
+.passage-card-summary .passage-metric strong { font-size: .85rem; }

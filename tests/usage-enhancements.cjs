@@ -10,7 +10,7 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(process.env.TEST_URL || 'http://127.0.0.1:8765');
   await page.waitForFunction(() => typeof renderPassageAnalytics === 'function');
-  assert.equal(await page.evaluate(() => APP_VERSION), '1.3.5-rc1');
+  assert.equal(await page.evaluate(() => APP_VERSION), '1.3.5-rc2');
   const calculations = await page.evaluate(() => {
     const original = { waypoints: [{id:'w1',name:'Test',lat:50,lon:-1,time:'10:00',actualTime:'11:00',plannedSpeed:'8'}] };
     const cleaned = cloneDetailedPassagePlan(original, {resetActualTimes:true,regenerateIds:true});
@@ -47,15 +47,24 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
     const b = {id:'p2',createdAt:'2025-12-02',plan:{date:'2025-12-02',from:'Other',to:'Destination',categories:['cruise']},entries:[]};
     const c = {id:'p3',createdAt:'2026-01-02',plan:{date:'2026-01-02',categories:['Deleted']},entries:[],deleted:true};
     passages=[a,b,c]; passages.forEach(ensureDetailedPassagePlans); currentPassageId='p1'; loadPassageIntoUI();
-    planCategories.value='Cruise, New category';
-    openPassageCategoryPicker();
-    const choices=[...modalBody.querySelectorAll('input')];
-    choices.forEach(input=>input.checked=input.parentElement.textContent.includes('Family'));
-    modalOkBtn.click();
-    return {picked:planCategories.value,choiceCount:choices.length,groups:Object.fromEntries(Object.keys(ANALYTICS_DIMENSIONS).map(d=>[d,renderPassageCategorySummary([a,b,c],{dimension:d,metrics:['passages','nm']})]))};
+    planCategories.value='Cruise, Fa';
+    planCategories.setSelectionRange(planCategories.value.length,planCategories.value.length);
+    planCategories.dispatchEvent(new Event('input', {bubbles:true}));
+    const box=document.getElementById('planCategoriesSuggest');
+    const choices=[...box.querySelectorAll('button')];
+    choices[0].click();
+    const picked=planCategories.value;
+    const hiddenAfterSelection=box.classList.contains('hidden');
+    planCategories.value='New category';
+    planCategories.setSelectionRange(planCategories.value.length,planCategories.value.length);
+    planCategories.dispatchEvent(new Event('input',{bubbles:true}));
+    const acceptsNew=planCategories.value==='New category' && box.classList.contains('hidden');
+    return {picked,choiceCount:choices.length,hiddenAfterSelection,acceptsNew,groups:Object.fromEntries(Object.keys(ANALYTICS_DIMENSIONS).map(d=>[d,renderPassageCategorySummary([a,b,c],{dimension:d,metrics:['passages','nm']})]))};
   });
-  assert.equal(coverage.choiceCount,2);
-  assert.equal(coverage.picked,'Family, New category');
+  assert.equal(coverage.choiceCount,1);
+  assert.equal(coverage.picked,'Cruise, Family');
+  assert.equal(coverage.hiddenAfterSelection,true);
+  assert.equal(coverage.acceptsNew,true);
   assert.match(coverage.groups.year,/2025/); assert.match(coverage.groups.year,/2026/);
   assert.match(coverage.groups.month,/2026-01/);
   assert.match(coverage.groups.origin,/Origin/);
@@ -63,7 +72,7 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
   assert.match(coverage.groups.all,/Passages: 2/);
   assert.match(coverage.groups.all,/Distance \(NM\): –/);
   assert.doesNotMatch(coverage.groups.category,/Deleted/);
-  console.log('PASS: category picker, dimension grouping and missing readings');
+  console.log('PASS: category autocomplete, dimension grouping and missing readings');
   const integration = await page.evaluate(async () => {
     const source = {waypoints:[{id:'old',name:'Old waypoint',lat:50,lon:-1,time:'09:00',actualTime:'09:15'}]};
     const saved = saveDppTemplate('Regression plan', source);
@@ -79,6 +88,20 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
   assert.equal(integration.sourceAta,'09:15');
   assert.equal(integration.before,integration.after,'full cloud restore preserves package hash');
   console.log('PASS: saved template storage and verified cloud backup round trip');
+  if (!process.env.DOM_TEST) {
+    for (const width of [1280, 1024, 768, 390]) {
+      await page.setViewportSize({width,height:900});
+      const layout=await page.evaluate(() => {
+        switchToTab('homeTab'); refreshHomePassageList();
+        const rows=[...document.querySelectorAll('.passage-card-summary')];
+        return rows.map(row=>({tops:[...row.children].map(el=>Math.round(el.getBoundingClientRect().top)), fits:row.scrollWidth<=row.clientWidth+1,count:row.children.length}));
+      });
+      assert.ok(layout.length>0);
+      for(const row of layout) { assert.equal(row.count,6); assert.equal(new Set(row.tops).size,1,`one metrics row at ${width}px`); assert.ok(row.fits,`metrics fit at ${width}px`); }
+    }
+    console.log('PASS: six Home metrics fit one row at desktop, tablet and phone widths');
+  }
+
   // Exercise the real sync orchestrator with simulated cloud transport and copies.
   for (const scenario of [
     {name:'matched',local:'same',cloud:'same',lastLocal:'old',lastCloud:'old',expect:'matched'},
