@@ -752,3 +752,13 @@ Daily Summary rows have optional boolean `overnightOnBoard`. Only strict `true` 
 Refill intervals use dated, non-deleted log entries with positive refuel litres. Include OOB dates >= earlier refill date and < later refill date. Full-to-full periods include intermediate partial fills without resetting night counts. No baseline yields unavailable since-refill counts. These statistics are independent of fuel tank reset controls and do not adjust consumption or remaining fuel. Refuel dates with offsets use the passage time zone.
 
 Plan copies clear OOB; editing a passage date does not move an already-recorded OOB date. Whole-package backups/sync retain the field. An older client can drop it when editing Daily Summaries, so use rc4 or later on all devices editing these records.
+
+### Refill history and OOB analytics (1.3.5-rc5)
+
+`entry.refuel.fuelUsedSincePrevious` is an optional nonnegative litres value (empty string means derive). It overrides the interval-use figure in refill analysis only; the tank and passage calculations continue to use log `fuelUsed` readings. Price, difference and OOB counts are derived rather than duplicated snapshots. Changes to original log records or OOB dates update the table.
+
+Use actual entry timestamps for chronological fuel processing (legacy HH:mm uses passage date). Fuel readings are cumulative per passage/leg, not amounts to sum at every entry. Keep the last per-leg counter when a full refill resets displayed fuel use. Deleted passages/entries are excluded. An opening baseline is used until a valid full refill exists, with partial fills applied after its cutoff. Once a full refill exists the opening controls are hidden.
+
+Refill reconciliation uses deltas of nonnegative readings. Missing prior refill, missing interval readings, decreasing readings, undated refills or absent readings where a leg spans a refill make inferred interval use unavailable. Explicit interval use is available for review/correction. Filling litres minus recorded use is signed; only full-to-full periods support a like-for-like tank comparison. Supplemental completed cycles combine partial fills. Per-night rate needs positive recorded nights. Aggregate unit prices use only priced litres; aggregate per-night rates use matching differences/nights with positive nights, excluding zero-night intervals from both numerator and denominator.
+
+Analytics metric `nights` uses unique completed OOB dates within a group. Year/month groups use night dates, including periods crossed by a passage. Ranked consecutive runs are derived from calendar dates, longest first then latest end date, with equal lengths sharing rank. Other grouping dimensions can overlap.
