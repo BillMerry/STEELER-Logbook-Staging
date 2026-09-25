@@ -10,7 +10,7 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(process.env.TEST_URL || 'http://127.0.0.1:8765');
   await page.waitForFunction(() => typeof renderPassageAnalytics === 'function');
-  assert.equal(await page.evaluate(() => APP_VERSION), '1.3.5-rc2');
+  assert.equal(await page.evaluate(() => APP_VERSION), '1.3.5-rc3');
   const calculations = await page.evaluate(() => {
     const original = { waypoints: [{id:'w1',name:'Test',lat:50,lon:-1,time:'10:00',actualTime:'11:00',plannedSpeed:'8'}] };
     const cleaned = cloneDetailedPassagePlan(original, {resetActualTimes:true,regenerateIds:true});
