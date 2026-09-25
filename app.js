@@ -1660,6 +1660,8 @@ async function runFullDataCloudSync(options = {}){
 
   try{
     const cloud = await fetchCurrentFullDataCloudRecord(connection);
+    // A user may open an entry dialog while the cloud request is in flight.
+    if (isAutoSync && !modalOverlay.classList.contains("hidden")) return;
     const previousStatus = loadLocalSyncStatus();
     const localBackup = createDataBackupPayload();
     const localHash = fullDataBackupPackageHash(localBackup);

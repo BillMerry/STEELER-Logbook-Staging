@@ -87,6 +87,7 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
     {name:'both changed',local:'local-new',cloud:'cloud-new',lastLocal:'base',lastCloud:'base',expect:'conflict'},
     {name:'no baseline',local:'local',cloud:'remote',lastLocal:'',lastCloud:'',expect:'defer'},
     {name:'split baseline mismatch',local:'local',cloud:'remote',lastLocal:'local',lastCloud:'remote',expect:'defer'},
+    {name:'dialog opened during fetch',local:'base',cloud:'new',lastLocal:'base',lastCloud:'base',openDialog:true,expect:'defer'},
     {name:'first cloud',local:'local',cloud:null,lastLocal:'',lastCloud:'',expect:'defer'}
   ]) {
     const syncPage=await context.newPage();
@@ -95,7 +96,7 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
     const result=await syncPage.evaluate(async scenario => {
       const actions=[];
       getSavedSyncConnection=()=>({});
-      fetchCurrentFullDataCloudRecord=async()=>({record:scenario.cloud ? {} : null,backup:{}});
+      fetchCurrentFullDataCloudRecord=async()=>{if(scenario.openDialog)modalOverlay.classList.remove("hidden");return {record:scenario.cloud ? {} : null,backup:{}}};
       loadLocalSyncStatus=()=>({lastSyncedLocalPackageHash:scenario.lastLocal,lastSyncedCloudPackageHash:scenario.lastCloud});
       createDataBackupPayload=()=>({});
       fullDataBackupPackageHash=()=>scenario.local;
