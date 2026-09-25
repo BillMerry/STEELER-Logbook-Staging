@@ -14,7 +14,7 @@
 2. The conflict dialog lists differing passages and shared data areas. This is a comparison of copies, not a proven entry-level three-way conflict analysis: only whole-package hashes are retained as baselines. The dialog explicitly says the chosen whole copy replaces the other copy.
 3. Saved DPP creation/import/edit/reuse and passage copying clear actual arrival times, while preserving planned times and original passage history. Existing templates are cleaned when reused; simply reading/restoring old templates does not silently migrate their data. Plan-page DPP rows no longer display ATA. Log Route Summary and log-entry waypoint controls retain ATA.
 4. Average speed appears on Home passage metrics and completed Log totals. It is total recorded ground distance divided by total under-way time for eligible legs, in knots. Analytics uses the same weighted calculation, excluding legs missing either reading or having nonpositive duration. Active passage values remain provisional as time advances.
-5. Analytics groups by category, year, year/month, origin, destination, passage status or all passages. The user selects displayed metrics. Missing totals display a dash; real zero readings remain zero. Categories are case-insensitive and can overlap. Uncategorised passages are included.
+5. Analytics groups by category, year, year/month, origin, destination, passage status or all passages. The user selects displayed metrics. Missing totals display a dash; real zero readings remain zero. Fuel per NM uses only legs with both fuel and distance readings. Categories are case-insensitive and can overlap. Uncategorised passages are included.
 6. A category picker offers existing categories; typing new comma-separated categories remains supported.
 7. Full-copy restore preserves an unset fuel-reset date and an empty split-view setting, avoiding changes to the restored package hash.
 
@@ -24,7 +24,7 @@ Analytics view preferences are device-local and excluded from sync/backup. Durab
 
 Local DOM integration tests exercise app startup, template ATA isolation and saved-template storage, weighted averages, missing data, metric selection, preferences, backup round-trip verification, category picker and simulated auto-sync outcomes. Syntax and cached-asset checks run separately. The Testbed also opens in the Codex app browser for UI inspection.
 
-Automated Chromium launch was blocked on the development Mac; the equivalent browser suite is retained for CI. DOM tests do not prove service-worker, iPad/Safari, network or deployed-Worker behavior.
+Automated Chromium launch was blocked on the development Mac. The equivalent Chromium suite passed in GitHub Actions run 36126060442, along with DOM, syntax and asset checks. Subsequent candidate updates must also pass CI. DOM tests do not prove service-worker, iPad/Safari, network or deployed-Worker behavior.
 
 Before accepting the candidate:
 

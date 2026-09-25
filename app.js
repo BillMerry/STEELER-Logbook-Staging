@@ -6538,11 +6538,16 @@ function computePassageCategoryNumbers(passage){
     ? engineEnd - engineStart
     : null;
   let underwayMinutes = null;
+  let economyFuel = 0, economyDistance = 0;
   for (let i = 0; i < getLegCount(passage); i += 1) {
     const legMetrics = computeLegMetricsFromEntries(passage, i);
     if (legMetrics.durationMinutes !== null) underwayMinutes = (underwayMinutes || 0) + legMetrics.durationMinutes;
+    if (legMetrics.fuelUsed !== null && legMetrics.fuelUsed >= 0 && legMetrics.nmG !== null && legMetrics.nmG > 0) {
+      economyFuel += legMetrics.fuelUsed;
+      economyDistance += legMetrics.nmG;
+    }
   }
-  return { fuel, nm, engineHours, underwayMinutes };
+  return { fuel, nm, engineHours, underwayMinutes, economyFuel, economyDistance };
 }
 
 const PASSAGE_ANALYTICS_KEY = "steeler_passage_analytics_view_v1";
@@ -6588,11 +6593,13 @@ function renderPassageCategorySummary(sourcePassages, view = loadPassageAnalytic
     labels.forEach(value => {
       const label = String(value || "Unknown").trim() || "Unknown";
       const key = label.toLowerCase();
-      const item = groups.get(key) || { label, passages: 0, nm: 0, fuel: 0, engineHours: 0, underwayMinutes: 0, speedDistance: 0, speedMinutes: 0, counts: {} };
+      const item = groups.get(key) || { label, passages: 0, nm: 0, fuel: 0, engineHours: 0, underwayMinutes: 0, speedDistance: 0, speedMinutes: 0, economyFuel: 0, economyDistance: 0, counts: {} };
       item.passages++;
       for (const k of ["nm", "fuel", "engineHours", "underwayMinutes"]) {
         if (numbers[k] !== null) { item[k] += numbers[k]; item.counts[k] = (item.counts[k] || 0) + 1; }
       }
+      item.economyFuel += numbers.economyFuel;
+      item.economyDistance += numbers.economyDistance;
       item.speedDistance += speed.distance;
       item.speedMinutes += speed.minutes;
       groups.set(key, item);
@@ -6601,7 +6608,7 @@ function renderPassageCategorySummary(sourcePassages, view = loadPassageAnalytic
   if (!groups.size) return '<p class="hint">No passages to summarise.</p>';
   if (!view.metrics.length) return '<p class="hint">Choose at least one metric.</p>';
   return `<div class="passage-category-summary">${[...groups.values()].sort((a,b) => a.label.localeCompare(b.label)).map(item => {
-    const values = { passages: item.passages, nm: item.counts.nm ? item.nm.toFixed(1) : "–", fuel: item.counts.fuel ? item.fuel.toFixed(1) : "–", engineHours: item.counts.engineHours ? item.engineHours.toFixed(1) : "–", underwayMinutes: item.counts.underwayMinutes ? _fmtDurationFromMinutes(item.underwayMinutes) : "–", averageSpeed: item.speedMinutes > 0 ? (item.speedDistance * 60 / item.speedMinutes).toFixed(1) : "–", fuelPerNm: item.counts.fuel && item.nm > 0 ? (item.fuel / item.nm).toFixed(2) : "–" };
+    const values = { passages: item.passages, nm: item.counts.nm ? item.nm.toFixed(1) : "–", fuel: item.counts.fuel ? item.fuel.toFixed(1) : "–", engineHours: item.counts.engineHours ? item.engineHours.toFixed(1) : "–", underwayMinutes: item.counts.underwayMinutes ? _fmtDurationFromMinutes(item.underwayMinutes) : "–", averageSpeed: item.speedMinutes > 0 ? (item.speedDistance * 60 / item.speedMinutes).toFixed(1) : "–", fuelPerNm: item.economyDistance > 0 ? (item.economyFuel / item.economyDistance).toFixed(2) : "–" };
     return `<div class="category-summary-card"><strong>${escapeHtml(item.label)}</strong>${view.metrics.map(k => `<span>${escapeHtml(ANALYTICS_METRICS[k])}: ${escapeHtml(String(values[k]))}</span>`).join("")}</div>`;
   }).join("")}</div>`;
 }
