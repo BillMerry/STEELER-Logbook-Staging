@@ -11217,10 +11217,10 @@ function computeFuelManagementStats({ beforeTime = "", excludeEntryId = "" } = {
         // Refilling resets the displayed period, not cumulative readings within a leg.
       } else {
         const storedRemaining = numberOrNull(refuel.tankRemaining);
-        if (storedRemaining != null) {
-          remaining = Math.max(0, Math.min(settings.tankCapacity, storedRemaining));
-        } else if (remaining != null) {
+        if (remaining != null) {
           remaining = Math.min(settings.tankCapacity, remaining + litres);
+        } else if (storedRemaining != null) {
+          remaining = Math.max(0, Math.min(settings.tankCapacity, storedRemaining));
         }
       }
     }

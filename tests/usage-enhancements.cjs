@@ -178,7 +178,7 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
     saveFuelManagementSettings({tankCapacity:800,resetLevel:500,resetAt:'2026-01-02T00:00:00Z'});
     passages=[{id:'partial',plan:{date:'2026-01-01',timeZone:'UTC'},entries:[
       {id:'before',time:'2026-01-01T10:00',fuelUsed:'100'},
-      {id:'after',time:'2026-01-02T10:00',fuelUsed:'120',refuel:{litres:50,cost:50,tankFull:false}}
+      {id:'after',time:'2026-01-02T10:00',fuelUsed:'120',refuel:{litres:50,cost:50,tankFull:false,tankRemaining:790}}
     ]}];
     const stats=computeFuelManagementStats();
     renderFuelManagementSettings();
