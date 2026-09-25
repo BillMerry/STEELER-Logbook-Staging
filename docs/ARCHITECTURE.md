@@ -1,5 +1,7 @@
 # STEELER Logbook Architecture
 
+Current candidate: **1.3.5-rc1**. See [candidate changes](RELEASE_1.3.5-rc1.md) and [recovery review](DELETION_REVIEW.md) for the current sync and deletion behavior; older version descriptions below are historical.
+
 This document records the v1.3.3 release-candidate architecture, including the sync-foundation architecture, Detailed Passage Plan template management, standardised port entry, EC SMS waypoint selection, guarded cloud-copy restore behaviour, passage-specific SMS recipient memory, opt-in auto-sync and browser-first AIS search links.
 
 STEELER Logbook is a vanilla HTML/CSS/JavaScript offline-first PWA intended for iPad use at sea. Reliability, predictable offline behaviour and preservation of existing passage data are more important than reducing file size or changing code shape for its own sake.
@@ -59,10 +61,10 @@ AIS position links in SMS messages use the configured MarineTraffic vessel link 
 - `steeler_sync_config_v1` stores the sync Worker URL and token locally so Settings can check the current cloud copy, run Sync Now, list recovery backup summaries, download a selected backup JSON file, and manually restore a selected recovery backup. The token is not included in full data backups.
 - Simplified cloud sync treats STEELER data as one complete logbook package. The current cloud copy is a Worker record with id `global:full-data-sync` and type `full-data-sync`; its payload contains a full `steeler-data-backup`.
 - Sync Now first checks the current cloud copy by fetching only the `full-data-sync` record from the Worker. If this device already matches cloud, the app marks it synced and does not upload. If this device has changes and the cloud revision has not changed since this device last synced, this device can upload its complete data package as the current cloud copy.
-- If the cloud revision has changed since this device last synced, the app shows which device last updated the cloud copy and asks whether to keep this device's complete copy, use the cloud copy, or cancel.
+- If both local and cloud packages changed against their successful baselines, the app asks which complete copy to keep. Cloud-only changes are received silently. Auto-sync defers missing/inconsistent baselines to manual Sync.
 - When the user chooses the cloud copy, v1.3.3-rc4 restores the cloud backup exactly. Local Daily Summary and DPP detail are no longer preserved during this full-copy restore; the chosen copy wins.
-- Choosing Keep This Device pushes this device's full backup as the current cloud copy. If a previous cloud copy exists, it is first preserved as a `cloud-backup` recovery record.
-- Choosing Use Cloud Copy downloads a safety backup of the current local data first, then restores the complete cloud backup locally. The local `steeler_device_id_v1` remains device-local and is not replaced by backup restore.
+- Choosing Keep This Device pushes this device's full backup as the current cloud copy. The current upload function does not automatically archive the previous copy; see the recovery review.
+- Choosing Use Cloud Copy restores and verifies the complete cloud backup locally. The current ordinary sync path does not download a safety backup first. The local `steeler_device_id_v1` remains device-local and is not replaced by backup restore.
 - Recovery backups use `/v1/records/push` with record type `cloud-backup`. The read-only backup list uses `/v1/backups`; selected backup download/restore uses `/v1/backups/{recordId}`. Manual restore first downloads a local safety backup and requires two confirmations.
 - v1.3.3 auto-sync is opt-in per device. When enabled, it runs shortly after app open, focus or foreground return, no more than once every minute. It can upload safe local changes automatically only when the cloud copy has not changed since this device last synced. It does not create the first cloud copy automatically; cloud downloads/conflicts still require user choice. The footer and Data & Backup panel show whether auto-sync is on and the last auto-sync check time.
 - v1.3.1 standardises new port capture so route-field additions and Settings > New Port collect the same core fields: name, Lat/Lon, Comms/Pilotage and Private Notes.
