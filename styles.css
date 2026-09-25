@@ -3812,3 +3812,15 @@ body[data-theme="night"] .log-entry-row:nth-child(even) .log-display-cell{
 .daily-summary-row .ds-oob { width: auto; min-width: 1.1rem; height: 1.1rem; flex: 0 0 auto; }
 .daily-summary-row label.ds-oob-label { display: flex; flex-direction: row; }
 #overnightStats .st-metric-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: .4rem; }
+
+.analytics-table-scroll { overflow-x: auto; max-width: 100%; border: 1px solid var(--st-border, #cbd5db); border-radius: .5rem; }
+.analytics-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.analytics-table th, .analytics-table td { padding: .55rem .65rem; text-align: right; vertical-align: top; border-bottom: 1px solid var(--st-border, #cbd5db); }
+.analytics-table th:first-child, .analytics-table td:first-child { text-align: left; white-space: nowrap; }
+.analytics-table thead th, .analytics-table tfoot { background: var(--st-surface-muted, #eef2f4); font-weight: 700; }
+.refill-table { min-width: 880px; }
+.refill-row-details { font-size: .75rem; font-weight: normal; margin-top: .3rem; }
+.refill-row-details span { display: block; white-space: normal; max-width: 180px; }
+.refill-row-details summary { cursor: pointer; }
+body[data-theme="night"] .analytics-table thead th, body[data-theme="night"] .analytics-table tfoot { background: #18232b; }
+#fuelMgmtStats { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: .4rem; }

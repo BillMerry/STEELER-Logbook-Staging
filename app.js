@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const WEATHER_ABBR_ENABLED_KEY = "steeler_weather_abbreviations_enabled_v1";
 
-const APP_VERSION = "1.3.5-rc4";
+const APP_VERSION = "1.3.5-rc5";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -6555,7 +6555,7 @@ function computePassageCategoryNumbers(passage){
 
 const PASSAGE_ANALYTICS_KEY = "steeler_passage_analytics_view_v1";
 const ANALYTICS_DIMENSIONS = { category: "Category", year: "Year", month: "Year / month", origin: "Origin", destination: "Destination", status: "Passage status", all: "All passages" };
-const ANALYTICS_METRICS = { passages: "Passages", nm: "Distance (NM)", underwayMinutes: "Under way", fuel: "Fuel (L)", engineHours: "Engine hours", averageSpeed: "Average speed (kn)", fuelPerNm: "Fuel (L/NM)" };
+const ANALYTICS_METRICS = { nights: "Nights on board", passages: "Passages", nm: "Distance (NM)", underwayMinutes: "Under way", fuel: "Fuel (L)", engineHours: "Engine hours", averageSpeed: "Average speed (kn)", fuelPerNm: "Fuel (L/NM)" };
 
 function loadPassageAnalyticsView(){
   try {
@@ -6596,7 +6596,7 @@ function renderPassageCategorySummary(sourcePassages, view = loadPassageAnalytic
     labels.forEach(value => {
       const label = String(value || "Unknown").trim() || "Unknown";
       const key = label.toLowerCase();
-      const item = groups.get(key) || { label, passages: 0, nm: 0, fuel: 0, engineHours: 0, underwayMinutes: 0, speedDistance: 0, speedMinutes: 0, economyFuel: 0, economyDistance: 0, counts: {} };
+      const item = groups.get(key) || { label, passages: 0, nm: 0, fuel: 0, engineHours: 0, underwayMinutes: 0, speedDistance: 0, speedMinutes: 0, economyFuel: 0, economyDistance: 0, nights: new Set(), counts: {} };
       item.passages++;
       for (const k of ["nm", "fuel", "engineHours", "underwayMinutes"]) {
         if (numbers[k] !== null) { item[k] += numbers[k]; item.counts[k] = (item.counts[k] || 0) + 1; }
@@ -6608,10 +6608,27 @@ function renderPassageCategorySummary(sourcePassages, view = loadPassageAnalytic
       groups.set(key, item);
     });
   });
+  // OOB belongs to its recorded calendar date, including when a passage crosses a month/year.
+  for (const passage of (sourcePassages || []).filter(p => !isDeletedPassage(p))) {
+    for (const date of computeOvernightStats([passage]).dates) {
+      const labels = view.dimension === "year" ? [date.slice(0,4)] : view.dimension === "month" ? [date.slice(0,7)] :
+        view.dimension === "category" ? normalisePassageCategories(passage) : [
+          view.dimension === "origin" ? passage.plan?.from : view.dimension === "destination" ? passage.plan?.to :
+          view.dimension === "status" ? getPassageDashboardStatus(passage) : "All passages"];
+      if (!labels.length) labels.push("Uncategorised");
+      for (const value of labels) {
+        const label = String(value || "Unknown").trim() || "Unknown";
+        const key = label.toLowerCase();
+        const item = groups.get(key) || {label, passages:0, nm:0, fuel:0, engineHours:0, underwayMinutes:0, speedDistance:0, speedMinutes:0, economyFuel:0, economyDistance:0, nights:new Set(), counts:{}};
+        item.nights.add(date);
+        groups.set(key,item);
+      }
+    }
+  }
   if (!groups.size) return '<p class="hint">No passages to summarise.</p>';
   if (!view.metrics.length) return '<p class="hint">Choose at least one metric.</p>';
   return `<div class="passage-category-summary">${[...groups.values()].sort((a,b) => a.label.localeCompare(b.label)).map(item => {
-    const values = { passages: item.passages, nm: item.counts.nm ? item.nm.toFixed(1) : "–", fuel: item.counts.fuel ? item.fuel.toFixed(1) : "–", engineHours: item.counts.engineHours ? item.engineHours.toFixed(1) : "–", underwayMinutes: item.counts.underwayMinutes ? _fmtDurationFromMinutes(item.underwayMinutes) : "–", averageSpeed: item.speedMinutes > 0 ? (item.speedDistance * 60 / item.speedMinutes).toFixed(1) : "–", fuelPerNm: item.economyDistance > 0 ? (item.economyFuel / item.economyDistance).toFixed(2) : "–" };
+    const values = { nights: item.nights.size, passages: item.passages, nm: item.counts.nm ? item.nm.toFixed(1) : "–", fuel: item.counts.fuel ? item.fuel.toFixed(1) : "–", engineHours: item.counts.engineHours ? item.engineHours.toFixed(1) : "–", underwayMinutes: item.counts.underwayMinutes ? _fmtDurationFromMinutes(item.underwayMinutes) : "–", averageSpeed: item.speedMinutes > 0 ? (item.speedDistance * 60 / item.speedMinutes).toFixed(1) : "–", fuelPerNm: item.economyDistance > 0 ? (item.economyFuel / item.economyDistance).toFixed(2) : "–" };
     return `<div class="category-summary-card"><strong>${escapeHtml(item.label)}</strong>${view.metrics.map(k => `<span>${escapeHtml(ANALYTICS_METRICS[k])}: ${escapeHtml(String(values[k]))}</span>`).join("")}</div>`;
   }).join("")}</div>`;
 }
@@ -10414,7 +10431,13 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
 
             <label class="entry-dialog-field manual-log-refuel-fields" ${isRefuelEntry ? "" : "hidden"}>
               <span>Cost £</span>
-              <input id="dlgRefuelCost" type="number" inputmode="decimal" step="0.01" value="${escapeHtml(entry.refuel?.cost || "")}">
+              <input id="dlgRefuelCost" type="number" inputmode="decimal" step="0.01" value="${escapeHtml(entry.refuel?.cost ?? "")}">
+            </label>
+
+            <label class="entry-dialog-field manual-log-refuel-fields" ${isRefuelEntry ? "" : "hidden"}>
+              <span>Fuel used since previous refill (L), optional</span>
+              <input id="dlgRefuelUsed" type="number" inputmode="decimal" min="0" step="0.1" value="${escapeHtml(entry.refuel?.fuelUsedSincePrevious ?? "")}" placeholder="Calculate from log readings">
+              <small>Leave blank to calculate from cumulative leg readings. Enter a known interval total to override that calculation; this does not change the tank estimate.</small>
             </label>
 
             <label class="entry-dialog-check manual-log-refuel-fields" ${isRefuelEntry ? "" : "hidden"}>
@@ -10447,8 +10470,19 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
           'dlgNotes',
           'dlgWpSelect',
           'dlgRefuelLitres',
-          'dlgRefuelCost'
+          'dlgRefuelCost',
+          'dlgRefuelUsed'
         ]);
+        if (document.getElementById("dlgRefuel")?.checked) {
+          if (!(fuelNonnegative(vals.dlgRefuelLitres) > 0)) {
+            alert("Enter the positive number of litres filled."); return false;
+          }
+          for (const key of ["dlgRefuelCost", "dlgRefuelUsed"]) {
+            if (String(vals[key] || "").trim() && fuelNonnegative(vals[key]) === null) {
+              alert("Enter a non-negative amount, or leave the optional field blank."); return false;
+            }
+          }
+        }
 
         entry.time = normalizeEntryTimeInput(
           vals.dlgTime,
@@ -10536,6 +10570,7 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
           entry.refuel = {
             litres: litres != null ? Number(litres.toFixed(1)) : "",
             cost: cost != null ? Number(cost.toFixed(2)) : "",
+            fuelUsedSincePrevious: fuelNonnegative(vals.dlgRefuelUsed) ?? "",
             costPerLitre: (cost != null && litres > 0) ? Number((cost / litres).toFixed(3)) : "",
             tankFull,
             tankRemaining: tankRemaining != null ? Number(tankRemaining.toFixed(1)) : "",
@@ -11104,9 +11139,9 @@ function saveFuelManagementSettings(settings, options = {}){
 }
 
 function getAllFuelRelevantEntries(){
-  return passages.flatMap(p => activeLogEntries(p).map(entry => ({ passage:p, entry })))
-    .filter(({ entry }) => entry && (entry.time || entry.refuel || entry.fuelUsed))
-    .sort((a, b) => getLogEntrySortKey(a.passage, a.entry).localeCompare(getLogEntrySortKey(b.passage, b.entry)));
+  return activePassages().flatMap(p => activeLogEntries(p).map(entry => ({ passage:p, entry })))
+    .filter(({ passage, entry }) => entry && fuelRecordDate(passage, entry))
+    .sort((a, b) => (fuelRecordDate(a.passage,a.entry)?.time || 0) - (fuelRecordDate(b.passage,b.entry)?.time || 0) || Number(!!a.entry.refuel)-Number(!!b.entry.refuel));
 }
 
 function fuelCutoffDateFromInput(value){
@@ -11118,16 +11153,14 @@ function fuelCutoffDateFromInput(value){
 
 function fuelEntryIsAfterCutoff(passage, entry, cutoffDate){
   if (!cutoffDate) return true;
-  const entryDate = logEntrySortDate(passage, entry);
-  if (!entryDate || Number.isNaN(entryDate.getTime())) return false;
-  return entryDate >= cutoffDate;
+  const stamp = fuelRecordDate(passage, entry);
+  return !!stamp && stamp.time >= cutoffDate.getTime();
 }
 
 function fuelEntryIsBeforeLimit(passage, entry, limitDate){
   if (!limitDate) return true;
-  const entryDate = logEntrySortDate(passage, entry);
-  if (!entryDate || Number.isNaN(entryDate.getTime())) return false;
-  return entryDate <= limitDate;
+  const stamp = fuelRecordDate(passage, entry);
+  return !!stamp && stamp.time <= limitDate.getTime();
 }
 
 function computeFuelManagementStats({ beforeTime = "", excludeEntryId = "" } = {}){
@@ -11144,10 +11177,14 @@ function computeFuelManagementStats({ beforeTime = "", excludeEntryId = "" } = {
   const fuelEntries = getAllFuelRelevantEntries()
     .filter(({ entry }) => !(excludeEntryId && String(entry.id) === String(excludeEntryId)))
     .filter(({ passage, entry }) => fuelEntryIsBeforeLimit(passage, entry, beforeDate));
-  const hasLoggedRefuel = fuelEntries.some(({ entry }) => !!entry.refuel);
+  const hasLoggedRefuel = fuelEntries.some(({ entry }) => entry.refuel?.tankFull === true && Number(entry.refuel.litres) > 0);
 
   fuelEntries.forEach(({ passage, entry }) => {
-    if (!hasLoggedRefuel && !fuelEntryIsAfterCutoff(passage, entry, resetDate)) return;
+    if (!hasLoggedRefuel && !fuelEntryIsAfterCutoff(passage, entry, resetDate)) {
+      const prior = fuelNonnegative(entry.fuelUsed);
+      if (prior !== null) latestFuelUseByLeg.set(`${passage?.id || ""}::${entry.leg ?? 0}`, {used:prior});
+      return;
+    }
 
     const used = numberOrNull(entry.fuelUsed);
     if (used != null && used > 0) {
@@ -11177,13 +11214,13 @@ function computeFuelManagementStats({ beforeTime = "", excludeEntryId = "" } = {
       if (refuel.tankFull) {
         remaining = settings.tankCapacity;
         fuelUsed = 0;
-        latestFuelUseByLeg.clear();
+        // Refilling resets the displayed period, not cumulative readings within a leg.
       } else {
         const storedRemaining = numberOrNull(refuel.tankRemaining);
-        if (storedRemaining != null) {
-          remaining = Math.max(0, Math.min(settings.tankCapacity, storedRemaining));
-        } else if (remaining != null) {
+        if (remaining != null) {
           remaining = Math.min(settings.tankCapacity, remaining + litres);
+        } else if (storedRemaining != null) {
+          remaining = Math.max(0, Math.min(settings.tankCapacity, storedRemaining));
         }
       }
     }
@@ -12833,9 +12870,13 @@ function computeOvernightStats(items, today = localDateInputValue()) {
   }
   const nights = [...dates].sort();
   let longest = 0, latest = 0, previous = null;
+  const runs = [];
   for (const date of nights) {
     const ordinal = overnightDateOrdinal(date);
-    latest = previous !== null && ordinal === previous + 1 ? latest + 1 : 1;
+    const consecutive = previous !== null && ordinal === previous + 1;
+    latest = consecutive ? latest + 1 : 1;
+    if (consecutive) { runs.at(-1).to = date; runs.at(-1).nights++; }
+    else runs.push({from:date, to:date, nights:1});
     longest = Math.max(longest, latest);
     previous = ordinal;
   }
@@ -12844,22 +12885,146 @@ function computeOvernightStats(items, today = localDateInputValue()) {
   const intervals = refuels.slice(1).map((end, i) => ({from: refuels[i].date, to: end.date, nights: count(refuels[i].date, end.date)}));
   const full = refuels.filter(r => r.full);
   const fullIntervals = full.slice(1).map((end, i) => ({from: full[i].date, to: end.date, nights: count(full[i].date, end.date)}));
-  return {total: nights.length, longest, latest, latestDate: nights.at(-1) || "", invalidDates,
+  return {dates:nights, runs:runs.sort((a,b) => b.nights-a.nights || b.to.localeCompare(a.to)), total: nights.length, longest, latest, latestDate: nights.at(-1) || "", invalidDates,
     sinceRefuel: refuels.length ? count(refuels.at(-1).date, today) : null,
     sinceFull: full.length ? count(full.at(-1).date, today) : null, intervals, fullIntervals};
 }
 
 function renderOvernightStats(items) {
   const stats = computeOvernightStats(items);
-  const chip = (label, value) => `<span class="st-metric-chip"><span>${escapeHtml(label)}</span><strong>${value == null ? "–" : value}</strong></span>`;
-  const periods = (label, rows) => `<details><summary>${label}</summary>${rows.length
-    ? rows.slice().reverse().map(r => `<p>${escapeHtml(formatDateShort(r.from))} to ${escapeHtml(formatDateShort(r.to))}: <strong>${r.nights}</strong> recorded nights</p>`).join("")
-    : '<p>Two dated refills are needed to show a completed interval.</p>'}</details>`;
-  return `<div class="st-panel-title">Nights on board</div><div class="st-metric-strip">${chip("Recorded nights", stats.total)}${chip("Longest consecutive run", stats.longest)}${chip("Latest recorded run", stats.latest)}${chip("Since last refill", stats.sinceRefuel)}${chip("Since last full refill", stats.sinceFull)}</div>
-    <p class="hint">Tick OOB in Daily Summary for the night beginning on that date. Only nights before today count, once per date across all passages. Unmarked nights are not counted.${stats.latestDate ? ` Latest run ends ${escapeHtml(formatDateShort(stats.latestDate))}.` : ""}</p>
-    <p class="hint">Refill intervals include the night after the earlier refill and exclude the night after the later refill. These are recorded-night counts, not an estimate of heater or generator fuel use.</p>
-    ${stats.invalidDates ? '<p class="hint">Some OOB records have missing or invalid dates and are excluded.</p>' : ""}
-    ${periods("Nights between refills", stats.intervals)}${periods("Nights between full refills", stats.fullIntervals)}`;
+  const rows = stats.runs.map((run, i, all) => {
+    const rank = all.findIndex(r => r.nights === run.nights) + 1;
+    return `<tr><td>${rank}</td><td>${escapeHtml(run.from)}</td><td>${escapeHtml(run.to)}</td><td>${run.nights}</td></tr>`;
+  }).join("");
+  return `<div class="st-panel-title">Consecutive nights on board</div>
+    <p class="hint">Runs are built automatically from OOB dates across all passages, ranked longest first. Dates identify the start of each night; today and future nights are excluded. An unmarked date breaks a run.</p>
+    ${rows ? `<div class="analytics-table-scroll" tabindex="0" role="region" aria-label="Ranked overnight runs"><table class="analytics-table"><thead><tr><th scope="col">Rank</th><th scope="col">First night</th><th scope="col">Last night</th><th scope="col">Nights</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p>No completed nights recorded yet. Tick OOB in Daily Summary.</p>'}
+    ${stats.invalidDates ? '<p class="hint">OOB records with missing or invalid dates are excluded.</p>' : ""}`;
+}
+
+// Use the actual entry date; passage start dates must not reorder multi-day fuel records.
+function fuelRecordDate(passage, entry) {
+  let raw = String(entry?.time || "").trim();
+  if (/^\d{2}:\d{2}$/.test(raw)) raw = `${passage?.plan?.date || ""}T${raw}`;
+  const zone = getPassageTimeZone(passage);
+  if (/(?:Z|[+-]\d{2}:?\d{2})$/.test(raw)) {
+    const instant = new Date(raw);
+    return Number.isFinite(instant.getTime()) ? {time:instant.getTime(), date:localDateInputValue(instant, zone)} : null;
+  }
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?$/);
+  if (!match || overnightDateOrdinal(match[1]) === null || match[2] > "23:59" || Number(match[2].slice(3)) > 59) return null;
+  const instant = zonedDateTimeToUtc(match[1], match[2], zone);
+  return instant ? {time:instant.getTime(), date:match[1]} : null;
+}
+
+function fuelNonnegative(value) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const number = Number(String(value).replace(",", "."));
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+function computeRefillHistory(items, today = localDateInputValue()) {
+  const nights = computeOvernightStats(items, today).dates;
+  const events = [], undated = [];
+  for (const passage of items || []) {
+    if (!passage || passage.deleted === true) continue;
+    for (const entry of activeLogEntries(passage)) {
+      if (!entry) continue;
+      const stamp = fuelRecordDate(passage, entry);
+      const event = {passage, entry, ...stamp, key:`${passage.id}::${entry.leg ?? 0}`};
+      if (stamp) events.push(event);
+      else if (entry.refuel) undated.push(event);
+    }
+  }
+  // A cumulative reading on a refuel entry is the pre-fill reading.
+  events.sort((a,b) => a.time-b.time || Number(!!a.entry.refuel)-Number(!!b.entry.refuel) || String(a.entry.id).localeCompare(String(b.entry.id)));
+  const buckets = [{used:0, readings:0, issues:new Set()}];
+  const rows = [], previousByLeg = new Map(), starts = new Map();
+  let index = 0;
+  for (const event of events) {
+    const {entry, key} = event;
+    if (!starts.has(key)) starts.set(key, index);
+    const used = fuelNonnegative(entry.fuelUsed);
+    const prior = previousByLeg.get(key);
+    if (used !== null) {
+      const delta = used - (prior?.used || 0);
+      if (delta < 0) buckets[index].issues.add("Fuel reading decreased within a leg");
+      else {
+        buckets[index].used += delta;
+        buckets[index].readings++;
+        const sourceIndex = prior ? prior.index : starts.get(key);
+        // A reading captured at a refill supplies an exact boundary for the next interval.
+        const boundaryKnown = prior && prior.atRefill && sourceIndex === index-1;
+        if (delta > 0 && sourceIndex < index && !boundaryKnown) {
+          for (let i=sourceIndex; i<=index; i++) buckets[i].issues.add("A leg spans a refill without a boundary fuel reading");
+        }
+      }
+      previousByLeg.set(key, {used,index,atRefill:!!entry.refuel});
+    } else if (entry.entryType === "shutdown") {
+      buckets[index].issues.add("A shutdown has no fuel reading");
+    }
+    if (entry.refuel) {
+      const filled = fuelNonnegative(entry.refuel.litres);
+      if (!(filled > 0)) {
+        buckets[index].issues.add("A refill has no valid amount");
+      }
+      rows.push({...event, bucket:buckets[index], filled, cost:fuelNonnegative(entry.refuel.cost), full:entry.refuel.tankFull === true});
+      index++;
+      buckets.push({used:0,readings:0,issues:new Set()});
+    }
+  }
+  for (let i=0; i<rows.length; i++) {
+    const row=rows[i], previous=rows[i-1];
+    const manual=fuelNonnegative(row.entry.refuel.fuelUsedSincePrevious);
+    row.nights=previous ? nights.filter(date => date>=previous.date && date<row.date).length : null;
+    row.used=manual !== null ? manual : previous && row.bucket.readings && !row.bucket.issues.size && !undated.length ? row.bucket.used : null;
+    row.difference=row.filled !== null && row.used !== null ? row.filled-row.used : null;
+    row.perNight=row.difference !== null && row.nights>0 ? row.difference/row.nights : null;
+    row.price=row.cost !== null && row.filled>0 ? row.cost/row.filled : null;
+    row.note=manual !== null ? "Entered interval use" : !previous ? "No previous refill" : [...row.bucket.issues].join("; ") || (!row.bucket.readings ? "No recorded fuel use" : "From leg readings");
+    if (undated.length && manual === null && previous) row.note="Undated refill: interval needs review";
+    if (!row.full || previous && !previous.full) row.note += "; partial-fill interval includes tank-level changes";
+  }
+  for (const event of undated) rows.push({...event,filled:fuelNonnegative(event.entry.refuel.litres),cost:fuelNonnegative(event.entry.refuel.cost),price:fuelNonnegative(event.entry.refuel.litres)>0 && fuelNonnegative(event.entry.refuel.cost)!==null ? fuelNonnegative(event.entry.refuel.cost)/fuelNonnegative(event.entry.refuel.litres) : null,used:null,difference:null,nights:null,perNight:null,note:"Missing/invalid refill date",full:event.entry.refuel.tankFull===true});
+  const cycles=[];
+  let fullIndex=-1;
+  for (let i=0;i<rows.length;i++) {
+    if (!rows[i].full || !rows[i].date) continue;
+    if (fullIndex>=0 && i-fullIndex>1) {
+      const parts=rows.slice(fullIndex+1,i+1);
+      const total=key => parts.every(r=>r[key] !== null && r[key] !== undefined) ? parts.reduce((n,r)=>n+r[key],0) : null;
+      const filled=total("filled"),cost=total("cost"),used=total("used"),nights=total("nights");
+      const difference=filled !== null && used !== null ? filled-used : null;
+      cycles.push({from:rows[fullIndex].date,to:rows[i].date,filled,cost,used,nights,difference,price:filled>0 && cost !== null ? cost/filled : null,perNight:difference !== null && nights>0 ? difference/nights : null});
+    }
+    fullIndex=i;
+  }
+  const sum = key => rows.filter(r=>r[key] !== null && r[key] !== undefined).reduce((n,r)=>n+r[key],0);
+  const count = key => rows.filter(r=>r[key] !== null && r[key] !== undefined).length;
+  const priced=rows.filter(r=>r.cost !== null && r.filled>0);
+  const paired=rows.filter(r=>r.difference !== null && r.nights>0);
+  return {rows, cycles, sum, count,
+    price:priced.length ? priced.reduce((n,r)=>n+r.cost,0)/priced.reduce((n,r)=>n+r.filled,0) : null,
+    perNight:paired.length ? paired.reduce((n,r)=>n+r.difference,0)/paired.reduce((n,r)=>n+r.nights,0) : null};
+}
+
+function renderRefillHistory(items) {
+  const data=computeRefillHistory(items);
+  const number=(value,places=1) => value === null || value === undefined ? "–" : value.toFixed(places);
+  const cells=(row, average=false) => `<td>${number(row.filled)}</td><td>${number(row.cost,2)}</td><td>${number(row.price,3)}</td><td>${number(row.used)}</td><td>${number(row.difference)}</td><td>${number(row.nights,average ? 1 : 0)}</td><td>${number(row.perNight,2)}</td>`;
+  const footer=(average) => {
+    const values={price:data.price,perNight:data.perNight};
+    for (const key of ["filled","cost","used","difference","nights"]) values[key]=data.count(key) ? data.sum(key)/(average ? data.count(key) : 1) : null;
+    return `<tr><th scope="row">${average ? "Average / refill" : "Totals"}</th><td></td>${cells(values,average)}</tr>`;
+  };
+  const rows=data.rows.slice().reverse().map(row => `<tr><th scope="row">${escapeHtml(row.date || "Unknown date")}<details class="refill-row-details"><summary>Details</summary><span>${escapeHtml(row.note)}</span></details></th><td>${row.full ? "Full" : "Partial"}</td>${cells(row)}</tr>`).join("");
+  return `<div class="st-panel-title">Refill history</div>
+    <p class="hint">On narrow screens, swipe the table sideways to see all columns. Open a row’s Details for its calculation basis.</p>
+    <p class="hint">Refills are recorded in Log → New Log Entry → Refuel. Edit the original entry to correct a purchase or enter fuel used since the previous refill.</p>
+    ${rows ? `<div class="analytics-table-scroll" tabindex="0" role="region" aria-label="Fuel refill history"><table class="analytics-table refill-table"><thead><tr><th scope="col">Date</th><th scope="col">Fill</th><th scope="col">Filled (L)</th><th scope="col">Cost (£)</th><th scope="col">£ / L</th><th scope="col">Recorded use (L)</th><th scope="col">Difference (L)</th><th scope="col">OOB nights</th><th scope="col">Difference / night (L)</th></tr></thead><tbody>${rows}</tbody><tfoot>${footer(false)}${footer(true)}</tfoot></table></div>` : '<p>No refills recorded yet.</p>'}
+    ${data.cycles.length ? `<div class="st-panel-title">Full-to-full comparisons including partial fills</div><div class="analytics-table-scroll" tabindex="0" role="region" aria-label="Full-to-full refill comparisons"><table class="analytics-table refill-table"><thead><tr><th>From full refill</th><th>To full refill</th><th>Filled (L)</th><th>Cost (£)</th><th>£ / L</th><th>Recorded use (L)</th><th>Difference (L)</th><th>OOB nights</th><th>Difference / night (L)</th></tr></thead><tbody>${data.cycles.slice().reverse().map(row=>`<tr><th scope="row">${escapeHtml(row.from)}</th><td>${escapeHtml(row.to)}</td>${cells(row)}</tr>`).join("")}</tbody></table></div>` : ""}
+    <p class="hint">Difference = filled − recorded use. It may reflect additional consumption, recording error or tank-level changes; partial fills are not a direct measure of extra consumption. Nights include the earlier refill night and exclude the later refill night. No nights means no per-night rate.</p>
+    <p class="hint">Totals exclude unavailable values (–). Average £/L = total known cost ÷ matching litres. Average difference/night = total difference ÷ matching nights for intervals with at least one recorded night. The first refill has no inferred interval. Missing boundary readings need review; interval use can be entered explicitly on the refill.</p>`;
 }
 
 function renderFuelManagementSettings(){
@@ -12876,15 +13041,15 @@ function renderFuelManagementSettings(){
 
   const remaining = stats.remaining == null ? "Unknown" : `${formatLitres(stats.remaining)}l`;
   const used = stats.fuelUsed ? `${formatLitres(stats.fuelUsed)}l` : "0l";
-  const bought = stats.refuelLitres ? `${formatLitres(stats.refuelLitres)}l` : "0l";
-  const avg = stats.averageCostPerLitre == null ? "–" : `£${stats.averageCostPerLitre.toFixed(2)}/l`;
 
   statsEl.innerHTML = `
     <span class="st-metric-chip"><span>Tank Estimate</span><strong>${escapeHtml(remaining)}</strong></span>
     <span class="st-metric-chip"><span>Fuel Used</span><strong>${escapeHtml(used)}</strong></span>
-    <span class="st-metric-chip"><span>Fuel Bought</span><strong>${escapeHtml(bought)}</strong></span>
-    <span class="st-metric-chip"><span>Avg Cost</span><strong>${escapeHtml(avg)}</strong></span>
   `;
+  const openingEl = document.getElementById("fuelOpeningBalance");
+  if (openingEl) openingEl.hidden = activePassages().some(p => activeLogEntries(p).some(e => e.refuel?.tankFull === true && Number(e.refuel.litres) > 0 && fuelRecordDate(p,e)));
+  const refillEl = document.getElementById("refillHistory");
+  if (refillEl) refillEl.innerHTML = renderRefillHistory(passages);
   const nightsEl = document.getElementById("overnightStats");
   if (nightsEl) nightsEl.innerHTML = renderOvernightStats(passages);
   if (analyticsEl) {
@@ -12936,9 +13101,12 @@ function injectFuelManagementSettingsBlock(){
           <section class="settings-panel-card st-panel st-stack">
             <div class="st-panel-title">Tank Level</div>
             <div id="fuelMgmtStats" class="st-metric-strip"></div>
+            <p class="hint">Fuel Used is recorded engine consumption since the last full refill, or the opening estimate. Partial fills add fuel without resetting this total.</p>
+            <details id="fuelOpeningBalance"><summary>Opening tank estimate</summary>
+            <p class="hint">Used until the first logged full refill. This sets an opening estimate; it does not record a fuel purchase.</p>
             <div class="st-form-grid st-form-grid-compact">
               <label class="st-labelled-field">
-                <span>Reset from</span>
+                <span>Opening date/time</span>
                 <input id="fuelMgmtResetAt" type="datetime-local">
               </label>
               <label class="st-labelled-field">
@@ -12947,9 +13115,13 @@ function injectFuelManagementSettingsBlock(){
               </label>
             </div>
             <div class="st-action-row">
-              <button type="button" id="fuelMgmtFullBtn" class="btn btn-primary">Reset Tank Full</button>
-              <button type="button" id="fuelMgmtSaveBtn" class="btn btn-secondary">Save Tank Level</button>
+              <button type="button" id="fuelMgmtFullBtn" class="btn btn-primary">Start with Full Tank</button>
+              <button type="button" id="fuelMgmtSaveBtn" class="btn btn-secondary">Save Opening Estimate</button>
             </div>
+            </details>
+          </section>
+          <section class="settings-panel-card st-panel st-stack">
+            <div id="refillHistory" class="st-stack"></div>
           </section>
           <section class="settings-panel-card st-panel st-stack">
             <div id="overnightStats" class="st-stack"></div>
@@ -12957,7 +13129,7 @@ function injectFuelManagementSettingsBlock(){
           <section class="settings-panel-card st-panel st-stack">
             <div class="st-panel-title">Passage Analytics</div>
             <div id="passageAnalyticsControls"></div>
-            <p class="hint">Average speed uses distance ÷ under-way time for legs with both readings. Category groups overlap when a passage has several categories. View choices are saved on this device.</p>
+            <p class="hint">Average speed uses distance ÷ under-way time for legs with both readings. Nights use their OOB dates for year/month grouping and count once within each group. Other metrics use passage dates. Groups can overlap when passages share nights or categories. View choices are saved on this device.</p>
             <div id="passageAnalyticsSummary"></div>
           </section>
         </div>

@@ -10,7 +10,7 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(process.env.TEST_URL || 'http://127.0.0.1:8765');
   await page.waitForFunction(() => typeof renderPassageAnalytics === 'function');
-  assert.equal(await page.evaluate(() => APP_VERSION), '1.3.5-rc4');
+  assert.equal(await page.evaluate(() => APP_VERSION), '1.3.5-rc5');
   const oob = await page.evaluate(async () => {
     const day = date => ({date, overnightOnBoard:true, fee:'',notes:''});
     const fixture = {id:'oob',plan:{date:'2026-03-27',dailySummaries:[...['2026-03-27','2026-03-28','2026-03-29','2026-03-30','2026-04-02','2026-04-03'].map(day),day('bad'),{date:'2026-04-01'}]},entries:[
@@ -77,6 +77,118 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
     await page.locator('#overnightStats').screenshot({path:'test-results/oob-stats.png'});
   }
   console.log('PASS: OOB dates, deduplication, DST streaks, partial/full refill intervals, deleted/future exclusion, form and backup persistence');
+  const fuel = await page.evaluate(() => {
+    const night=date=>({date,overnightOnBoard:true});
+    const ref=(id,time,fuelUsed,litres,cost,tankFull,leg=0)=>({id,time,leg,fuelUsed,refuel:{litres,cost,tankFull}});
+    const p={id:'fuel',plan:{date:'2026-01-01',timeZone:'UTC',dailySummaries:['2026-01-01','2026-01-02','2026-01-03','2026-01-04','2026-01-08','2026-01-09'].map(night)},entries:[
+      ref('r0','2026-01-01T10:00','0',100,100,true),
+      {id:'u1',time:'2026-01-02T12:00',fuelUsed:'40'},
+      ref('r1','2026-01-03T10:00','100',60,72,false),
+      ref('r2','2026-01-05T10:00','180',150,180,true),
+      {id:'u2',time:'2026-01-05T13:00',fuelUsed:'200'},
+      ref('r3','2026-01-06T10:00','0',20,0,true,1),
+      ref('r4','2026-01-08T10:00','0',10,'',true,2),
+      ref('r5','2026-01-09T10:00','',5,'',true,3)
+    ]};
+    const duplicate={id:'dup',plan:{dailySummaries:[night('2026-01-01')]},entries:[]};
+    const deleted={...p,id:'deleted',deleted:true};
+    const data=computeRefillHistory([p,duplicate,deleted],'2026-02-01');
+    const result={rows:data.rows.map(r=>({id:r.entry.id,used:r.used,difference:r.difference,nights:r.nights,perNight:r.perNight,price:r.price})),cycles:data.cycles,price:data.price,perNight:data.perNight,totalFilled:data.sum('filled')};
+    const cross={id:'cross',plan:{date:'2025-12-31',categories:['Cruise'],dailySummaries:[night('2025-12-31'),night('2026-01-01')]},entries:[]};
+    result.month=renderPassageCategorySummary([cross],{dimension:'month',metrics:['nights']});
+    result.all=renderPassageCategorySummary([cross,{...cross,id:'cross2'}],{dimension:'all',metrics:['nights']});
+    result.runs=computeOvernightStats([p,duplicate,deleted],'2026-02-01').runs;
+    const ambiguous={id:'amb',plan:{timeZone:'UTC'},entries:[{id:'before',time:'2026-01-01T09:00',fuelUsed:'10'},ref('a','2026-01-01T10:00','',10,10,true),ref('b','2026-01-02T10:00','30',30,30,true)]};
+    result.ambiguous=computeRefillHistory([ambiguous],'2026-02-01').rows[1].used;
+    ambiguous.entries[2].refuel.fuelUsedSincePrevious=20;
+    result.manual=computeRefillHistory([ambiguous],'2026-02-01').rows[1].used;
+    result.html=renderRefillHistory([p]);
+    passages=[p,deleted];
+    result.tank=computeFuelManagementStats({beforeTime:'2026-01-05T13:00:00Z'}).remaining;
+    result.usage=computeFuelManagementStats({beforeTime:'2026-01-05T13:00:00Z'}).fuelUsed;
+    renderFuelManagementSettings();
+    result.chips=document.querySelectorAll('#fuelMgmtStats .st-metric-chip').length;
+    result.openingHidden=document.getElementById('fuelOpeningBalance').hidden;
+    result.noRefillNights=!document.getElementById('overnightStats').textContent.includes('refill');
+    result.nightsOption=!!document.querySelector('[data-analytics-metric="nights"]');
+    return result;
+  });
+  assert.equal(fuel.rows.length,6);
+  assert.equal(fuel.rows[0].used,null);
+  assert.deepEqual(fuel.rows.slice(1,4).map(r=>r.used),[100,80,20]);
+  assert.deepEqual(fuel.rows.slice(1,4).map(r=>r.difference),[-40,70,0]);
+  assert.deepEqual(fuel.rows.slice(1,4).map(r=>r.nights),[2,2,0]);
+  assert.equal(fuel.rows[3].price,0);
+  assert.equal(fuel.rows[3].perNight,null);
+  assert.equal(fuel.rows[4].price,null);
+  assert.equal(fuel.rows[4].used,0);
+  assert.equal(fuel.rows[5].used,null);
+  assert.equal(fuel.totalFilled,345);
+  assert.ok(Math.abs(fuel.price-352/330)<1e-9);
+  assert.equal(fuel.perNight,7.5);
+  assert.equal(fuel.cycles.length,1);
+  assert.equal(fuel.cycles[0].filled,210);
+  assert.equal(fuel.cycles[0].used,180);
+  assert.equal(fuel.cycles[0].difference,30);
+  assert.equal(fuel.cycles[0].perNight,7.5);
+  assert.deepEqual(fuel.runs,[{from:'2026-01-01',to:'2026-01-04',nights:4},{from:'2026-01-08',to:'2026-01-09',nights:2}]);
+  assert.match(fuel.month,/2025-12.*Nights on board: 1.*2026-01.*Nights on board: 1/);
+  assert.match(fuel.all,/Nights on board: 2/);
+  assert.equal(fuel.ambiguous,null);
+  assert.equal(fuel.manual,20);
+  assert.equal(fuel.tank,780);
+  assert.equal(fuel.usage,20);
+  assert.equal(fuel.chips,2);
+  assert.equal(fuel.openingHidden,true);
+  assert.equal(fuel.noRefillNights,true);
+  assert.equal(fuel.nightsOption,true);
+  assert.match(fuel.html,/Full-to-full comparisons/);
+  assert.match(fuel.html,/Totals/);
+  assert.match(fuel.html,/Average \/ refill/);
+  if (!process.env.DOM_TEST) {
+    await page.evaluate(() => {switchToTab('settingsTab');document.getElementById('fuelManagementPanel').hidden=false;renderFuelManagementSettings();});
+    await page.setViewportSize({width:1024,height:1500});
+    await page.locator('#refillHistory').screenshot({path:'test-results/refill-history.png'});
+    await page.locator('#overnightStats').screenshot({path:'test-results/overnight-runs.png'});
+    await page.setViewportSize({width:390,height:900});
+    const fits=await page.evaluate(()=>document.getElementById('refillHistory').getBoundingClientRect().width<=390);
+    assert.ok(fits,'refill table scrolls inside phone layout');
+    await page.setViewportSize({width:1024,height:768});
+  }
+  console.log('PASS: refill reconciliation, partial-fill cycle, weighted rates, missing/zero readings, interval override, tank continuity, ranked runs and dated OOB analytics');
+  const refillForm = await page.evaluate(async () => {
+    const p=passages[0];
+    currentPassageId=p.id;
+    ensureDetailedPassagePlans(p); loadPassageIntoUI();
+    const entry={id:'new-refill',time:'2026-01-11T10:00',leg:4,refuel:{litres:20,cost:0,fuelUsedSincePrevious:0,tankFull:false}};
+    const pending=openManualEntryDialog(entry,{isNew:true,passage:p});
+    const zeroShown=document.getElementById('dlgRefuelCost').value==='0' && document.getElementById('dlgRefuelUsed').value==='0';
+    document.getElementById('dlgRefuelUsed').value='12.5';
+    modalOkBtn.click();
+    await pending;
+    p.entries.push(entry);
+    const backup=JSON.parse(JSON.stringify(createDataBackupPayload()));
+    await applyFullDataCloudCopy({backup,record:{payload:{backup}}},nowIso());
+    const restored=passages[0].entries.find(e=>e.id==='new-refill').refuel;
+    return {zeroShown,used:restored.fuelUsedSincePrevious,cost:restored.cost,price:restored.costPerLitre};
+  });
+  assert.deepEqual(refillForm,{zeroShown:true,used:12.5,cost:0,price:0});
+  console.log('PASS: refill form retains zero cost, saves interval use and survives verified backup restore');
+  const baseline = await page.evaluate(() => {
+    const saved=loadFuelManagementSettings();
+    saveFuelManagementSettings({tankCapacity:800,resetLevel:500,resetAt:'2026-01-02T00:00:00Z'});
+    passages=[{id:'partial',plan:{date:'2026-01-01',timeZone:'UTC'},entries:[
+      {id:'before',time:'2026-01-01T10:00',fuelUsed:'100'},
+      {id:'after',time:'2026-01-02T10:00',fuelUsed:'120',refuel:{litres:50,cost:50,tankFull:false,tankRemaining:790}}
+    ]}];
+    const stats=computeFuelManagementStats();
+    renderFuelManagementSettings();
+    const openingVisible=!document.getElementById('fuelOpeningBalance').hidden;
+    saveFuelManagementSettings(saved,{preserveResetAt:true});
+    return {remaining:stats.remaining,used:stats.fuelUsed,openingVisible};
+  });
+  assert.deepEqual(baseline,{remaining:530,used:20,openingVisible:true});
+
   const calculations = await page.evaluate(() => {
     const original = { waypoints: [{id:'w1',name:'Test',lat:50,lon:-1,time:'10:00',actualTime:'11:00',plannedSpeed:'8'}] };
     const cleaned = cloneDetailedPassagePlan(original, {resetActualTimes:true,regenerateIds:true});
