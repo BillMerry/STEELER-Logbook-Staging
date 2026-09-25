@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const WEATHER_ABBR_ENABLED_KEY = "steeler_weather_abbreviations_enabled_v1";
 
-const APP_VERSION = "1.3.5-rc1";
+const APP_VERSION = "1.3.5-rc2";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -4912,7 +4912,7 @@ const planVessel = document.getElementById("planVessel");
 const planSkipper = document.getElementById("planSkipper");
 const planCrew = document.getElementById("planCrew");
 const planCategories = document.getElementById("planCategories");
-document.getElementById("choosePassageCategories")?.addEventListener("click", openPassageCategoryPicker);
+
 const planSunriseSet = document.getElementById("planSunriseSet");
 const planMoonPhase = document.getElementById("planMoonPhase");
 const planMoonRiseSet = document.getElementById("planMoonRiseSet");
@@ -6629,15 +6629,62 @@ function renderPassageAnalytics(){
   };
 }
 
-function openPassageCategoryPicker(){
-  const categories = normaliseCategoryList(activePassages().flatMap(normalisePassageCategories)).sort((a,b) => a.localeCompare(b));
-  const selected = normaliseCategoryList(planCategories.value);
-  showModal({ title: "Passage categories", bodyHtml: categories.length ? categories.map((category,i) => `<label class="analytics-metric-option"><input type="checkbox" data-category-index="${i}"${selected.some(v => v.toLowerCase() === category.toLowerCase()) ? " checked" : ""}> ${escapeHtml(category)}</label>`).join("") : '<p>No saved categories yet. Type a category in the Plan field to create one.</p>', onOk: () => {
-    const picked = [...modalBody.querySelectorAll("input:checked")].map(el => categories[Number(el.dataset.categoryIndex)]);
-    const unsaved = selected.filter(value => !categories.some(c => c.toLowerCase() === value.toLowerCase()));
-    planCategories.value = normaliseCategoryList([...picked, ...unsaved]).join(", ");
-    planCategories.dispatchEvent(new Event("change", { bubbles: true }));
-  }});
+function setupCategoryAutocomplete(){
+  const input = document.getElementById("planCategories");
+  const box = document.getElementById("planCategoriesSuggest");
+  if (!input || !box) return;
+  const hide = () => box.classList.add("hidden");
+  const show = () => {
+    const value = input.value;
+    const cursor = input.selectionStart ?? value.length;
+    const start = Math.max(value.lastIndexOf(",", cursor - 1), value.lastIndexOf(";", cursor - 1), value.lastIndexOf("\n", cursor - 1)) + 1;
+    const nextDelimiter = value.slice(cursor).search(/[,;\n]/);
+    const end = nextDelimiter < 0 ? value.length : cursor + nextDelimiter;
+    const query = value.slice(start, end).trim().toLowerCase();
+    const otherCategories = normaliseCategoryList(value.slice(0, start) + value.slice(end)).map(c => c.toLowerCase());
+    const suggestions = normaliseCategoryList(activePassages().flatMap(normalisePassageCategories))
+      .filter(name => name.toLowerCase().includes(query) && !otherCategories.includes(name.toLowerCase()))
+      .sort((a,b) => Number(!a.toLowerCase().startsWith(query)) - Number(!b.toLowerCase().startsWith(query)) || a.localeCompare(b))
+      .slice(0, 6);
+    box.replaceChildren();
+    suggestions.forEach(name => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "port-suggest-item";
+      button.textContent = name;
+      button.addEventListener("pointerdown", event => event.preventDefault());
+      button.addEventListener("click", event => {
+        event.preventDefault();
+        input.value = value.slice(0, start) + (start ? " " : "") + name + value.slice(end);
+        input.focus();
+        const caret = start + (start ? 1 : 0) + name.length;
+        input.setSelectionRange(caret, caret);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        hide();
+      });
+      box.appendChild(button);
+    });
+    box.classList.toggle("hidden", !suggestions.length);
+  };
+  const hideAfterBlur = () => setTimeout(() => {
+    if (document.activeElement !== input && !box.contains(document.activeElement)) hide();
+  }, 150);
+  input.addEventListener("focus", show);
+  input.addEventListener("input", show);
+  input.addEventListener("click", show);
+  input.addEventListener("blur", hideAfterBlur);
+  box.addEventListener("focusout", hideAfterBlur);
+  input.addEventListener("keydown", event => {
+    if (event.key === "Escape") hide();
+    if (event.key === "ArrowDown" && !box.classList.contains("hidden")) {
+      event.preventDefault();
+      box.querySelector("button")?.focus();
+    }
+  });
+  box.addEventListener("keydown", event => {
+    if (event.key === "Escape") { input.focus(); hide(); }
+  });
 }
 
 function getPassageStatusClass(status) {
@@ -12874,6 +12921,7 @@ if (new URLSearchParams(location.search).has("reset")) {
   loadPassages();
   loadPorts();
   setupPortAutocomplete();
+  setupCategoryAutocomplete();
   setupPortCoordConfirmation();
   setupPortsManagerModal();
   setupTidePasteModal();
