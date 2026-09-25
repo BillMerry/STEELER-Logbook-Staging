@@ -57,7 +57,11 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
   assert.equal(oob.restored,true);
   assert.equal(oob.retainedDate,'2026-03-27');
   if (!process.env.DOM_TEST) {
-    await page.evaluate(() => { switchToTab('planTab'); });
+    await page.evaluate(() => {
+      const p=getCurrentPassage();
+      renderDailySummaries({...p,plan:{...p.plan,dailySummaries:p.plan.dailySummaries.slice(0,2)}});
+      switchToTab('planTab');
+    });
     for (const width of [1024,390]) {
       await page.setViewportSize({width,height:900});
       const fits=await page.evaluate(() => {

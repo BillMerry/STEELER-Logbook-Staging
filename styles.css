@@ -3810,3 +3810,5 @@ body[data-theme="night"] .log-entry-row:nth-child(even) .log-display-cell{
 /* Keep the OOB checkbox compact alongside its label on iPad and phone. */
 .ds-oob-label { display: flex; align-items: center; gap: .5rem; margin: .6rem 0; }
 .daily-summary-row .ds-oob { width: auto; min-width: 1.1rem; height: 1.1rem; flex: 0 0 auto; }
+.form .daily-summary-row .ds-oob-label { flex-direction: row; }
+#overnightStats .st-metric-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: .4rem; }
