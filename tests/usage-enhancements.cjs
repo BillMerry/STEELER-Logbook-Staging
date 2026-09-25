@@ -147,6 +147,7 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
   assert.match(fuel.html,/Average \/ refill/);
   if (!process.env.DOM_TEST) {
     await page.evaluate(() => {switchToTab('settingsTab');document.getElementById('fuelManagementPanel').hidden=false;renderFuelManagementSettings();});
+    await page.setViewportSize({width:1024,height:1500});
     await page.locator('#refillHistory').screenshot({path:'test-results/refill-history.png'});
     await page.locator('#overnightStats').screenshot({path:'test-results/overnight-runs.png'});
     await page.setViewportSize({width:390,height:900});
