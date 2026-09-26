@@ -17,7 +17,9 @@ const server=http.createServer((req,res)=>{
   const page=await context.newPage();
   await page.goto('http://127.0.0.1:8766');
   await page.waitForFunction(()=>typeof APP_VERSION!=='undefined' && APP_VERSION==='1.3.4');
-  await page.evaluate(()=>navigator.serviceWorker.ready);
+  // Local development deliberately disables automatic registration; install explicitly for this PWA test.
+  await page.evaluate(()=>navigator.serviceWorker.register('service-worker.js'));
+  await page.waitForFunction(async()=>!!(await navigator.serviceWorker.getRegistration())?.active);
   await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
   await page.evaluate(()=>{
    passages=[{id:'release-check',plan:{date:'2026-09-01',origin:'Test origin',destination:'Test destination'},entries:[]}];savePassages();
