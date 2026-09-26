@@ -3828,3 +3828,5 @@ body[data-theme="night"] .analytics-table thead th, body[data-theme="night"] .an
 .analytics-disclosure > summary { cursor: pointer; display: list-item; margin: 0; }
 .analytics-disclosure[open] > summary { margin-bottom: .8rem; }
 .partial-refill-row td[colspan], .refill-note { text-align: left; white-space: normal; }
+
+.refill-location { font-size: inherit; font-weight: normal; white-space: normal; max-width: 180px; margin-top: .25rem; }

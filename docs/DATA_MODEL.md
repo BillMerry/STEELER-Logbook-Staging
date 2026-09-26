@@ -770,3 +770,9 @@ Replaces rc5's per-refill reporting. Only full refills close fuel-use intervals.
 `refuel.location` holds user-entered location text with optional saved-port suggestions. No location is inferred from passage endpoints. `refuel.fuelUsedSinceFull` is the optional full-period override. The old `fuelUsedSincePrevious` is preserved and applied only when there are no intervening partial fills and no newer full-period field. Compatible older overrides are prefilled when editing so adding a location does not discard them.
 
 The three analytics wrappers use native details/summary controls, initially closed and independent. Refreshes replace their content without replacing the wrappers, preserving open state.
+
+### Shared fuel counter (1.3.5-rc7)
+
+Supersedes rc5/rc6 interval inference and overrides. `computeFuelManagementStats` accepts a passage source and emits calculated snapshots immediately before each refill is applied. Full history rows use that snapshot of the displayed Fuel Used counter, including the first full refill. Partial fills never reset the counter and retain their own purchase unit price. The existing tank calculation and cumulative per-leg baselines are unchanged. Snapshots are derived, not persisted; editing original readings recalculates history. Zero means the recorded counter is zero, not verified absence of consumption. Undated refills cannot receive a chronological snapshot.
+
+Legacy `fuelUsedSincePrevious` and `fuelUsedSinceFull` values remain stored and preserved on edits/backups, but are ignored by reporting and have no editable form field. Location is rendered as escaped plain text below the date. Full rows continue to aggregate intervening partial purchases; nights require a preceding full boundary.
