@@ -148,7 +148,6 @@ function renderDetailedPassagePlan(p){
             <tr data-dpp-row="${idx}">
               <td>
                 <input type="text" class="dpp-time" value="${escapeHtml(wp.time || "")}" placeholder="HH:MM">
-                ${wp.actualTime ? `<div class="dpp-ata">ATA ${escapeHtml(wp.actualTime)}</div>` : ""}
               </td>
               <td><input type="text" class="dpp-name" value="${escapeHtml(wp.name || "")}" placeholder="Waypoint"></td>
               <td><input type="text" class="dpp-coords" value="${escapeHtml(wp.coordsText || formatDetailedWaypointCoords(wp.lat, wp.lon))}" placeholder="50º45.123'N, 001º18.456'W or 50.752, -1.308"></td>
@@ -316,7 +315,7 @@ function renderDetailedPassagePlan(p){
       if (!template) return;
       if (!confirm(`Replace this leg's Detailed Passage Plan with "${template.name}"?`)) return;
 
-      const replacement = cloneDetailedPassagePlan(template.detailed, { regenerateIds: true });
+      const replacement = cloneDetailedPassagePlan(template.detailed, { regenerateIds: true, resetActualTimes: true });
       setDetailedPassagePlanForLeg(p, legIdx, replacement);
       recalcDetailedPassagePlan(p, legIdx);
       saveDppPassageChange(p, "dpp-template-load");

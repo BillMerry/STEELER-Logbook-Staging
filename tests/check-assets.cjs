@@ -1,0 +1,14 @@
+const fs=require('node:fs');
+const path=require('node:path');
+const cp=require('node:child_process');
+const assert=require('node:assert/strict');
+process.chdir(path.join(__dirname,'..'));
+for(const file of ['app.js','service-worker.js',...fs.readdirSync('js').filter(f=>f.endsWith('.js')).map(f=>'js/'+f)]) cp.execFileSync(process.execPath,['--check',file]);
+const app=fs.readFileSync('app.js','utf8');
+const sw=fs.readFileSync('service-worker.js','utf8');
+const version=app.match(/const APP_VERSION = "([^"]+)"/)[1];
+assert.ok(sw.includes(`steeler-logbook-v${version}`));
+const html=fs.readFileSync('index.html','utf8');
+for(const [,src] of html.matchAll(/<script[^>]*src="([^"]+)"/g)) assert.ok(sw.includes(src),`uncached module: ${src}`);
+for(const [,asset] of sw.matchAll(/"\.\/([^"\n]+)"/g)) assert.ok(fs.existsSync(asset),`missing asset: ${asset}`);
+console.log('PASS: JavaScript syntax, release versions and service-worker assets');

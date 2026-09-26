@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const WEATHER_ABBR_ENABLED_KEY = "steeler_weather_abbreviations_enabled_v1";
 
-const APP_VERSION = "1.3.4";
+const APP_VERSION = "1.3.5";
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -449,7 +449,7 @@ function renderLocalSyncStatus(){
         </label>
         <label class="sync-check-field sync-check-option">
           <span>Auto-sync</span>
-          <span><input id="syncAutoEnabled" type="checkbox"${config.autoSyncEnabled ? " checked" : ""}> Check and upload only when cloud has not changed</span>
+          <span><input id="syncAutoEnabled" type="checkbox"${config.autoSyncEnabled ? " checked" : ""}> Sync automatically; ask only when both copies have changed</span>
         </label>
       </details>
       <div id="syncPreviewResults" class="sync-preview-results">
@@ -546,7 +546,7 @@ async function checkSyncWorkerStatus(){
   }
 
   if (btn) btn.disabled = true;
-  setSyncCheckMessage("Checking cloud...");
+  setSyncCheckMessage("Checking staging Worker...");
   const checkedAt = nowIso();
 
   try{
@@ -1442,13 +1442,30 @@ function clearAllLocalSyncDirty(options = {}){
   }
 }
 
+function describeSyncDifferences(localBackup, cloudBackup){
+  const local = comparableBackupData(localBackup);
+  const remote = comparableBackupData(cloudBackup);
+  const left = new Map((local.passages || []).map(p => [p.id, p]));
+  const right = new Map((remote.passages || []).map(p => [p.id, p]));
+  const labels = [];
+  new Set([...left.keys(), ...right.keys()]).forEach(id => {
+    if (stableComparableJson(left.get(id)) === stableComparableJson(right.get(id))) return;
+    const p = left.get(id) || right.get(id);
+    labels.push(`${getPassageDateValue(p)}: ${p.plan?.from || "?"} → ${p.plan?.to || "?"}`);
+  });
+  const names = { knownPorts: "Ports", dppTemplates: "Saved passage plans", dppWaypoints: "Saved waypoints", safetyInfo: "Safety information", fuelManagement: "Fuel settings", settings: "Settings", theme: "Display theme", weatherAbbreviations: "Weather abbreviations", legacyEcSettings: "Emergency contacts" };
+  new Set([...Object.keys(local), ...Object.keys(remote)]).forEach(key => {
+    if (key !== "passages" && stableComparableJson(local[key]) !== stableComparableJson(remote[key])) labels.push(names[key] || key);
+  });
+  return labels.length > 8 ? [...labels.slice(0, 8), `And ${labels.length - 8} more differences`] : labels;
+}
+
 function chooseFullSyncConflictAction(cloud, options = {}){
   const summary = describeFullDataCloudRecord(cloud);
   const localBackup = createDataBackupPayload();
-  const localSummary = summariseFullDataBackupPackage(localBackup);
-  const localDevice = getDeviceName();
+  const differences = describeSyncDifferences(localBackup, cloud?.backup || getFullDataBackupFromRecord(cloud?.record));
   const intro = options.auto
-    ? "Auto-sync found a different cloud copy and needs you to choose what to do."
+    ? "This device and cloud have both changed since the last sync."
     : "Cloud changed since this device last synced.";
   return new Promise((resolve) => {
     showModal({
@@ -1457,12 +1474,9 @@ function chooseFullSyncConflictAction(cloud, options = {}){
       bodyHtml: `
         <p>${escapeHtml(intro)}</p>
         <p>Cloud was last saved <strong>${escapeHtml(formatSyncStatusTime(summary.updatedAt))}</strong> by <strong>${escapeHtml(summary.displayDevice)}</strong>.</p>
-        <p>This device is <strong>${escapeHtml(localDevice)}</strong>.</p>
-        <div class="sync-status-grid">
-          <div><span>Cloud copy</span><strong>${escapeHtml(formatFullDataPackageSummary(summary.packageSummary))}</strong></div>
-          <div><span>This device</span><strong>${escapeHtml(formatFullDataPackageSummary(localSummary))}</strong></div>
-        </div>
-        <p>Choose which complete STEELER data package to keep. No partial merge will be performed.</p>
+        <p>Differences to review:</p>
+        <ul>${differences.map(label => `<li>${escapeHtml(label)}</li>`).join("")}</ul>
+        <p>Choose the complete copy to keep. This replaces the other copy, including changes outside this list.</p>
         <div class="st-action-row">
           <button type="button" id="syncUseCloudCopyBtn" class="btn">Use Cloud Copy on This Device</button>
           <button type="button" id="syncKeepThisDeviceBtn" class="btn btn-secondary">Keep This Device and Replace Cloud</button>
@@ -1627,20 +1641,27 @@ function setFullDataSyncBusy(isBusy){
   });
 }
 
+let fullDataSyncRunning = false;
+
 async function runFullDataCloudSync(options = {}){
+  if (fullDataSyncRunning) return;
   const isAutoSync = options.auto === true;
+  if (isAutoSync && !modalOverlay.classList.contains("hidden")) return;
   const connection = getSavedSyncConnection();
   if (connection.error) {
     setSyncCheckMessage(connection.error);
     if (!isAutoSync) alert(connection.error);
     return;
   }
+  fullDataSyncRunning = true;
   setFullDataSyncBusy(true);
   setSyncCheckMessage(isAutoSync ? "Auto-sync checking cloud copy..." : "Checking cloud copy before sync...");
   const syncedAt = nowIso();
 
   try{
     const cloud = await fetchCurrentFullDataCloudRecord(connection);
+    // A user may open an entry dialog while the cloud request is in flight.
+    if (isAutoSync && !modalOverlay.classList.contains("hidden")) return;
     const previousStatus = loadLocalSyncStatus();
     const localBackup = createDataBackupPayload();
     const localHash = fullDataBackupPackageHash(localBackup);
@@ -1669,7 +1690,16 @@ async function runFullDataCloudSync(options = {}){
     }
 
     let choice = "local";
-    if (cloudChanged || unmatchedKnownBaseline) {
+    if (isAutoSync && cloud.record && (!lastLocalHash || !lastCloudHash || unmatchedKnownBaseline)) {
+      saveObservedFullDataCloudStatus("decision-needed", cloud, { checkedAt: syncedAt });
+      renderLocalSyncStatus();
+      setSyncCheckMessage("Tap Sync to establish a matching baseline before automatic sync can continue.");
+      return;
+    }
+    if (cloud.record && !localChanged && cloudChanged) {
+      if (isAutoSync && !modalOverlay.classList.contains("hidden")) return;
+      choice = "cloud";
+    } else if (cloudChanged || unmatchedKnownBaseline) {
       saveObservedFullDataCloudStatus("decision-needed", cloud, { checkedAt: syncedAt });
       renderLocalSyncStatus();
       if (isAutoSync) {
@@ -1751,6 +1781,7 @@ async function runFullDataCloudSync(options = {}){
     renderLocalSyncStatus();
     setSyncCheckMessage(`Sync failed: ${e && e.message ? e.message : e}`);
   }finally{
+    fullDataSyncRunning = false;
     setFullDataSyncBusy(false);
   }
 }
@@ -4881,6 +4912,7 @@ const planVessel = document.getElementById("planVessel");
 const planSkipper = document.getElementById("planSkipper");
 const planCrew = document.getElementById("planCrew");
 const planCategories = document.getElementById("planCategories");
+
 const planSunriseSet = document.getElementById("planSunriseSet");
 const planMoonPhase = document.getElementById("planMoonPhase");
 const planMoonRiseSet = document.getElementById("planMoonRiseSet");
@@ -5846,9 +5878,9 @@ function restoreDataBackupObject(obj, options = {}){
     saveLocalStorageItem(ABBR_DB_KEY, JSON.stringify(obj.data.weatherAbbreviations), "weather abbreviations");
   }
   if (obj.data.fuelManagement) {
-    saveFuelManagementSettings(obj.data.fuelManagement);
+    saveFuelManagementSettings(obj.data.fuelManagement, { preserveResetAt: true });
   }
-  if (obj.data.settings && obj.data.settings.logSplitRatio) {
+  if (obj.data.settings && Object.prototype.hasOwnProperty.call(obj.data.settings, "logSplitRatio")) {
     saveLocalStorageItem(LOG_SPLIT_RATIO_KEY, String(obj.data.settings.logSplitRatio), "log split setting");
   }
   if (obj.data.settings && Object.prototype.hasOwnProperty.call(obj.data.settings, "weatherAbbreviationsEnabled")) {
@@ -5956,7 +5988,7 @@ function importDppTemplatesBackupFile(file) {
           name,
           createdAt: existing?.createdAt || tpl.createdAt || new Date().toISOString(),
           updatedAt: tpl.updatedAt || new Date().toISOString(),
-          detailed: cloneDetailedPassagePlan(tpl.detailed, { regenerateIds: true })
+          detailed: cloneDetailedPassagePlan(tpl.detailed, { regenerateIds: true, resetActualTimes: true })
         });
       });
 
@@ -6151,14 +6183,15 @@ function clonePassagePlanForCopy(plan) {
   copy.dailySummaries = Array.isArray(copy.dailySummaries)
     ? copy.dailySummaries.map((day, idx) => ({
       ...day,
+      overnightOnBoard: false,
       id: `ds_${now}_${idx}_${Math.random().toString(36).slice(2)}`
     }))
     : [];
 
   if (typeof cloneDetailedPassagePlan === "function") {
-    copy.detailed = cloneDetailedPassagePlan(copy.detailed, { regenerateIds: true });
+    copy.detailed = cloneDetailedPassagePlan(copy.detailed, { regenerateIds: true, resetActualTimes: true });
     copy.detailedLegs = Array.isArray(copy.detailedLegs)
-      ? copy.detailedLegs.map(d => cloneDetailedPassagePlan(d, { regenerateIds: true }))
+      ? copy.detailedLegs.map(d => cloneDetailedPassagePlan(d, { regenerateIds: true, resetActualTimes: true }))
       : [];
   } else {
     copy.detailed = cloneJsonSafe(copy.detailed, { waypoints: [], hazards: "", portsOfRefuge: "", crewWelfare: "" });
@@ -6488,7 +6521,8 @@ function getPassageDashboardMetrics(passage) {
     { label: "Engine Hours", value: summary.ehText || "–" },
     { label: "Fuel Used", value: fuelUsedText },
     { label: "l/NM", value: formatFuelConsumption(summary.fuelUsed, distance) },
-    { label: "NM(G)", value: distance }
+    { label: "NM(G)", value: distance },
+    { label: "Average speed", value: (() => { const m = passageAverageSpeed(passage, status === "Complete" ? null : legIdx); return m.speed === null ? "–" : `${m.speed.toFixed(1)} kn`; })() }
   ].map(m => `
     <span class="st-metric-chip passage-metric">
       <span>${escapeHtml(m.label)}</span>
@@ -6499,60 +6533,176 @@ function getPassageDashboardMetrics(passage) {
 
 function computePassageCategoryNumbers(passage){
   const summary = computePassageLogSummary(passage);
-  const fuel = _num(summary.fuelUsed) || 0;
-  const nm = _num(summary.gLog) || 0;
+  const fuel = _num(summary.fuelUsed);
+  const nm = _num(summary.gLog);
   const engineStart = _num(passage?.plan?.engineHoursStart);
   const engineEnd = _num(passage?.finish?.engineHoursEnd);
   const engineHours = engineStart !== null && engineEnd !== null && engineEnd >= engineStart
     ? engineEnd - engineStart
-    : 0;
-  let underwayMinutes = 0;
+    : null;
+  let underwayMinutes = null;
+  let economyFuel = 0, economyDistance = 0;
   for (let i = 0; i < getLegCount(passage); i += 1) {
     const legMetrics = computeLegMetricsFromEntries(passage, i);
-    if (legMetrics.durationMinutes !== null) underwayMinutes += legMetrics.durationMinutes;
+    if (legMetrics.durationMinutes !== null) underwayMinutes = (underwayMinutes || 0) + legMetrics.durationMinutes;
+    if (legMetrics.fuelUsed !== null && legMetrics.fuelUsed >= 0 && legMetrics.nmG !== null && legMetrics.nmG > 0) {
+      economyFuel += legMetrics.fuelUsed;
+      economyDistance += legMetrics.nmG;
+    }
   }
-  return { fuel, nm, engineHours, underwayMinutes };
+  return { fuel, nm, engineHours, underwayMinutes, economyFuel, economyDistance };
 }
 
-function renderPassageCategorySummary(sourcePassages){
-  const byCategory = new Map();
-  (sourcePassages || []).forEach((passage) => {
-    const categories = normalisePassageCategories(passage);
-    if (!categories.length) return;
+const PASSAGE_ANALYTICS_KEY = "steeler_passage_analytics_view_v1";
+const ANALYTICS_DIMENSIONS = { category: "Category", year: "Year", month: "Year / month", origin: "Origin", destination: "Destination", status: "Passage status", all: "All passages" };
+const ANALYTICS_METRICS = { nights: "Nights on board", passages: "Passages", nm: "Distance (NM)", underwayMinutes: "Under way", fuel: "Fuel (L)", engineHours: "Engine hours", averageSpeed: "Average speed (kn)", fuelPerNm: "Fuel (L/NM)" };
+
+function loadPassageAnalyticsView(){
+  try {
+    const saved = JSON.parse(storage.getItem(PASSAGE_ANALYTICS_KEY) || "null");
+    return {
+      dimension: Object.hasOwn(ANALYTICS_DIMENSIONS, saved?.dimension) ? saved.dimension : "category",
+      metrics: Array.isArray(saved?.metrics) ? saved.metrics.filter(k => Object.hasOwn(ANALYTICS_METRICS, k)) : Object.keys(ANALYTICS_METRICS)
+    };
+  } catch(e) { return { dimension: "category", metrics: Object.keys(ANALYTICS_METRICS) }; }
+}
+
+function passageAverageSpeed(passage, legIndex = null){
+  let distance = 0, minutes = 0;
+  const indices = legIndex === null ? Array.from({length: getLegCount(passage)}, (_, i) => i) : [legIndex];
+  for (const i of indices) {
+    const m = computeLegMetricsFromEntries(passage, i);
+    if (m.nmG === null || m.durationMinutes === null || m.durationMinutes <= 0 || m.nmG < 0) continue;
+    distance += m.nmG;
+    minutes += m.durationMinutes;
+  }
+  return { distance, minutes, speed: minutes > 0 ? distance * 60 / minutes : null };
+}
+
+function renderPassageCategorySummary(sourcePassages, view = loadPassageAnalyticsView()){
+  const groups = new Map();
+  (sourcePassages || []).filter(p => !isDeletedPassage(p)).forEach(passage => {
+    const date = getPassageDateValue(passage);
+    const labels = view.dimension === "category" ? normalisePassageCategories(passage) : [
+      view.dimension === "year" ? date.slice(0, 4) :
+      view.dimension === "month" ? date.slice(0, 7) :
+      view.dimension === "origin" ? passage.plan?.from :
+      view.dimension === "destination" ? passage.plan?.to :
+      view.dimension === "status" ? getPassageDashboardStatus(passage) : "All passages"
+    ];
+    if (!labels.length) labels.push("Uncategorised");
     const numbers = computePassageCategoryNumbers(passage);
-    categories.forEach((category) => {
-      const existing = byCategory.get(category.toLowerCase()) || {
-        label: category,
-        passages: 0,
-        nm: 0,
-        fuel: 0,
-        engineHours: 0,
-        underwayMinutes: 0
-      };
-      existing.passages += 1;
-      existing.nm += numbers.nm;
-      existing.fuel += numbers.fuel;
-      existing.engineHours += numbers.engineHours;
-      existing.underwayMinutes += numbers.underwayMinutes;
-      byCategory.set(category.toLowerCase(), existing);
+    const speed = passageAverageSpeed(passage);
+    labels.forEach(value => {
+      const label = String(value || "Unknown").trim() || "Unknown";
+      const key = label.toLowerCase();
+      const item = groups.get(key) || { label, passages: 0, nm: 0, fuel: 0, engineHours: 0, underwayMinutes: 0, speedDistance: 0, speedMinutes: 0, economyFuel: 0, economyDistance: 0, nights: new Set(), counts: {} };
+      item.passages++;
+      for (const k of ["nm", "fuel", "engineHours", "underwayMinutes"]) {
+        if (numbers[k] !== null) { item[k] += numbers[k]; item.counts[k] = (item.counts[k] || 0) + 1; }
+      }
+      item.economyFuel += numbers.economyFuel;
+      item.economyDistance += numbers.economyDistance;
+      item.speedDistance += speed.distance;
+      item.speedMinutes += speed.minutes;
+      groups.set(key, item);
     });
   });
-  if (!byCategory.size) return "";
-  const cards = Array.from(byCategory.values())
-    .sort((a, b) => a.label.localeCompare(b.label))
-    .map((item) => {
-      const fuelPerNm = item.fuel > 0 && item.nm > 0 ? `${(item.fuel / item.nm).toFixed(2)} l/NM` : "–";
-      return `
-        <div class="category-summary-card">
-          <strong>${escapeHtml(item.label)}</strong>
-          <span>${item.passages} passage${item.passages === 1 ? "" : "s"}</span>
-          <span>${item.nm ? item.nm.toFixed(1) : "–"} NM · ${_fmtDurationFromMinutes(item.underwayMinutes) || "–"} UW</span>
-          <span>${item.fuel ? item.fuel.toFixed(1) : "–"} L fuel · ${item.engineHours ? item.engineHours.toFixed(1) : "–"} EH</span>
-          <span>${fuelPerNm}</span>
-        </div>
-      `;
-    }).join("");
-  return `<div class="passage-category-summary">${cards}</div>`;
+  // OOB belongs to its recorded calendar date, including when a passage crosses a month/year.
+  for (const passage of (sourcePassages || []).filter(p => !isDeletedPassage(p))) {
+    for (const date of computeOvernightStats([passage]).dates) {
+      const labels = view.dimension === "year" ? [date.slice(0,4)] : view.dimension === "month" ? [date.slice(0,7)] :
+        view.dimension === "category" ? normalisePassageCategories(passage) : [
+          view.dimension === "origin" ? passage.plan?.from : view.dimension === "destination" ? passage.plan?.to :
+          view.dimension === "status" ? getPassageDashboardStatus(passage) : "All passages"];
+      if (!labels.length) labels.push("Uncategorised");
+      for (const value of labels) {
+        const label = String(value || "Unknown").trim() || "Unknown";
+        const key = label.toLowerCase();
+        const item = groups.get(key) || {label, passages:0, nm:0, fuel:0, engineHours:0, underwayMinutes:0, speedDistance:0, speedMinutes:0, economyFuel:0, economyDistance:0, nights:new Set(), counts:{}};
+        item.nights.add(date);
+        groups.set(key,item);
+      }
+    }
+  }
+  if (!groups.size) return '<p class="hint">No passages to summarise.</p>';
+  if (!view.metrics.length) return '<p class="hint">Choose at least one metric.</p>';
+  return `<div class="passage-category-summary">${[...groups.values()].sort((a,b) => a.label.localeCompare(b.label)).map(item => {
+    const values = { nights: item.nights.size, passages: item.passages, nm: item.counts.nm ? item.nm.toFixed(1) : "–", fuel: item.counts.fuel ? item.fuel.toFixed(1) : "–", engineHours: item.counts.engineHours ? item.engineHours.toFixed(1) : "–", underwayMinutes: item.counts.underwayMinutes ? _fmtDurationFromMinutes(item.underwayMinutes) : "–", averageSpeed: item.speedMinutes > 0 ? (item.speedDistance * 60 / item.speedMinutes).toFixed(1) : "–", fuelPerNm: item.economyDistance > 0 ? (item.economyFuel / item.economyDistance).toFixed(2) : "–" };
+    return `<div class="category-summary-card"><strong>${escapeHtml(item.label)}</strong>${view.metrics.map(k => `<span>${escapeHtml(ANALYTICS_METRICS[k])}: ${escapeHtml(String(values[k]))}</span>`).join("")}</div>`;
+  }).join("")}</div>`;
+}
+
+function renderPassageAnalytics(){
+  const controls = document.getElementById("passageAnalyticsControls");
+  const summary = document.getElementById("passageAnalyticsSummary");
+  if (!controls || !summary) return;
+  const view = loadPassageAnalyticsView();
+  controls.innerHTML = `<label>Group by <select id="analyticsDimension">${Object.entries(ANALYTICS_DIMENSIONS).map(([key,label]) => `<option value="${key}"${view.dimension === key ? " selected" : ""}>${label}</option>`).join("")}</select></label><fieldset><legend>Show metrics</legend>${Object.entries(ANALYTICS_METRICS).map(([key,label]) => `<label class="analytics-metric-option"><input type="checkbox" data-analytics-metric="${key}"${view.metrics.includes(key) ? " checked" : ""}> ${label}</label>`).join("")}</fieldset>`;
+  summary.innerHTML = renderPassageCategorySummary(activePassages(), view);
+  controls.onchange = () => {
+    const next = { dimension: controls.querySelector("select").value, metrics: [...controls.querySelectorAll("input:checked")].map(el => el.dataset.analyticsMetric) };
+    try { storage.setItem(PASSAGE_ANALYTICS_KEY, JSON.stringify(next)); } catch(e) { warnStorageSaveFailed("analytics preferences", e); }
+    summary.innerHTML = renderPassageCategorySummary(activePassages(), next);
+  };
+}
+
+function setupCategoryAutocomplete(){
+  const input = document.getElementById("planCategories");
+  const box = document.getElementById("planCategoriesSuggest");
+  if (!input || !box) return;
+  const hide = () => box.classList.add("hidden");
+  const show = () => {
+    const value = input.value;
+    const cursor = input.selectionStart ?? value.length;
+    const start = Math.max(value.lastIndexOf(",", cursor - 1), value.lastIndexOf(";", cursor - 1), value.lastIndexOf("\n", cursor - 1)) + 1;
+    const nextDelimiter = value.slice(cursor).search(/[,;\n]/);
+    const end = nextDelimiter < 0 ? value.length : cursor + nextDelimiter;
+    const query = value.slice(start, end).trim().toLowerCase();
+    const otherCategories = normaliseCategoryList(value.slice(0, start) + value.slice(end)).map(c => c.toLowerCase());
+    const suggestions = normaliseCategoryList(activePassages().flatMap(normalisePassageCategories))
+      .filter(name => name.toLowerCase().includes(query) && !otherCategories.includes(name.toLowerCase()))
+      .sort((a,b) => Number(!a.toLowerCase().startsWith(query)) - Number(!b.toLowerCase().startsWith(query)) || a.localeCompare(b))
+      .slice(0, 6);
+    box.replaceChildren();
+    suggestions.forEach(name => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "port-suggest-item";
+      button.textContent = name;
+      button.addEventListener("pointerdown", event => event.preventDefault());
+      button.addEventListener("click", event => {
+        event.preventDefault();
+        input.value = value.slice(0, start) + (start ? " " : "") + name + value.slice(end);
+        input.focus();
+        const caret = start + (start ? 1 : 0) + name.length;
+        input.setSelectionRange(caret, caret);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        hide();
+      });
+      box.appendChild(button);
+    });
+    box.classList.toggle("hidden", !suggestions.length);
+  };
+  const hideAfterBlur = () => setTimeout(() => {
+    if (document.activeElement !== input && !box.contains(document.activeElement)) hide();
+  }, 150);
+  input.addEventListener("focus", show);
+  input.addEventListener("input", show);
+  input.addEventListener("click", show);
+  input.addEventListener("blur", hideAfterBlur);
+  box.addEventListener("focusout", hideAfterBlur);
+  input.addEventListener("keydown", event => {
+    if (event.key === "Escape") hide();
+    if (event.key === "ArrowDown" && !box.classList.contains("hidden")) {
+      event.preventDefault();
+      box.querySelector("button")?.focus();
+    }
+  });
+  box.addEventListener("keydown", event => {
+    if (event.key === "Escape") { input.focus(); hide(); }
+  });
 }
 
 function getPassageStatusClass(status) {
@@ -7249,7 +7399,7 @@ function createPassage() {
       engineHoursStart: "",
       fuelStartPercent: "",
       dailySummaries: [
-        { id: "ds_" + Date.now(), date: today, fee: "", notes: "" }
+        { id: "ds_" + Date.now(), date: today, fee: "", notes: "", overnightOnBoard: false }
       ],
       detailed: {
         waypoints: [],
@@ -7542,6 +7692,7 @@ function syncDailySummaryDatesWithPassageDate(p, previousDate, nextDate) {
   let changed = false;
   p.plan.dailySummaries = p.plan.dailySummaries.map((day) => {
     const current = String(day?.date || "").trim();
+    if (day?.overnightOnBoard === true && current) return day;
     const isInitialCreatedDate = createdDate && current === createdDate && current !== next;
     if (!current || (prev && current === prev) || isInitialCreatedDate) {
       changed = true;
@@ -7584,6 +7735,10 @@ function renderDailySummaries(p) {
       </button>
     `;
 
+    const oobLabel = document.createElement("label");
+    oobLabel.className = "ds-oob-label";
+    oobLabel.innerHTML = `<input type="checkbox" class="ds-oob" ${d.overnightOnBoard === true ? "checked" : ""}> Overnight on board (OOB)`;
+    row.querySelector(".ds-row").after(oobLabel);
     row.querySelector(".remove-daily-summary").addEventListener("click", () => {
       p.plan.dailySummaries = readDailySummariesFromForm();
       p.plan.dailySummaries.splice(index, 1);
@@ -7601,6 +7756,7 @@ function readDailySummariesFromForm() {
     days.push({
       id: row.dataset.id || ("ds_" + Date.now() + "_" + Math.random().toString(36).slice(2)),
       date: row.querySelector(".ds-date").value,
+      overnightOnBoard: row.querySelector(".ds-oob").checked,
       fee: row.querySelector(".ds-fee").value.trim(),
       notes: row.querySelector(".ds-notes").value.trim()
     });
@@ -7750,7 +7906,7 @@ function saveDppTemplate(name, detailed){
     name: cleanName,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
-    detailed: cloneDetailedPassagePlan(detailed, { regenerateIds: true })
+    detailed: cloneDetailedPassagePlan(detailed, { regenerateIds: true, resetActualTimes: true })
   };
 
   if (existing) {
@@ -8170,7 +8326,7 @@ function openDppTemplateEditor(id){
       const updatedDetailed = readDppTemplateEditorForm();
       updateDppTemplate(id, {
         name,
-        detailed: cloneDetailedPassagePlan(updatedDetailed, { regenerateIds: true })
+        detailed: cloneDetailedPassagePlan(updatedDetailed, { regenerateIds: true, resetActualTimes: true })
       });
       renderDppTemplatesManager();
       try { renderDetailedPassagePlan(getCurrentPassage()); } catch(e) {}
@@ -8461,7 +8617,7 @@ function saveSettingsDppWorkspace(){
   const detailed = readSettingsDppWorkspaceForm();
   updateDppTemplate(settingsDppWorkspaceState.templateId, {
     name,
-    detailed: cloneDetailedPassagePlan(detailed, { regenerateIds: true })
+    detailed: cloneDetailedPassagePlan(detailed, { regenerateIds: true, resetActualTimes: true })
   });
   settingsDppWorkspaceState.name = name;
   settingsDppWorkspaceState.detailed = cloneDetailedPassagePlan(detailed);
@@ -8722,7 +8878,7 @@ function renderSettingsDppWorkspace(){
     const selected = getDppTemplateById(selectedId);
     if (!selected) return;
     if (!confirm(`Replace this Detailed Passage Plan workspace with "${selected.name}"?`)) return;
-    settingsDppWorkspaceState.detailed = cloneDetailedPassagePlan(selected.detailed, { regenerateIds: true });
+    settingsDppWorkspaceState.detailed = cloneDetailedPassagePlan(selected.detailed, { regenerateIds: true, resetActualTimes: true });
     renderSettingsDppWorkspace();
   });
 
@@ -8874,7 +9030,7 @@ addDailySummaryBtn.addEventListener("click", () => {
   const p = getCurrentPassage();
   if (!p) return;
   p.plan.dailySummaries = readDailySummariesFromForm();
-  p.plan.dailySummaries.push({ id: "ds_" + Date.now(), date: getDailySummaryDefaultDate(p), fee: "", notes: "" });
+  p.plan.dailySummaries.push({ id: "ds_" + Date.now(), date: getDailySummaryDefaultDate(p), fee: "", notes: "", overnightOnBoard: false });
   renderDailySummaries(p);
 });
 
@@ -9814,7 +9970,7 @@ function updatePlanSummaryPanel() {
         const dateLabel = ds.date ? formatDateShort(ds.date) : "No date";
         const feeLabel  = ds.fee  ? ` – ${escapeHtml(ds.fee)}` : "";
         const notesLabel = ds.notes ? ` – ${linkifyNoteHtml(ds.notes)}` : "";
-        return `<div class="daily-summary-item plan-link" data-goto="dailySummariesContainer">${escapeHtml(dateLabel)}${feeLabel}${notesLabel}</div>`;
+        return `<div class="daily-summary-item plan-link" data-goto="dailySummariesContainer">${escapeHtml(dateLabel)}${ds.overnightOnBoard === true ? " – OOB" : ""}${feeLabel}${notesLabel}</div>`;
       }).join("")
     : '<p class="plan-link" data-goto="dailySummariesContainer"><em>–</em></p>';
   
@@ -10275,7 +10431,13 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
 
             <label class="entry-dialog-field manual-log-refuel-fields" ${isRefuelEntry ? "" : "hidden"}>
               <span>Cost £</span>
-              <input id="dlgRefuelCost" type="number" inputmode="decimal" step="0.01" value="${escapeHtml(entry.refuel?.cost || "")}">
+              <input id="dlgRefuelCost" type="number" inputmode="decimal" step="0.01" value="${escapeHtml(entry.refuel?.cost ?? "")}">
+            </label>
+
+            <label class="entry-dialog-field manual-log-refuel-fields" ${isRefuelEntry ? "" : "hidden"}>
+              <span>Refill location</span>
+              <input id="dlgRefuelLocation" type="text" list="refuelLocationOptions" value="${escapeHtml(entry.refuel?.location || "")}" placeholder="Port or fuel berth">
+              <datalist id="refuelLocationOptions">${knownPorts.map(port => `<option value="${escapeHtml(portName(port))}"></option>`).join("")}</datalist>
             </label>
 
             <label class="entry-dialog-check manual-log-refuel-fields" ${isRefuelEntry ? "" : "hidden"}>
@@ -10308,8 +10470,19 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
           'dlgNotes',
           'dlgWpSelect',
           'dlgRefuelLitres',
-          'dlgRefuelCost'
+          'dlgRefuelCost',
+          'dlgRefuelLocation'
         ]);
+        if (document.getElementById("dlgRefuel")?.checked) {
+          if (!(fuelNonnegative(vals.dlgRefuelLitres) > 0)) {
+            alert("Enter the positive number of litres filled."); return false;
+          }
+          for (const key of ["dlgRefuelCost"]) {
+            if (String(vals[key] || "").trim() && fuelNonnegative(vals[key]) === null) {
+              alert("Enter a non-negative amount, or leave the optional field blank."); return false;
+            }
+          }
+        }
 
         entry.time = normalizeEntryTimeInput(
           vals.dlgTime,
@@ -10395,6 +10568,8 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
           if (refuelNote) notes = notes ? `${notes}\n${refuelNote}` : refuelNote;
           entry.entryType = entry.entryType === "wp-reached" ? "wp-reached" : "refuel";
           entry.refuel = {
+            ...(entry.refuel || {}),
+            location: String(vals.dlgRefuelLocation || "").trim(),
             litres: litres != null ? Number(litres.toFixed(1)) : "",
             cost: cost != null ? Number(cost.toFixed(2)) : "",
             costPerLitre: (cost != null && litres > 0) ? Number((cost / litres).toFixed(3)) : "",
@@ -10952,22 +11127,22 @@ function loadFuelManagementSettings(){
   };
 }
 
-function saveFuelManagementSettings(settings){
+function saveFuelManagementSettings(settings, options = {}){
   const clean = {
     ...defaultFuelManagementSettings(),
     ...(settings || {})
   };
   clean.tankCapacity = numberOrNull(clean.tankCapacity) || STEELER_FUEL_TANK_CAPACITY_L;
   clean.resetLevel = Math.max(0, Math.min(clean.tankCapacity, numberOrNull(clean.resetLevel) ?? clean.tankCapacity));
-  clean.resetAt = clean.resetAt || localDateTimeInputValue(new Date());
+  if (!options.preserveResetAt) clean.resetAt = clean.resetAt || localDateTimeInputValue(new Date());
   saveLocalStorageItem(FUEL_MANAGEMENT_KEY, JSON.stringify(clean), "fuel management");
   return clean;
 }
 
-function getAllFuelRelevantEntries(){
-  return passages.flatMap(p => activeLogEntries(p).map(entry => ({ passage:p, entry })))
-    .filter(({ entry }) => entry && (entry.time || entry.refuel || entry.fuelUsed))
-    .sort((a, b) => getLogEntrySortKey(a.passage, a.entry).localeCompare(getLogEntrySortKey(b.passage, b.entry)));
+function getAllFuelRelevantEntries(sourcePassages = passages){
+  return sourcePassages.filter(p => p && !isDeletedPassage(p)).flatMap(p => activeLogEntries(p).map(entry => ({ passage:p, entry })))
+    .filter(({ passage, entry }) => entry && fuelRecordDate(passage, entry))
+    .sort((a, b) => (fuelRecordDate(a.passage,a.entry)?.time || 0) - (fuelRecordDate(b.passage,b.entry)?.time || 0) || Number(!!a.entry.refuel)-Number(!!b.entry.refuel));
 }
 
 function fuelCutoffDateFromInput(value){
@@ -10979,19 +11154,17 @@ function fuelCutoffDateFromInput(value){
 
 function fuelEntryIsAfterCutoff(passage, entry, cutoffDate){
   if (!cutoffDate) return true;
-  const entryDate = logEntrySortDate(passage, entry);
-  if (!entryDate || Number.isNaN(entryDate.getTime())) return false;
-  return entryDate >= cutoffDate;
+  const stamp = fuelRecordDate(passage, entry);
+  return !!stamp && stamp.time >= cutoffDate.getTime();
 }
 
 function fuelEntryIsBeforeLimit(passage, entry, limitDate){
   if (!limitDate) return true;
-  const entryDate = logEntrySortDate(passage, entry);
-  if (!entryDate || Number.isNaN(entryDate.getTime())) return false;
-  return entryDate <= limitDate;
+  const stamp = fuelRecordDate(passage, entry);
+  return !!stamp && stamp.time <= limitDate.getTime();
 }
 
-function computeFuelManagementStats({ beforeTime = "", excludeEntryId = "" } = {}){
+function computeFuelManagementStats({ beforeTime = "", excludeEntryId = "", sourcePassages = passages } = {}){
   const settings = loadFuelManagementSettings();
   const resetDate = fuelCutoffDateFromInput(settings.resetAt);
   const beforeDate = fuelCutoffDateFromInput(beforeTime);
@@ -11002,13 +11175,18 @@ function computeFuelManagementStats({ beforeTime = "", excludeEntryId = "" } = {
   let refuelCount = 0;
   let fuelUseEntryCount = 0;
   const latestFuelUseByLeg = new Map();
-  const fuelEntries = getAllFuelRelevantEntries()
+  const refillSnapshots = [];
+  const fuelEntries = getAllFuelRelevantEntries(sourcePassages)
     .filter(({ entry }) => !(excludeEntryId && String(entry.id) === String(excludeEntryId)))
     .filter(({ passage, entry }) => fuelEntryIsBeforeLimit(passage, entry, beforeDate));
-  const hasLoggedRefuel = fuelEntries.some(({ entry }) => !!entry.refuel);
+  const hasLoggedRefuel = fuelEntries.some(({ entry }) => entry.refuel?.tankFull === true && Number(entry.refuel.litres) > 0);
 
   fuelEntries.forEach(({ passage, entry }) => {
-    if (!hasLoggedRefuel && !fuelEntryIsAfterCutoff(passage, entry, resetDate)) return;
+    if (!hasLoggedRefuel && !fuelEntryIsAfterCutoff(passage, entry, resetDate)) {
+      const prior = fuelNonnegative(entry.fuelUsed);
+      if (prior !== null) latestFuelUseByLeg.set(`${passage?.id || ""}::${entry.leg ?? 0}`, {used:prior});
+      return;
+    }
 
     const used = numberOrNull(entry.fuelUsed);
     if (used != null && used > 0) {
@@ -11028,6 +11206,8 @@ function computeFuelManagementStats({ beforeTime = "", excludeEntryId = "" } = {
 
     const refuel = entry.refuel || null;
     if (refuel) {
+      // This is the same counter shown on the Tank card, before a full refill resets it.
+      refillSnapshots.push({passageId:passage.id, entryId:entry.id, fuelUsed});
       const litres = numberOrNull(refuel.litres) || 0;
       const cost = numberOrNull(refuel.cost) || 0;
       if (litres > 0) {
@@ -11038,13 +11218,13 @@ function computeFuelManagementStats({ beforeTime = "", excludeEntryId = "" } = {
       if (refuel.tankFull) {
         remaining = settings.tankCapacity;
         fuelUsed = 0;
-        latestFuelUseByLeg.clear();
+        // Refilling resets the displayed period, not cumulative readings within a leg.
       } else {
         const storedRemaining = numberOrNull(refuel.tankRemaining);
-        if (storedRemaining != null) {
-          remaining = Math.max(0, Math.min(settings.tankCapacity, storedRemaining));
-        } else if (remaining != null) {
+        if (remaining != null) {
           remaining = Math.min(settings.tankCapacity, remaining + litres);
+        } else if (storedRemaining != null) {
+          remaining = Math.max(0, Math.min(settings.tankCapacity, storedRemaining));
         }
       }
     }
@@ -11054,6 +11234,7 @@ function computeFuelManagementStats({ beforeTime = "", excludeEntryId = "" } = {
   return {
     settings,
     remaining,
+    refillSnapshots,
     refuelLitres,
     refuelCost,
     refuelCount,
@@ -11930,7 +12111,8 @@ function updateLogSummary() {
     l/NM: ${formatFuelConsumption(total.fuelUsed, total.gLog)} |
     Fuel ${total.fuelStart}%→${total.fuelEnd}% |
     NM(G): ${total.gLog} |
-    Under Way: ${total.durationText}`;
+    Under Way: ${total.durationText} |
+    Average speed: ${(() => { const m = passageAverageSpeed(p); return m.speed === null ? "–" : `${m.speed.toFixed(1)} kn`; })()}`;
 
   logSummaryPanel.innerHTML = html;
 }
@@ -12662,6 +12844,169 @@ function injectSafetyEmergencySettingsBlock(){
   }
 }
 
+// OOB dates identify the night beginning on that date, independently of passage boundaries.
+function overnightDateOrdinal(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
+  const ms = Date.parse(value + "T00:00:00Z");
+  return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === value ? ms / 86400000 : null;
+}
+
+function computeOvernightStats(items, today = localDateInputValue()) {
+  const dates = new Set();
+  const refuels = [];
+  let invalidDates = 0;
+  for (const p of items || []) {
+    if (!p || p.deleted === true) continue;
+    for (const day of p.plan?.dailySummaries || []) {
+      if (!day || day.deleted === true || day.overnightOnBoard !== true) continue;
+      if (overnightDateOrdinal(day.date) === null) { invalidDates++; continue; }
+      // Today's night and future plans are not yet completed nights.
+      if (day.date < today) dates.add(day.date);
+    }
+    for (const entry of p.entries || []) {
+      if (!entry || entry.deleted === true || !(Number(entry.refuel?.litres) > 0)) continue;
+      const raw = String(entry.time || "");
+      const instant = new Date(raw);
+      const date = /(?:Z|[+-]\d{2}:?\d{2})$/.test(raw) && instant && Number.isFinite(instant.getTime())
+        ? localDateInputValue(instant, getPassageTimeZone(p)) : raw.slice(0, 10);
+      if (overnightDateOrdinal(date) === null || date > today) continue;
+      refuels.push({ date, full: entry.refuel.tankFull === true, sortKey: date + raw.slice(10) });
+    }
+  }
+  const nights = [...dates].sort();
+  let longest = 0, latest = 0, previous = null;
+  const runs = [];
+  for (const date of nights) {
+    const ordinal = overnightDateOrdinal(date);
+    const consecutive = previous !== null && ordinal === previous + 1;
+    latest = consecutive ? latest + 1 : 1;
+    if (consecutive) { runs.at(-1).to = date; runs.at(-1).nights++; }
+    else runs.push({from:date, to:date, nights:1});
+    longest = Math.max(longest, latest);
+    previous = ordinal;
+  }
+  refuels.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+  const count = (from, to) => nights.filter(date => date >= from && date < to).length;
+  const intervals = refuels.slice(1).map((end, i) => ({from: refuels[i].date, to: end.date, nights: count(refuels[i].date, end.date)}));
+  const full = refuels.filter(r => r.full);
+  const fullIntervals = full.slice(1).map((end, i) => ({from: full[i].date, to: end.date, nights: count(full[i].date, end.date)}));
+  return {dates:nights, runs:runs.sort((a,b) => b.nights-a.nights || b.to.localeCompare(a.to)), total: nights.length, longest, latest, latestDate: nights.at(-1) || "", invalidDates,
+    sinceRefuel: refuels.length ? count(refuels.at(-1).date, today) : null,
+    sinceFull: full.length ? count(full.at(-1).date, today) : null, intervals, fullIntervals};
+}
+
+function renderOvernightStats(items) {
+  const stats = computeOvernightStats(items);
+  const rows = stats.runs.map((run, i, all) => {
+    const rank = all.findIndex(r => r.nights === run.nights) + 1;
+    return `<tr><td>${rank}</td><td>${escapeHtml(run.from)}</td><td>${escapeHtml(run.to)}</td><td>${run.nights}</td></tr>`;
+  }).join("");
+  return `    <p class="hint">Runs are built automatically from OOB dates across all passages, ranked longest first. Dates identify the start of each night; today and future nights are excluded. An unmarked date breaks a run.</p>
+    ${rows ? `<div class="analytics-table-scroll" tabindex="0" role="region" aria-label="Ranked overnight runs"><table class="analytics-table"><thead><tr><th scope="col">Rank</th><th scope="col">First night</th><th scope="col">Last night</th><th scope="col">Nights</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p>No completed nights recorded yet. Tick OOB in Daily Summary.</p>'}
+    ${stats.invalidDates ? '<p class="hint">OOB records with missing or invalid dates are excluded.</p>' : ""}`;
+}
+
+// Use the actual entry date; passage start dates must not reorder multi-day fuel records.
+function fuelRecordDate(passage, entry) {
+  let raw = String(entry?.time || "").trim();
+  if (/^\d{2}:\d{2}$/.test(raw)) raw = `${passage?.plan?.date || ""}T${raw}`;
+  const zone = getPassageTimeZone(passage);
+  if (/(?:Z|[+-]\d{2}:?\d{2})$/.test(raw)) {
+    const instant = new Date(raw);
+    return Number.isFinite(instant.getTime()) ? {time:instant.getTime(), date:localDateInputValue(instant, zone)} : null;
+  }
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?$/);
+  if (!match || overnightDateOrdinal(match[1]) === null || match[2] > "23:59" || Number(match[2].slice(3)) > 59) return null;
+  const instant = zonedDateTimeToUtc(match[1], match[2], zone);
+  return instant ? {time:instant.getTime(), date:match[1]} : null;
+}
+
+function fuelNonnegative(value) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const number = Number(String(value).replace(",", "."));
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+function computeRefillHistory(items, today = localDateInputValue()) {
+  const nights = computeOvernightStats(items, today).dates;
+  const events = [], undated = [];
+  for (const passage of items || []) {
+    if (!passage || passage.deleted === true) continue;
+    for (const entry of activeLogEntries(passage)) {
+      if (!entry) continue;
+      const stamp = fuelRecordDate(passage, entry);
+      const event = {passage, entry, ...stamp, key:`${passage.id}::${entry.leg ?? 0}`};
+      if (stamp) events.push(event);
+      else if (entry.refuel) undated.push(event);
+    }
+  }
+  // A cumulative reading on a refuel entry is the pre-fill reading.
+  events.sort((a,b) => a.time-b.time || Number(!!a.entry.refuel)-Number(!!b.entry.refuel) || String(a.entry.id).localeCompare(String(b.entry.id)));
+  const snapshots=computeFuelManagementStats({sourcePassages:items || []}).refillSnapshots;
+  const snapshotByEntry=new Map(snapshots.map(s=>[`${s.passageId}::${s.entryId}`,s.fuelUsed]));
+  const rows=events.filter(event=>event.entry.refuel).map(event=>({
+    ...event,
+    filled:fuelNonnegative(event.entry.refuel.litres),
+    cost:fuelNonnegative(event.entry.refuel.cost),
+    full:event.entry.refuel.tankFull === true,
+    recordedUse:snapshotByEntry.get(`${event.passage.id}::${event.entry.id}`) ?? null
+  }));
+  let previousFull=null;
+  let pending=[];
+  for (const row of rows) {
+    row.purchaseFilled=row.filled;
+    row.purchaseCost=row.cost;
+    row.used=row.difference=row.nights=row.perNight=null;
+    row.price=row.cost !== null && row.filled>0 ? row.cost/row.filled : null;
+    pending.push(row);
+    if (!row.full) continue;
+    for (const part of pending) if (!part.full) part.includedIn=row.date;
+    row.hasPartials=pending.some(r=>!r.full);
+    const total=key => pending.every(r=>r[key] !== null) ? pending.reduce((n,r)=>n+r[key],0) : null;
+    row.filled=total("purchaseFilled");
+    row.cost=total("purchaseCost");
+    row.from=previousFull?.date || "";
+    row.nights=previousFull ? nights.filter(date => date>=previousFull.date && date<row.date).length : null;
+    row.used=row.recordedUse;
+    row.difference=row.filled !== null && row.used !== null ? row.filled-row.used : null;
+    row.perNight=row.difference !== null && row.nights>0 ? row.difference/row.nights : null;
+    row.price=row.cost !== null && row.filled>0 ? row.cost/row.filled : null;
+    previousFull=row;
+    pending=[];
+  }
+  for (const event of undated) rows.push({...event,filled:fuelNonnegative(event.entry.refuel.litres),cost:fuelNonnegative(event.entry.refuel.cost),price:null,used:null,difference:null,nights:null,perNight:null,note:"Missing refill date",full:event.entry.refuel.tankFull===true});
+  const completed=rows.filter(row=>row.full && row.date);
+  const cycles=completed.filter(row=>row.from);
+  const sum = key => completed.filter(r=>r[key] !== null && r[key] !== undefined).reduce((n,r)=>n+r[key],0);
+  const count = key => completed.filter(r=>r[key] !== null && r[key] !== undefined).length;
+  const priced=completed.filter(r=>r.cost !== null && r.filled>0);
+  const paired=completed.filter(r=>r.difference !== null && r.nights>0);
+  return {rows, cycles, pending, sum, count,
+    price:priced.length ? priced.reduce((n,r)=>n+r.cost,0)/priced.reduce((n,r)=>n+r.filled,0) : null,
+    perNight:paired.length ? paired.reduce((n,r)=>n+r.difference,0)/paired.reduce((n,r)=>n+r.nights,0) : null};
+}
+
+function renderRefillHistory(items) {
+  const data=computeRefillHistory(items);
+  const number=(value,places=1) => value === null || value === undefined ? "–" : value.toFixed(places);
+  const cells=(row,average=false) => `<td>${number(row.filled)}</td><td>${number(row.cost,2)}</td><td>${number(row.price,3)}</td><td>${number(row.used)}</td><td>${number(row.difference)}</td><td>${number(row.nights,average ? 1 : 0)}</td><td>${number(row.perNight,2)}</td>`;
+  const footer=average => {
+    const values={price:data.price,perNight:data.perNight};
+    for (const key of ["filled","cost","used","difference","nights"]) values[key]=data.count(key) ? data.sum(key)/(average ? data.count(key) : 1) : null;
+    return `<tr><th scope="row">${average ? "Average / full refill" : "Full-refill totals"}</th><td></td>${cells(values,average)}</tr>`;
+  };
+  const rows=data.rows.slice().reverse().map(row => {
+    const location=String(row.entry.refuel.location || "").trim() || "Not recorded";
+    const heading=`<th scope="row">${escapeHtml(row.date || "Unknown date")}<div class="refill-location">${escapeHtml(location)}</div></th><td>${row.full ? "Full" : "Partial"}</td>`;
+    if (!row.full) return `<tr class="partial-refill-row">${heading}<td>${number(row.purchaseFilled ?? row.filled)}</td><td>${number(row.purchaseCost ?? row.cost,2)}</td><td>${number(row.price,3)}</td><td>–</td><td>–</td><td>–</td><td>–</td></tr>`;
+    return `<tr>${heading}${cells(row)}</tr>`;
+  }).join("");
+  return `<p class="hint">Full refills compare with the previous full refill. Filled litres and cost include all partial fills in that period. Partial rows are purchase records only and are not counted twice in totals.</p>
+    ${rows ? `<div class="analytics-table-scroll" tabindex="0" role="region" aria-label="Fuel refill history"><table class="analytics-table refill-table"><thead><tr><th scope="col">Date</th><th scope="col">Fill</th><th scope="col">Filled incl. partials (L)</th><th scope="col">Cost (£)</th><th scope="col">£ / L</th><th scope="col">Recorded use (L)</th><th scope="col">Difference (L)</th><th scope="col">OOB nights</th><th scope="col">Difference / night (L)</th></tr></thead><tbody>${rows}</tbody><tfoot>${footer(false)}${footer(true)}</tfoot></table></div>` : '<p>No refills recorded yet.</p>'}
+    <p class="hint">Record or edit refills in the Log, including their location. Pending partial fills are excluded from full-refill totals until the next full refill.</p>
+    <p class="hint">Recorded use is the app’s Fuel Used counter immediately before the full refill resets it. Partial fills do not reset it. Difference = filled − recorded use. Nights start on the earlier full-refill date and end before the later one. No nights means no per-night rate. Average £/L and difference/night use matching totals. Swipe sideways on narrow screens.</p>`;
+}
+
 function renderFuelManagementSettings(){
   const resetAtEl = document.getElementById("fuelMgmtResetAt");
   const resetLevelEl = document.getElementById("fuelMgmtResetLevel");
@@ -12676,17 +13021,19 @@ function renderFuelManagementSettings(){
 
   const remaining = stats.remaining == null ? "Unknown" : `${formatLitres(stats.remaining)}l`;
   const used = stats.fuelUsed ? `${formatLitres(stats.fuelUsed)}l` : "0l";
-  const bought = stats.refuelLitres ? `${formatLitres(stats.refuelLitres)}l` : "0l";
-  const avg = stats.averageCostPerLitre == null ? "–" : `£${stats.averageCostPerLitre.toFixed(2)}/l`;
 
   statsEl.innerHTML = `
     <span class="st-metric-chip"><span>Tank Estimate</span><strong>${escapeHtml(remaining)}</strong></span>
     <span class="st-metric-chip"><span>Fuel Used</span><strong>${escapeHtml(used)}</strong></span>
-    <span class="st-metric-chip"><span>Fuel Bought</span><strong>${escapeHtml(bought)}</strong></span>
-    <span class="st-metric-chip"><span>Avg Cost</span><strong>${escapeHtml(avg)}</strong></span>
   `;
+  const openingEl = document.getElementById("fuelOpeningBalance");
+  if (openingEl) openingEl.hidden = activePassages().some(p => activeLogEntries(p).some(e => e.refuel?.tankFull === true && Number(e.refuel.litres) > 0 && fuelRecordDate(p,e)));
+  const refillEl = document.getElementById("refillHistory");
+  if (refillEl) refillEl.innerHTML = renderRefillHistory(passages);
+  const nightsEl = document.getElementById("overnightStats");
+  if (nightsEl) nightsEl.innerHTML = renderOvernightStats(passages);
   if (analyticsEl) {
-    analyticsEl.innerHTML = renderPassageCategorySummary(activePassages()) || '<p class="hint">Add Passage Categories on the Plan page to see grouped mileage, fuel and engine-hour summaries here.</p>';
+    renderPassageAnalytics();
   }
 }
 
@@ -12734,9 +13081,12 @@ function injectFuelManagementSettingsBlock(){
           <section class="settings-panel-card st-panel st-stack">
             <div class="st-panel-title">Tank Level</div>
             <div id="fuelMgmtStats" class="st-metric-strip"></div>
+            <p class="hint">Fuel Used is recorded engine consumption since the last full refill, or the opening estimate. Partial fills add fuel without resetting this total.</p>
+            <details id="fuelOpeningBalance"><summary>Opening tank estimate</summary>
+            <p class="hint">Used until the first logged full refill. This sets an opening estimate; it does not record a fuel purchase.</p>
             <div class="st-form-grid st-form-grid-compact">
               <label class="st-labelled-field">
-                <span>Reset from</span>
+                <span>Opening date/time</span>
                 <input id="fuelMgmtResetAt" type="datetime-local">
               </label>
               <label class="st-labelled-field">
@@ -12745,14 +13095,25 @@ function injectFuelManagementSettingsBlock(){
               </label>
             </div>
             <div class="st-action-row">
-              <button type="button" id="fuelMgmtFullBtn" class="btn btn-primary">Reset Tank Full</button>
-              <button type="button" id="fuelMgmtSaveBtn" class="btn btn-secondary">Save Tank Level</button>
+              <button type="button" id="fuelMgmtFullBtn" class="btn btn-primary">Start with Full Tank</button>
+              <button type="button" id="fuelMgmtSaveBtn" class="btn btn-secondary">Save Opening Estimate</button>
             </div>
+            </details>
           </section>
-          <section class="settings-panel-card st-panel st-stack">
-            <div class="st-panel-title">Passage Categories</div>
+          <details id="refillHistoryCard" class="settings-panel-card st-panel analytics-disclosure">
+            <summary class="st-panel-title">Refill history</summary>
+            <div id="refillHistory" class="st-stack"></div>
+          </details>
+          <details id="overnightStatsCard" class="settings-panel-card st-panel analytics-disclosure">
+            <summary class="st-panel-title">Consecutive nights on board</summary>
+            <div id="overnightStats" class="st-stack"></div>
+          </details>
+          <details id="passageAnalyticsCard" class="settings-panel-card st-panel analytics-disclosure">
+            <summary class="st-panel-title">Passage Analytics</summary>
+            <div id="passageAnalyticsControls"></div>
+            <p class="hint">Average speed uses distance ÷ under-way time for legs with both readings. Nights use their OOB dates for year/month grouping and count once within each group. Other metrics use passage dates. Groups can overlap when passages share nights or categories. View choices are saved on this device.</p>
             <div id="passageAnalyticsSummary"></div>
-          </section>
+          </details>
         </div>
       </div>
     `;
@@ -12786,6 +13147,7 @@ if (new URLSearchParams(location.search).has("reset")) {
   loadPassages();
   loadPorts();
   setupPortAutocomplete();
+  setupCategoryAutocomplete();
   setupPortCoordConfirmation();
   setupPortsManagerModal();
   setupTidePasteModal();

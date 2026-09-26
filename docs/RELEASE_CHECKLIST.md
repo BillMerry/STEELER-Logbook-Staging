@@ -1,5 +1,7 @@
 # Release Checklist
 
+For 1.3.5-rc1, also run `node tests/check-assets.cjs`, `npm run test:dom` and `npm test` against a local server. See [candidate gates](RELEASE_1.3.5-rc1.md).
+
 Use this checklist for each STEELER Logbook release. The goal is to avoid stale PWA assets and to confirm that the offline-at-sea path is safe before tagging GitHub.
 
 ## Version Alignment
@@ -70,7 +72,7 @@ Test from a clean browser profile or an iPad where possible:
 - Enable Auto-sync in Connection settings, make a safe local change with no newer cloud copy, reopen or foreground the app, and confirm the local change is uploaded automatically after the cloud check.
 - Confirm the footer and Data & Backup panel show Auto-sync on/off and the latest auto-sync check time after auto-sync runs.
 - With Auto-sync enabled and no cloud copy yet, reopen the app and confirm it does not create the first cloud copy automatically.
-- With Auto-sync enabled and a newer cloud copy present, reopen the app and confirm it asks before using cloud or keeping this device.
+- With Auto-sync enabled and cloud-only changes, confirm silent verified receive. With both copies changed, confirm a decision prompt. With no baseline, confirm an inline manual-Sync status without a popup.
 - Edit one shared setting, such as Ports, DPP templates, weather abbreviations or fuel settings, tap Sync Now, and confirm the full-data cloud copy now includes that change.
 - Add a URL to a log note or DPP note and confirm it displays as a clickable link.
 - Override a DPP leg distance and confirm the total distance/time/fuel use the manual NM value.
@@ -82,8 +84,8 @@ Test from a clean browser profile or an iPad where possible:
 - Send a Lookout Request SMS to a non-default saved or one-off contact, then send the Passage Complete SMS for the same passage and confirm the same recipient is preselected/prefilled.
 - Generate a Lookout Request SMS with the AIS position link enabled and confirm the SMS includes the MarineTraffic link plus the note that the link may need opening in a browser if the phone app opens without showing STEELER.
 - On another device that has not seen the latest cloud revision, tap Sync Now and confirm the app says which named device changed the cloud copy and offers Keep This Device, Use Cloud Copy, and Cancel.
-- Choose Keep This Device and confirm this device's complete data replaces the current cloud copy while the previous cloud copy appears in Recovery backups.
-- Repeat the conflict path and choose Use Cloud Copy. Confirm a local safety backup downloads first, the full cloud copy is restored, and this device keeps its own `steeler_device_id_v1`.
+- Choose Keep This Device with disposable test data and confirm this device's complete data replaces cloud. Automatic previous-copy archival is not implemented; see DELETION_REVIEW.md.
+- Repeat the conflict path and choose Use Cloud Copy. Confirm the full cloud copy is restored and verified and this device keeps its own `steeler_device_id_v1`. Ordinary full-copy sync does not currently download a safety backup; use disposable data.
 - Before choosing Use Cloud Copy, keep different local Daily Summary or DPP content on this device. Confirm the cloud copy applies exactly and the local content is replaced by the cloud copy.
 - Delete DPP content on one device, sync it to cloud, then use that cloud copy on another device that still has the old DPP and confirm the DPP deletion is respected.
 - Confirm Recovery backups can be expanded and contain recent cloud backup controls only, without per-record send/receive tools.

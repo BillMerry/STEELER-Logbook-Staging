@@ -15,7 +15,7 @@ function normaliseDetailedPassagePlan(detailed){
   return d;
 }
 
-function cloneDetailedPassagePlan(detailed, { resetTimes=false, regenerateIds=false } = {}){
+function cloneDetailedPassagePlan(detailed, { resetTimes=false, regenerateIds=false, resetActualTimes=false } = {}){
   const d = normaliseDetailedPassagePlan(detailed);
   return {
     waypoints: d.waypoints.map((wp, idx) => {
@@ -37,7 +37,7 @@ function cloneDetailedPassagePlan(detailed, { resetTimes=false, regenerateIds=fa
         timeToNext: "",
         fuelToNext: "",
         includeInEcSms: wp.includeInEcSms !== false,
-        actualTime: resetTimes ? "" : (wp.actualTime || "")
+        actualTime: (resetTimes || resetActualTimes) ? "" : (wp.actualTime || "")
       };
     }),
     hazards: d.hazards || "",
