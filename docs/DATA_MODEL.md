@@ -21,7 +21,7 @@ The app is an offline-first browser PWA. User data is stored in `localStorage` a
 | `steeler_device_id_v1` | Local device/client identity for future sync | Plain string generated locally; not restored from data backups |
 | `steeler_device_name_v1` | Human-friendly local device name for sync display | Plain string edited locally; not restored from data backups |
 | `steeler_sync_status_v1` | Local sync status summary | JSON object; records local changes, Worker checks, and one-way cloud backup status |
-| `steeler_sync_config_v1` | Sync connection settings | JSON object containing Worker URL, local token and per-device auto-sync preference; not included in full data backups |
+| `steeler_sync_config_v1` | Staging sync connection settings | JSON object containing Worker URL, local token and per-device auto-sync preference; not included in full data backups |
 
 ## Safety Mirror Keys
 
@@ -49,7 +49,7 @@ Mirror metadata has this shape:
   sourceKey: "steeler_logbook_passages_v5",
   label: "passages",
   mirroredAt: "2026-05-03T12:00:00.000Z",
-  appVersion: "1.3.3"
+  appVersion: "0.14.0-staging"
 }
 ```
 
@@ -60,7 +60,7 @@ If a primary key cannot be parsed, the app shows visible recovery handling and o
   format: "steeler-corrupt-localstorage-export",
   version: 1,
   exportedAt: "2026-05-03T12:00:00.000Z",
-  appVersion: "1.3.3",
+  appVersion: "0.14.0-staging",
   key: "steeler_logbook_passages_v5",
   label: "passages",
   error: "Unexpected token ...",
@@ -516,7 +516,7 @@ Stored in `steeler_fuel_management_v1`.
 }
 ```
 
-Fuel management processes logged fuel entries in chronological order. A full-tank refuel starts the tank estimate from `tankCapacity` and resets the displayed fuel-used total. A partial refuel adds the entered litres to the current estimate, capped at `tankCapacity`; if the entry has a stored tank remaining value, that exact estimate is used. The displayed fuel used counts the latest `fuelUsed` value per passage leg after the most recent full-tank or manual baseline. If no logged refuel entries exist, the saved manual `resetAt` / `resetLevel` fields act as the fallback baseline.
+Fuel management processes active fuel entries by their actual timestamps. A full-tank refuel starts the tank estimate from `tankCapacity` and resets the displayed fuel-used total while retaining per-leg cumulative counters. A partial refuel adds litres to the current estimate, capped at `tankCapacity`; a stored tank remaining value is only a fallback when no estimate exists. Recorded use is accumulated from increases in each leg’s `fuelUsed` counter. Until a valid full refill is logged, `resetAt` / `resetLevel` supply the opening baseline, with earlier readings retained only as counter baselines. See the rc5 refill-history section below for reconciliation rules.
 
 ## Backup Payloads
 
@@ -653,7 +653,7 @@ The sync config is local-only and is not included in full data backups:
 
 When `autoSyncEnabled` is true, the app checks on open, focus and foreground return. Auto-sync may upload safe local changes only when the current cloud copy has not moved since this device last synced. It does not automatically create the first cloud copy or replace local data from cloud. `steeler_sync_status_v1` records `lastAutoSyncAttemptAt`, `lastAutoSyncAt`, and `lastAutoSyncReason` so the footer and Data & Backup panel can show recent auto-sync activity.
 
-The previous per-record sync shape is retained only as historical compatibility data. v1.3.3 uses one current full-data cloud record instead:
+The previous per-record sync shape is retained only as historical compatibility data. v1.3.3-rc4 uses one current full-data cloud record instead:
 
 ```js
 {
@@ -666,7 +666,7 @@ The previous per-record sync shape is retained only as historical compatibility 
   payload: {
     format: "steeler-full-data-sync-record",
     version: 1,
-    appVersion: "1.3.3",
+    appVersion: "1.3.3-rc4",
     deviceId: "device_...",
     deviceName: "Bill's MacBook Pro",
     backup: DataBackupPayload
@@ -676,7 +676,7 @@ The previous per-record sync shape is retained only as historical compatibility 
 
 Sync Now fetches only the current `full-data-sync` record, then compares this device's current data with the current cloud backup first. If they already match, the app confirms that the device is synced and does not upload another cloud copy. If the device has changes and the cloud record has not changed since this device last synced, the device backup can be saved as the current cloud copy. If the cloud record changed since this device last synced and the data differs, the user chooses either this device's full backup or the cloud full backup. When this device replaces an existing cloud copy, the previous cloud backup is preserved as a `cloud-backup` recovery record.
 
-Using the cloud copy downloads a local safety backup first, then restores the cloud `steeler-data-backup` exactly. v1.3.3 deliberately removes the local Daily Summary/DPP preservation step from the main full-copy sync path so the selected copy wins cleanly. The device id key remains local-only and is not restored from the backup.
+Using the cloud copy downloads a local safety backup first, then restores the cloud `steeler-data-backup` exactly. v1.3.3-rc4 deliberately removes the local Daily Summary/DPP preservation step from the main full-copy sync path so the selected copy wins cleanly. The device id key remains local-only and is not restored from the backup.
 
 Legacy full logbook backup:
 
@@ -737,3 +737,42 @@ DPP Template import merges by template name: matching names are updated, and new
 - Before destructive imports or migrations, preserve a way to export or recover the previous raw data.
 - `js/safety-emergency.js` owns Safety/Emergency defaults, contact normalisation and legacy EC migration, but it preserves the keys and shapes documented above.
 - `js/live-data.js` is currently a no-op boundary for future NMEA/liveData. It must not write saved log entries or replace manually entered passage data.
+
+## 1.3.5-rc1 device-local analytics view
+
+`steeler_passage_analytics_view_v1` stores `{dimension, metrics}`. Dimension is one of category/year/month/origin/destination/status/all; metric IDs are passages/nm/underwayMinutes/fuel/engineHours/averageSpeed/fuelPerNm. Unknown values are filtered; malformed JSON falls back to defaults. Empty metrics is an intentional selection. This display preference is excluded from the complete data package and does not mark voyage data dirty.
+
+No durable passage schema or Worker protocol changes. Template creation/reuse clears `actualTime` in the cloned waypoints while preserving the original passage record. Old template data is not rewritten during backup restore.
+
+
+### Overnight on board (1.3.5-rc4)
+
+Daily Summary rows have optional boolean `overnightOnBoard`. Only strict `true` records a night; existing rows remain unrecorded. The date denotes the night beginning that day. Aggregate unique valid dates across non-deleted passages/rows, excluding today/future dates from completed counts. Runs use UTC calendar-day ordinals to avoid DST errors. Missing dates break a run and are never inferred from passage duration.
+
+Refill intervals use dated, non-deleted log entries with positive refuel litres. Include OOB dates >= earlier refill date and < later refill date. Full-to-full periods include intermediate partial fills without resetting night counts. No baseline yields unavailable since-refill counts. These statistics are independent of fuel tank reset controls and do not adjust consumption or remaining fuel. Refuel dates with offsets use the passage time zone.
+
+Plan copies clear OOB; editing a passage date does not move an already-recorded OOB date. Whole-package backups/sync retain the field. An older client can drop it when editing Daily Summaries, so use rc4 or later on all devices editing these records.
+
+### Refill history and OOB analytics (1.3.5-rc5)
+
+`entry.refuel.fuelUsedSincePrevious` is an optional nonnegative litres value (empty string means derive). It overrides the interval-use figure in refill analysis only; the tank and passage calculations continue to use log `fuelUsed` readings. Price, difference and OOB counts are derived rather than duplicated snapshots. Changes to original log records or OOB dates update the table.
+
+Use actual entry timestamps for chronological fuel processing (legacy HH:mm uses passage date). Fuel readings are cumulative per passage/leg, not amounts to sum at every entry. Keep the last per-leg counter when a full refill resets displayed fuel use. Deleted passages/entries are excluded. An opening baseline is used until a valid full refill exists, with partial fills applied after its cutoff. Once a full refill exists the opening controls are hidden.
+
+Refill reconciliation uses deltas of nonnegative readings. Missing prior refill, missing interval readings, decreasing readings, undated refills or absent readings where a leg spans a refill make inferred interval use unavailable. Explicit interval use is available for review/correction. Filling litres minus recorded use is signed; only full-to-full periods support a like-for-like tank comparison. Supplemental completed cycles combine partial fills. Per-night rate needs positive recorded nights. Aggregate unit prices use only priced litres; aggregate per-night rates use matching differences/nights with positive nights, excluding zero-night intervals from both numerator and denominator.
+
+Analytics metric `nights` uses unique completed OOB dates within a group. Year/month groups use night dates, including periods crossed by a passage. Ranked consecutive runs are derived from calendar dates, longest first then latest end date, with equal lengths sharing rank. Other grouping dimensions can overlap.
+
+### Full-refill reporting (1.3.5-rc6)
+
+Replaces rc5's per-refill reporting. Only full refills close fuel-use intervals. Partial fills do not split cumulative readings, so their missing fuel readings cannot invalidate a full-to-full interval. Full rows aggregate `purchaseFilled`/`purchaseCost` since the preceding full refill and unique OOB dates over those full boundaries. Partial rows have no derived comparisons. Full-row totals exclude partial rows and pending partials to avoid double counting. The first full row includes its purchases but has no inferred use/difference/night interval.
+
+`refuel.location` holds user-entered location text with optional saved-port suggestions. No location is inferred from passage endpoints. `refuel.fuelUsedSinceFull` is the optional full-period override. The old `fuelUsedSincePrevious` is preserved and applied only when there are no intervening partial fills and no newer full-period field. Compatible older overrides are prefilled when editing so adding a location does not discard them.
+
+The three analytics wrappers use native details/summary controls, initially closed and independent. Refreshes replace their content without replacing the wrappers, preserving open state.
+
+### Shared fuel counter (1.3.5-rc7)
+
+Supersedes rc5/rc6 interval inference and overrides. `computeFuelManagementStats` accepts a passage source and emits calculated snapshots immediately before each refill is applied. Full history rows use that snapshot of the displayed Fuel Used counter, including the first full refill. Partial fills never reset the counter and retain their own purchase unit price. The existing tank calculation and cumulative per-leg baselines are unchanged. Snapshots are derived, not persisted; editing original readings recalculates history. Zero means the recorded counter is zero, not verified absence of consumption. Undated refills cannot receive a chronological snapshot.
+
+Legacy `fuelUsedSincePrevious` and `fuelUsedSinceFull` values remain stored and preserved on edits/backups, but are ignored by reporting and have no editable form field. Location is rendered as escaped plain text below the date. Full rows continue to aggregate intervening partial purchases; nights require a preceding full boundary.
