@@ -10,7 +10,7 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(process.env.TEST_URL || 'http://127.0.0.1:8765');
   await page.waitForFunction(() => typeof renderPassageAnalytics === 'function');
-  assert.equal(await page.evaluate(() => APP_VERSION), '1.3.6-rc1');
+  assert.equal(await page.evaluate(() => APP_VERSION), '1.3.6-rc2');
   assert.deepEqual(await page.evaluate(()=>['refillHistoryCard','overnightStatsCard','passageAnalyticsCard'].map(id=>document.getElementById(id).open)),[false,false,false]);
   const oob = await page.evaluate(async () => {
     const day = date => ({date, overnightOnBoard:true, fee:'',notes:''});
@@ -372,6 +372,25 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
     await syncPage.close();
     console.log('PASS: auto-sync '+scenario.name);
   }
+  const timestampChecks=await page.evaluate(()=>{
+    const p={plan:{date:'2025-01-01',timeZone:'Europe/London'}};
+    const e={time:'2025-07-01T12:00'};
+    const first=fuelRecordDate(p,e).time;
+    const warm=fuelRecordDate(p,e).time;
+    e.time='2025-07-01T13:00';const edited=fuelRecordDate(p,e).time;
+    p.plan.timeZone='UTC';const zone=fuelRecordDate(p,e).time;
+    e.time='12:00';const legacy=fuelRecordDate(p,e).time;p.plan.date='2025-01-02';const date=fuelRecordDate(p,e).time;
+    const fixture=Array.from({length:500},(_,i)=>({id:'perf'+i,plan:{date:'2025-01-01',timeZone:'Europe/London'},entries:Array.from({length:6},(_,j)=>({id:'perf'+i+'e'+j,time:`2025-01-01T${String(j+10).padStart(2,'0')}:00`,fuelUsed:j+1}))}));
+    const original=calculateFuelRecordDate;let conversions=0;calculateFuelRecordDate=(...args)=>{conversions++;return original(...args)};
+    const cold=computeFuelManagementStats({sourcePassages:fixture});const firstCount=conversions;
+    const repeat=computeFuelManagementStats({sourcePassages:fixture});const secondCount=conversions-firstCount;
+    calculateFuelRecordDate=original;
+    return {first,warm,edited,zone,legacy,date,firstCount,secondCount,equal:cold.fuelUsed===repeat.fuelUsed};
+  });
+  assert.equal(timestampChecks.first,timestampChecks.warm);assert.equal(timestampChecks.edited-timestampChecks.first,3600000);
+  assert.equal(timestampChecks.zone-timestampChecks.edited,3600000);assert.equal(timestampChecks.date-timestampChecks.legacy,86400000);
+  assert.equal(timestampChecks.firstCount,3000);assert.equal(timestampChecks.secondCount,0);assert.equal(timestampChecks.equal,true);
+  console.log('PASS: 3,000-entry timestamps convert once, cached repeats retain results and date/time/zone edits invalidate cache');
   const browsing=await page.evaluate(()=>{
     const make=(id,date,cat,from,to)=>({id,plan:{date,from,to,categories:cat,dailySummaries:[{id:'d'+id,date,overnightOnBoard:true,notes:''}]},entries:[{id:'e'+id,time:date+'T12:00',refuel:{litres:100,cost:100,tankFull:true}}],finish:{shutdownLogged:true}});
     passages=[make('h1','2025-01-01','Cruise','Cowes','Poole'),make('h2','2025-02-01','Cruise','Cowes','Lymington'),make('h3','2026-02-01','Delivery','Poole','Cowes'),{...make('deleted','2025-03-01','Cruise','Cowes','Poole'),deleted:true}];
@@ -382,7 +401,7 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
     document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}));const keyboard=currentPassageId;
     planCrew.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));const editing=currentPassageId;
     modalOverlay.classList.remove('hidden');const blocked=navigatePassage(1);modalOverlay.classList.add('hidden');
-    const label=document.querySelector('#planTab .passage-navigation-label');
+    const label=document.querySelector('.passage-heading-line');
     const touch=(type,x,y)=>{const event=new Event(type,{bubbles:true});Object.defineProperty(event,type==='touchstart'?'touches':'changedTouches',{value:[{clientX:x,clientY:y}]});label.dispatchEvent(event);};
     touch('touchstart',200,10);touch('touchend',100,12);const swiped=currentPassageId;
     touch('touchstart',100,10);touch('touchend',200,180);const vertical=currentPassageId;
@@ -407,7 +426,12 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
     assert.ok(sticky.scrolled>0);assert.ok(Math.abs(sticky.delta)<5,'header stays at scroll container top');
     await page.locator('#refillHistory').screenshot({path:'test-results/sticky-refills.png'});
     await page.evaluate(()=>{homeFilters={};currentPassageId='h2';loadPassageIntoUI();switchToTab('planTab');});
-    await page.locator('#planTab .passage-navigation').screenshot({path:'test-results/passage-navigation.png'});
+    await page.locator('.plan-page-heading').screenshot({path:'test-results/passage-navigation.png'});
+    await page.setViewportSize({width:390,height:850});
+    await page.locator('.plan-page-heading').screenshot({path:'test-results/passage-navigation-phone.png'});
+    assert.equal(await page.evaluate(()=>!!document.querySelector('#planTab > .passage-navigation,#logTab > .passage-navigation')),false);
+    await page.evaluate(()=>switchToTab('logTab'));await page.locator('.log-header').screenshot({path:'test-results/log-navigation-phone.png'});
+    await page.evaluate(()=>switchToTab('homeTab'));assert.equal(await page.evaluate(()=>document.querySelector('.passage-navigation').hidden),true);
   }
   assert.deepEqual(errors,[],'browser JavaScript errors');
   await browser.close();

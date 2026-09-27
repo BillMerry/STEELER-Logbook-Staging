@@ -58,9 +58,13 @@ function formatTimeInZone(dateUtc, timeZone = "") {
   }
 }
 
+const timeZoneOffsetFormatters = new Map();
+
 function getTimeZoneOffsetMinutes(dateUtc, timeZone) {
   try {
-    const parts = new Intl.DateTimeFormat("en-GB", {
+    let formatter=timeZoneOffsetFormatters.get(timeZone);
+    if(!formatter){
+      formatter=new Intl.DateTimeFormat("en-GB", {
       timeZone,
       year: "numeric",
       month: "2-digit",
@@ -69,7 +73,10 @@ function getTimeZoneOffsetMinutes(dateUtc, timeZone) {
       minute: "2-digit",
       second: "2-digit",
       hour12: false
-    }).formatToParts(dateUtc).reduce((acc, part) => {
+      });
+      timeZoneOffsetFormatters.set(timeZone,formatter);
+    }
+    const parts = formatter.formatToParts(dateUtc).reduce((acc, part) => {
       if (part.type !== "literal") acc[part.type] = part.value;
       return acc;
     }, {});
