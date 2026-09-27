@@ -10,7 +10,7 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(process.env.TEST_URL || 'http://127.0.0.1:8765');
   await page.waitForFunction(() => typeof renderPassageAnalytics === 'function');
-  assert.equal(await page.evaluate(() => APP_VERSION), '1.3.5-rc7');
+  assert.equal(await page.evaluate(() => APP_VERSION), '1.3.6-rc1');
   assert.deepEqual(await page.evaluate(()=>['refillHistoryCard','overnightStatsCard','passageAnalyticsCard'].map(id=>document.getElementById(id).open)),[false,false,false]);
   const oob = await page.evaluate(async () => {
     const day = date => ({date, overnightOnBoard:true, fee:'',notes:''});
@@ -371,6 +371,43 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
     assert.equal(result,scenario.expect,scenario.name);
     await syncPage.close();
     console.log('PASS: auto-sync '+scenario.name);
+  }
+  const browsing=await page.evaluate(()=>{
+    const make=(id,date,cat,from,to)=>({id,plan:{date,from,to,categories:cat,dailySummaries:[{id:'d'+id,date,overnightOnBoard:true,notes:''}]},entries:[{id:'e'+id,time:date+'T12:00',refuel:{litres:100,cost:100,tankFull:true}}],finish:{shutdownLogged:true}});
+    passages=[make('h1','2025-01-01','Cruise','Cowes','Poole'),make('h2','2025-02-01','Cruise','Cowes','Lymington'),make('h3','2026-02-01','Delivery','Poole','Cowes'),{...make('deleted','2025-03-01','Cruise','Cowes','Poole'),deleted:true}];
+    currentPassageId='h2';homeFilters={category:'cruise',year:'2025',origin:'cowes'};homePassageSearch.value='';homePassageSortMode='newest';loadPassageIntoUI();refreshHomePassageList();switchToTab('planTab');
+    const filtered=getHomePassageSequence().map(p=>p.id);
+    planCrew.value='Saved on next';const moved=navigatePassage(1);const saved=passages.find(p=>p.id==='h2').plan.crew;
+    const edge=navigatePassage(1);const atEdge=currentPassageId;
+    document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}));const keyboard=currentPassageId;
+    planCrew.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));const editing=currentPassageId;
+    modalOverlay.classList.remove('hidden');const blocked=navigatePassage(1);modalOverlay.classList.add('hidden');
+    const label=document.querySelector('#planTab .passage-navigation-label');
+    const touch=(type,x,y)=>{const event=new Event(type,{bubbles:true});Object.defineProperty(event,type==='touchstart'?'touches':'changedTouches',{value:[{clientX:x,clientY:y}]});label.dispatchEvent(event);};
+    touch('touchstart',200,10);touch('touchend',100,12);const swiped=currentPassageId;
+    touch('touchstart',100,10);touch('touchend',200,180);const vertical=currentPassageId;
+    const nightLink=overnightDateLink(passages,'2026-02-01');openAnalyticsRecord('h3','','2026-02-01');const nightTarget=document.activeElement.classList.contains('daily-summary-row');
+    openAnalyticsRecord('h1','eh1');const logTarget=document.activeElement.dataset.logEntryId;
+    homeFilters={destination:'Not present'};refreshHomePassageList();const empty=getHomePassageSequence().length;
+    document.getElementById('clearHomeFilters').click();const cleared=getHomePassageSequence().length;
+    homeFilters={month:'2025-02',status:'Complete'};const month=getHomePassageSequence().map(p=>p.id);
+    return {filtered,moved,saved,edge,atEdge,keyboard,editing,blocked,swiped,vertical,nightLink,nightTarget,logTarget,empty,cleared,month};
+  });
+  assert.deepEqual(browsing.filtered,['h2','h1']);assert.equal(browsing.moved,true);assert.equal(browsing.saved,'Saved on next');
+  assert.equal(browsing.edge,false);assert.equal(browsing.atEdge,'h1');assert.equal(browsing.keyboard,'h2');assert.equal(browsing.editing,'h2');assert.equal(browsing.blocked,false);
+  assert.equal(browsing.swiped,'h1');assert.equal(browsing.vertical,'h1');assert.match(browsing.nightLink,/data-record-passage="h3"/);assert.equal(browsing.nightTarget,true);assert.equal(browsing.logTarget,'eh1');
+  assert.equal(browsing.empty,0);assert.equal(browsing.cleared,3);assert.deepEqual(browsing.month,['h2']);
+  console.log('PASS: combined Home filters, deleted exclusion, search order, saved edits, navigation boundaries, keyboard editing/dialog guards, swipe direction, date destinations');
+  if(!process.env.DOM_TEST){
+    await page.evaluate(()=>{homeFilters={};refreshHomePassageList();switchToTab('homeTab');document.getElementById('homeFilters').hidden=false;});
+    await page.screenshot({path:'test-results/home-filters.png'});
+    await page.evaluate(()=>{const records=Array.from({length:45},(_,i)=>({id:'long'+i,plan:{date:'2025-01-01',dailySummaries:[]},entries:[{id:'le'+i,time:`2025-01-${String(i%28+1).padStart(2,'0')}T12:00`,refuel:{litres:100,tankFull:true}}]}));document.getElementById('refillHistory').innerHTML=renderRefillHistory(records);switchToTab('settingsTab');document.getElementById('fuelManagementPanel').hidden=false;document.getElementById('refillHistoryCard').open=true;});
+    await page.setViewportSize({width:1024,height:900});
+    const sticky=await page.evaluate(()=>{const box=document.querySelector('#refillHistory .analytics-history-scroll');box.scrollTop=200;const th=box.querySelector('th');return {scrolled:box.scrollTop,delta:th.getBoundingClientRect().top-box.getBoundingClientRect().top};});
+    assert.ok(sticky.scrolled>0);assert.ok(Math.abs(sticky.delta)<5,'header stays at scroll container top');
+    await page.locator('#refillHistory').screenshot({path:'test-results/sticky-refills.png'});
+    await page.evaluate(()=>{homeFilters={};currentPassageId='h2';loadPassageIntoUI();switchToTab('planTab');});
+    await page.locator('#planTab .passage-navigation').screenshot({path:'test-results/passage-navigation.png'});
   }
   assert.deepEqual(errors,[],'browser JavaScript errors');
   await browser.close();
