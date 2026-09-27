@@ -13,7 +13,8 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const WEATHER_ABBR_ENABLED_KEY = "steeler_weather_abbreviations_enabled_v1";
 
-const APP_VERSION = "1.3.5";
+const APP_VERSION = "1.3.6";
+const fuelTimestampCache = new WeakMap();
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -4786,6 +4787,7 @@ function switchToTab(tabId) {
     b.classList.toggle("st-tab-active", isActive);
   });
   tabs.forEach(t => t.classList.toggle("active", t.id === tabId));
+  updatePassageNavigation();
 
   if (tabId === "settingsTab") {
     try { closeSettingsPanels(); } catch(e) {}
@@ -4870,6 +4872,7 @@ const homePassageFilterBtn = document.getElementById("homePassageFilterBtn");
 const homePassageSortBtn = document.getElementById("homePassageSortBtn");
 const homePassageCount = document.getElementById("homePassageCount");
 let homePassageFilterMode = "all";
+let homeFilters = {};
 let homePassageSortMode = "newest";
 
 const exportBackupBtn = document.getElementById("exportBackupBtn");
@@ -6484,10 +6487,7 @@ function openPortFromInlineLink(portId = "", portLabel = ""){
 }
 
 function passageMatchesHomeFilter(passage) {
-  const status = getPassageDashboardStatus(passage);
-  if (homePassageFilterMode === "active") return passage.id === currentPassageId || status === "Under Way";
-  if (homePassageFilterMode === "complete") return status === "Complete";
-  return true;
+  return Object.entries(homeFilters).every(([key,value]) => !value || homeFilterValues(passage,key).some(v=>v.toLowerCase()===value.toLowerCase()));
 }
 
 function passageMatchesHomeSearch(passage) {
@@ -6721,6 +6721,8 @@ function selectHomePassage(passage, { openLog = false } = {}) {
 }
 
 function refreshHomePassageList() {
+  renderHomeFilters();
+  updatePassageNavigation();
   homePassageList.innerHTML = "";
   if (homeCopyPassageBtn) homeCopyPassageBtn.disabled = !currentPassageId || !passages.some(p => p.id === currentPassageId && !isDeletedPassage(p));
 
@@ -6735,17 +6737,10 @@ function refreshHomePassageList() {
     return;
   }
 
-  const visiblePassages = visibleSourcePassages
-    .filter(passage => passageMatchesHomeFilter(passage) && passageMatchesHomeSearch(passage))
-    .slice()
-    .sort((a, b) => {
-      const av = getPassageDateValue(a);
-      const bv = getPassageDateValue(b);
-      return homePassageSortMode === "oldest" ? av.localeCompare(bv) : bv.localeCompare(av);
-    });
+  const visiblePassages = getHomePassageSequence();
 
   if (homePassageCount) {
-    const totalEntries = visibleSourcePassages.reduce((sum, p) => sum + activeLogEntries(p).length, 0);
+    const totalEntries = visiblePassages.reduce((sum, p) => sum + activeLogEntries(p).length, 0);
     homePassageCount.textContent = `${visiblePassages.length} passages • ${totalEntries} entries`;
   }
 
@@ -11141,8 +11136,9 @@ function saveFuelManagementSettings(settings, options = {}){
 
 function getAllFuelRelevantEntries(sourcePassages = passages){
   return sourcePassages.filter(p => p && !isDeletedPassage(p)).flatMap(p => activeLogEntries(p).map(entry => ({ passage:p, entry })))
-    .filter(({ passage, entry }) => entry && fuelRecordDate(passage, entry))
-    .sort((a, b) => (fuelRecordDate(a.passage,a.entry)?.time || 0) - (fuelRecordDate(b.passage,b.entry)?.time || 0) || Number(!!a.entry.refuel)-Number(!!b.entry.refuel));
+    .map(item => ({...item, stamp:item.entry ? fuelRecordDate(item.passage,item.entry) : null}))
+    .filter(item=>item.stamp)
+    .sort((a,b)=>a.stamp.time-b.stamp.time || Number(!!a.entry.refuel)-Number(!!b.entry.refuel));
 }
 
 function fuelCutoffDateFromInput(value){
@@ -11756,6 +11752,8 @@ function renderLogEntries() {
   entries.forEach(entry => {
     const tr = document.createElement("tr");
     tr.className = 'log-entry-row';
+    tr.dataset.logEntryId = entry.id;
+    tr.tabIndex = -1;
     attachSwipeToRow(tr, entry.id);
 
     function addDisplayCell(value, className, clickHandler) {
@@ -12147,6 +12145,7 @@ function loadPassageIntoUI() {
     return;
   }
 
+  updatePassageNavigation();
   ensureFlags(p);
   ensureAutoTideStations(p);
 
@@ -12181,13 +12180,9 @@ homeCopyPassageBtn?.addEventListener("click", () => {
 
 homePassageSearch?.addEventListener("input", refreshHomePassageList);
 homePassageFilterBtn?.addEventListener("click", () => {
-  homePassageFilterMode = homePassageFilterMode === "all"
-    ? "active"
-    : homePassageFilterMode === "active" ? "complete" : "all";
-  const label = homePassageFilterMode === "active" ? "Active" : homePassageFilterMode === "complete" ? "Complete" : "Filter";
-  homePassageFilterBtn.textContent = label;
-  homePassageFilterBtn.classList.toggle("active", homePassageFilterMode !== "all");
-  refreshHomePassageList();
+  const panel=document.getElementById("homeFilters");
+  panel.hidden=!panel.hidden;
+  homePassageFilterBtn.setAttribute("aria-expanded",String(!panel.hidden));
 });
 homePassageSortBtn?.addEventListener("click", () => {
   homePassageSortMode = homePassageSortMode === "newest" ? "oldest" : "newest";
@@ -12899,15 +12894,24 @@ function renderOvernightStats(items) {
   const stats = computeOvernightStats(items);
   const rows = stats.runs.map((run, i, all) => {
     const rank = all.findIndex(r => r.nights === run.nights) + 1;
-    return `<tr><td>${rank}</td><td>${escapeHtml(run.from)}</td><td>${escapeHtml(run.to)}</td><td>${run.nights}</td></tr>`;
+    return `<tr><td>${rank}</td><td>${overnightDateLink(items,run.from)}</td><td>${overnightDateLink(items,run.to)}</td><td>${run.nights}</td></tr>`;
   }).join("");
   return `    <p class="hint">Runs are built automatically from OOB dates across all passages, ranked longest first. Dates identify the start of each night; today and future nights are excluded. An unmarked date breaks a run.</p>
-    ${rows ? `<div class="analytics-table-scroll" tabindex="0" role="region" aria-label="Ranked overnight runs"><table class="analytics-table"><thead><tr><th scope="col">Rank</th><th scope="col">First night</th><th scope="col">Last night</th><th scope="col">Nights</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p>No completed nights recorded yet. Tick OOB in Daily Summary.</p>'}
+    ${rows ? `<div class="analytics-table-scroll analytics-history-scroll" tabindex="0" role="region" aria-label="Ranked overnight runs"><table class="analytics-table"><thead><tr><th scope="col">Rank</th><th scope="col">First night</th><th scope="col">Last night</th><th scope="col">Nights</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p>No completed nights recorded yet. Tick OOB in Daily Summary.</p>'}
     ${stats.invalidDates ? '<p class="hint">OOB records with missing or invalid dates are excluded.</p>' : ""}`;
 }
 
 // Use the actual entry date; passage start dates must not reorder multi-day fuel records.
 function fuelRecordDate(passage, entry) {
+  if(!entry)return null;
+  const key=JSON.stringify([entry.time,passage?.plan?.date,getPassageTimeZone(passage)]);
+  const cached=fuelTimestampCache.get(entry);
+  if(cached?.key===key)return cached.value;
+  const value=calculateFuelRecordDate(passage,entry);
+  fuelTimestampCache.set(entry,{key,value});
+  return value;
+}
+function calculateFuelRecordDate(passage, entry) {
   let raw = String(entry?.time || "").trim();
   if (/^\d{2}:\d{2}$/.test(raw)) raw = `${passage?.plan?.date || ""}T${raw}`;
   const zone = getPassageTimeZone(passage);
@@ -12997,12 +13001,12 @@ function renderRefillHistory(items) {
   };
   const rows=data.rows.slice().reverse().map(row => {
     const location=String(row.entry.refuel.location || "").trim() || "Not recorded";
-    const heading=`<th scope="row">${escapeHtml(row.date || "Unknown date")}<div class="refill-location">${escapeHtml(location)}</div></th><td>${row.full ? "Full" : "Partial"}</td>`;
+    const heading=`<th scope="row">${analyticsRecordLink(row.passage.id,row.date || "Unknown date",row.entry.id)}<div class="refill-location">${escapeHtml(location)}</div></th><td>${row.full ? "Full" : "Partial"}</td>`;
     if (!row.full) return `<tr class="partial-refill-row">${heading}<td>${number(row.purchaseFilled ?? row.filled)}</td><td>${number(row.purchaseCost ?? row.cost,2)}</td><td>${number(row.price,3)}</td><td>–</td><td>–</td><td>–</td><td>–</td></tr>`;
     return `<tr>${heading}${cells(row)}</tr>`;
   }).join("");
   return `<p class="hint">Full refills compare with the previous full refill. Filled litres and cost include all partial fills in that period. Partial rows are purchase records only and are not counted twice in totals.</p>
-    ${rows ? `<div class="analytics-table-scroll" tabindex="0" role="region" aria-label="Fuel refill history"><table class="analytics-table refill-table"><thead><tr><th scope="col">Date</th><th scope="col">Fill</th><th scope="col">Filled incl. partials (L)</th><th scope="col">Cost (£)</th><th scope="col">£ / L</th><th scope="col">Recorded use (L)</th><th scope="col">Difference (L)</th><th scope="col">OOB nights</th><th scope="col">Difference / night (L)</th></tr></thead><tbody>${rows}</tbody><tfoot>${footer(false)}${footer(true)}</tfoot></table></div>` : '<p>No refills recorded yet.</p>'}
+    ${rows ? `<div class="analytics-table-scroll analytics-history-scroll" tabindex="0" role="region" aria-label="Fuel refill history"><table class="analytics-table refill-table"><thead><tr><th scope="col">Date</th><th scope="col">Fill</th><th scope="col">Filled incl. partials (L)</th><th scope="col">Cost (£)</th><th scope="col">£ / L</th><th scope="col">Recorded use (L)</th><th scope="col">Difference (L)</th><th scope="col">OOB nights</th><th scope="col">Difference / night (L)</th></tr></thead><tbody>${rows}</tbody><tfoot>${footer(false)}${footer(true)}</tfoot></table></div>` : '<p>No refills recorded yet.</p>'}
     <p class="hint">Record or edit refills in the Log, including their location. Pending partial fills are excluded from full-refill totals until the next full refill.</p>
     <p class="hint">Recorded use is the app’s Fuel Used counter immediately before the full refill resets it. Partial fills do not reset it. Difference = filled − recorded use. Nights start on the earlier full-refill date and end before the later one. No nights means no per-night rate. Average £/L and difference/night use matching totals. Swipe sideways on narrow screens.</p>`;
 }
@@ -13206,3 +13210,97 @@ if ("serviceWorker" in navigator) {
     }
   });
 }
+
+// History browsing uses the same filtered order on Home, Plan and Log.
+function homeFilterValues(p,key){
+  const date=getPassageDateValue(p);
+  if(key==='category') return normalisePassageCategories(p).length ? normalisePassageCategories(p) : ['Uncategorised'];
+  return [String(key==='year'?date.slice(0,4):key==='month'?date.slice(0,7):key==='origin'?p.plan?.from:key==='destination'?p.plan?.to:getPassageDashboardStatus(p)).trim() || 'Unknown'].map(v=>v==='undefined'?'Unknown':v);
+}
+function getHomePassageSequence(){
+  return activePassages().filter(p=>passageMatchesHomeFilter(p)&&passageMatchesHomeSearch(p)).slice().sort((a,b)=>{
+    const order=getPassageDateValue(a).localeCompare(getPassageDateValue(b)) || String(a.id).localeCompare(String(b.id));
+    return homePassageSortMode==='oldest'?order:-order;
+  });
+}
+function renderHomeFilters(){
+  const panel=document.getElementById('homeFilters');if(!panel)return;
+  const dimensions={category:'Category',year:'Year',month:'Year / month',origin:'Origin',destination:'Destination',status:'Status'};
+  panel.innerHTML=Object.entries(dimensions).map(([key,label])=>{
+    const values=new Map();for(const p of activePassages())for(const v of homeFilterValues(p,key))values.set(v.toLowerCase(),v);
+    if(homeFilters[key])values.set(homeFilters[key].toLowerCase(),homeFilters[key]);
+    return `<label>${label}<select data-home-filter="${key}"><option value="">All</option>${[...values.values()].sort((a,b)=>a.localeCompare(b)).map(v=>`<option value="${escapeHtml(v)}" ${v.toLowerCase()===homeFilters[key]?.toLowerCase()?'selected':''}>${escapeHtml(v)}</option>`).join('')}</select></label>`;
+  }).join('')+'<button type="button" class="btn btn-secondary" id="clearHomeFilters">Clear filters</button>';
+  const count=Object.values(homeFilters).filter(Boolean).length;
+  homePassageFilterBtn.textContent=count?`Filter (${count})`:'Filter';
+  homePassageFilterBtn.classList.toggle('active',!!count);
+}
+function passageNavigationBlocked(){
+  return !modalOverlay.classList.contains('hidden') || [...document.querySelectorAll('dialog[open], [aria-modal="true"]')].some(el=>!el.closest('.hidden,[hidden],[aria-hidden="true"]'));
+}
+function updatePassageNavigation(){
+  const list=getHomePassageSequence(), index=list.findIndex(p=>p.id===currentPassageId);
+  document.querySelectorAll('.passage-navigation').forEach(bar=>{
+    bar.querySelector('[data-passage-step="-1"]').disabled=index<=0;
+    bar.querySelector('[data-passage-step="1"]').disabled=index<0||index>=list.length-1;
+    bar.hidden=!document.querySelector('#planTab.active,#logTab.active');
+    bar.querySelector('.passage-navigation-label').textContent=index<0?'Outside current Home filters':`${index+1} of ${list.length}`;
+  });
+}
+function navigatePassage(step){
+  if(passageNavigationBlocked())return false;
+  const list=getHomePassageSequence(), index=list.findIndex(p=>p.id===currentPassageId);
+  const target=index<0?null:list[index+step];if(!target)return false;
+  flushCurrentPlanFormToPassage('passage-navigation');
+  currentPassageId=target.id;loadPassageIntoUI();refreshHomePassageList();return true;
+}
+function analyticsRecordLink(id,label,entryId='',night=''){
+  return `<a href="#${entryId?'logTab':'planTab'}" class="analytics-record-link" data-record-passage="${escapeHtml(id)}" data-record-entry="${escapeHtml(entryId)}" data-record-night="${escapeHtml(night)}">${escapeHtml(label)}</a>`;
+}
+function overnightDateLink(items,date){
+  const p=(items||[]).find(p=>!isDeletedPassage(p)&&(p.plan?.dailySummaries||[]).some(d=>!d.deleted&&d.date===date&&d.overnightOnBoard===true));
+  return p?analyticsRecordLink(p.id,date,'',date):escapeHtml(date);
+}
+function openAnalyticsRecord(passageId,entryId='',night=''){
+  const p=activePassages().find(p=>p.id===passageId);if(!p)return false;
+  flushCurrentPlanFormToPassage('analytics-navigation');
+  currentPassageId=p.id;loadPassageIntoUI();switchToTab(entryId?'logTab':'planTab');refreshHomePassageList();
+  const target=entryId?[...document.querySelectorAll('[data-log-entry-id]')].find(el=>el.dataset.logEntryId===entryId):
+    [...document.querySelectorAll('.ds-date')].find(el=>el.value===night)?.closest('.daily-summary-row');
+  if(target){target.scrollIntoView({block:'center',behavior:'smooth'});target.classList.add('history-target');target.setAttribute('tabindex','-1');target.focus({preventScroll:true});}
+  return true;
+}
+document.getElementById('homeFilters')?.addEventListener('change',event=>{
+  const key=event.target.dataset.homeFilter;if(!key)return;homeFilters[key]=event.target.value;refreshHomePassageList();
+  document.querySelector(`[data-home-filter="${key}"]`)?.focus();
+});
+document.getElementById('homeFilters')?.addEventListener('click',event=>{
+  if(event.target.id==='clearHomeFilters'){homeFilters={};if(homePassageSearch)homePassageSearch.value='';refreshHomePassageList();}
+});
+document.addEventListener('click',event=>{
+  const link=event.target.closest('[data-record-passage]');if(!link)return;
+  event.preventDefault();openAnalyticsRecord(link.dataset.recordPassage,link.dataset.recordEntry,link.dataset.recordNight);
+});
+for(const id of ['planTab','logTab']){
+  const heading=document.querySelector(id==='planTab'?'.plan-page-heading > div':'.log-header');
+  heading.classList.add('passage-heading-line');
+  heading.title='Swipe the passage heading, or use arrow keys, to browse passages';
+  const bar=document.createElement('nav');bar.className='passage-navigation';bar.setAttribute('aria-label','Browse passages');
+  bar.innerHTML='<button type="button" class="btn btn-secondary" data-passage-step="-1" title="Previous passage" aria-label="Previous passage">‹</button><span class="passage-navigation-label sr-only" aria-live="polite"></span><button type="button" class="btn btn-secondary" data-passage-step="1" title="Next passage" aria-label="Next passage">›</button>';
+  if(id==='planTab')heading.querySelector('h2').append(bar);
+  else document.querySelector('.log-view-actions').append(bar);
+  bar.addEventListener('click',event=>{const button=event.target.closest('[data-passage-step]');if(button)navigatePassage(Number(button.dataset.passageStep));});
+  let start=null;
+  heading.addEventListener('touchstart',event=>{start=!!document.querySelector('#planTab.active,#logTab.active')&&event.touches.length===1&&!event.target.closest('button,a,input,select,textarea')?{x:event.touches[0].clientX,y:event.touches[0].clientY}:null;},{passive:true});
+  heading.addEventListener('touchcancel',()=>{start=null;},{passive:true});
+  heading.addEventListener('touchend',event=>{
+    if(!start)return;const end=event.changedTouches[0],dx=end.clientX-start.x,dy=end.clientY-start.y;start=null;
+    if(Math.abs(dx)>=70&&Math.abs(dx)>Math.abs(dy)*2)navigatePassage(dx<0?1:-1);
+  },{passive:true});
+}
+document.addEventListener('keydown',event=>{
+  if(!['ArrowLeft','ArrowRight'].includes(event.key)||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey||event.repeat||event.defaultPrevented)return;
+  if(!document.querySelector('#planTab.active,#logTab.active')||event.target.closest('input,textarea,select,button,a,[contenteditable],table,[role="slider"],[role="dialog"]')||passageNavigationBlocked())return;
+  if(navigatePassage(event.key==='ArrowRight'?1:-1))event.preventDefault();
+});
+renderHomeFilters();updatePassageNavigation();
