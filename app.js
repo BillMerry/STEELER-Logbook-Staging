@@ -13,7 +13,8 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const WEATHER_ABBR_ENABLED_KEY = "steeler_weather_abbreviations_enabled_v1";
 
-const APP_VERSION = "1.3.6-rc1";
+const APP_VERSION = "1.3.6-rc2";
+const fuelTimestampCache = new WeakMap();
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
 const DEFAULT_SYNC_WORKER_URL = "https://steeler-logbook-sync.bill-merry-52f.workers.dev";
@@ -4786,6 +4787,7 @@ function switchToTab(tabId) {
     b.classList.toggle("st-tab-active", isActive);
   });
   tabs.forEach(t => t.classList.toggle("active", t.id === tabId));
+  updatePassageNavigation();
 
   if (tabId === "settingsTab") {
     try { closeSettingsPanels(); } catch(e) {}
@@ -11134,8 +11136,9 @@ function saveFuelManagementSettings(settings, options = {}){
 
 function getAllFuelRelevantEntries(sourcePassages = passages){
   return sourcePassages.filter(p => p && !isDeletedPassage(p)).flatMap(p => activeLogEntries(p).map(entry => ({ passage:p, entry })))
-    .filter(({ passage, entry }) => entry && fuelRecordDate(passage, entry))
-    .sort((a, b) => (fuelRecordDate(a.passage,a.entry)?.time || 0) - (fuelRecordDate(b.passage,b.entry)?.time || 0) || Number(!!a.entry.refuel)-Number(!!b.entry.refuel));
+    .map(item => ({...item, stamp:item.entry ? fuelRecordDate(item.passage,item.entry) : null}))
+    .filter(item=>item.stamp)
+    .sort((a,b)=>a.stamp.time-b.stamp.time || Number(!!a.entry.refuel)-Number(!!b.entry.refuel));
 }
 
 function fuelCutoffDateFromInput(value){
@@ -12900,6 +12903,15 @@ function renderOvernightStats(items) {
 
 // Use the actual entry date; passage start dates must not reorder multi-day fuel records.
 function fuelRecordDate(passage, entry) {
+  if(!entry)return null;
+  const key=JSON.stringify([entry.time,passage?.plan?.date,getPassageTimeZone(passage)]);
+  const cached=fuelTimestampCache.get(entry);
+  if(cached?.key===key)return cached.value;
+  const value=calculateFuelRecordDate(passage,entry);
+  fuelTimestampCache.set(entry,{key,value});
+  return value;
+}
+function calculateFuelRecordDate(passage, entry) {
   let raw = String(entry?.time || "").trim();
   if (/^\d{2}:\d{2}$/.test(raw)) raw = `${passage?.plan?.date || ""}T${raw}`;
   const zone = getPassageTimeZone(passage);
@@ -13231,7 +13243,8 @@ function updatePassageNavigation(){
   document.querySelectorAll('.passage-navigation').forEach(bar=>{
     bar.querySelector('[data-passage-step="-1"]').disabled=index<=0;
     bar.querySelector('[data-passage-step="1"]').disabled=index<0||index>=list.length-1;
-    bar.querySelector('.passage-navigation-label').textContent=index<0?'Outside current Home filters':`${index+1} of ${list.length} · Swipe here or use ← →`;
+    bar.hidden=!document.querySelector('#planTab.active,#logTab.active');
+    bar.querySelector('.passage-navigation-label').textContent=index<0?'Outside current Home filters':`${index+1} of ${list.length}`;
   });
 }
 function navigatePassage(step){
@@ -13268,15 +13281,18 @@ document.addEventListener('click',event=>{
   const link=event.target.closest('[data-record-passage]');if(!link)return;
   event.preventDefault();openAnalyticsRecord(link.dataset.recordPassage,link.dataset.recordEntry,link.dataset.recordNight);
 });
-for(const id of ['planTab','logTab']){
+{
+  const heading=document.createElement('div');heading.className='passage-heading-line';
+  const title=document.getElementById('headerPassageMain');title.before(heading);heading.append(title);
+  heading.title='Swipe the passage heading, or use arrow keys, to browse passages';
   const bar=document.createElement('nav');bar.className='passage-navigation';bar.setAttribute('aria-label','Browse passages');
-  bar.innerHTML='<button type="button" class="btn btn-secondary" data-passage-step="-1" aria-label="Previous passage">← Previous</button><span class="passage-navigation-label" aria-live="polite"></span><button type="button" class="btn btn-secondary" data-passage-step="1" aria-label="Next passage">Next →</button>';
-  document.getElementById(id)?.prepend(bar);
+  bar.innerHTML='<button type="button" class="btn btn-secondary" data-passage-step="-1" title="Previous passage" aria-label="Previous passage">‹</button><span class="passage-navigation-label sr-only" aria-live="polite"></span><button type="button" class="btn btn-secondary" data-passage-step="1" title="Next passage" aria-label="Next passage">›</button>';
+  heading.append(bar);
   bar.addEventListener('click',event=>{const button=event.target.closest('[data-passage-step]');if(button)navigatePassage(Number(button.dataset.passageStep));});
   let start=null;
-  bar.addEventListener('touchstart',event=>{start=event.touches.length===1&&!event.target.closest('button')?{x:event.touches[0].clientX,y:event.touches[0].clientY}:null;},{passive:true});
-  bar.addEventListener('touchcancel',()=>{start=null;},{passive:true});
-  bar.addEventListener('touchend',event=>{
+  heading.addEventListener('touchstart',event=>{start=!!document.querySelector('#planTab.active,#logTab.active')&&event.touches.length===1&&!event.target.closest('button,a,input,select,textarea')?{x:event.touches[0].clientX,y:event.touches[0].clientY}:null;},{passive:true});
+  heading.addEventListener('touchcancel',()=>{start=null;},{passive:true});
+  heading.addEventListener('touchend',event=>{
     if(!start)return;const end=event.changedTouches[0],dx=end.clientX-start.x,dy=end.clientY-start.y;start=null;
     if(Math.abs(dx)>=70&&Math.abs(dx)>Math.abs(dy)*2)navigatePassage(dx<0?1:-1);
   },{passive:true});
