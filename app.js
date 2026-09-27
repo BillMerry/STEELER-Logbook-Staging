@@ -13281,13 +13281,14 @@ document.addEventListener('click',event=>{
   const link=event.target.closest('[data-record-passage]');if(!link)return;
   event.preventDefault();openAnalyticsRecord(link.dataset.recordPassage,link.dataset.recordEntry,link.dataset.recordNight);
 });
-{
-  const heading=document.createElement('div');heading.className='passage-heading-line';
-  const title=document.getElementById('headerPassageMain');title.before(heading);heading.append(title);
+for(const id of ['planTab','logTab']){
+  const heading=document.querySelector(id==='planTab'?'.plan-page-heading > div':'.log-header');
+  heading.classList.add('passage-heading-line');
   heading.title='Swipe the passage heading, or use arrow keys, to browse passages';
   const bar=document.createElement('nav');bar.className='passage-navigation';bar.setAttribute('aria-label','Browse passages');
   bar.innerHTML='<button type="button" class="btn btn-secondary" data-passage-step="-1" title="Previous passage" aria-label="Previous passage">‹</button><span class="passage-navigation-label sr-only" aria-live="polite"></span><button type="button" class="btn btn-secondary" data-passage-step="1" title="Next passage" aria-label="Next passage">›</button>';
-  heading.append(bar);
+  if(id==='planTab')heading.querySelector('h2').append(bar);
+  else document.querySelector('.log-view-actions').append(bar);
   bar.addEventListener('click',event=>{const button=event.target.closest('[data-passage-step]');if(button)navigatePassage(Number(button.dataset.passageStep));});
   let start=null;
   heading.addEventListener('touchstart',event=>{start=!!document.querySelector('#planTab.active,#logTab.active')&&event.touches.length===1&&!event.target.closest('button,a,input,select,textarea')?{x:event.touches[0].clientX,y:event.touches[0].clientY}:null;},{passive:true});

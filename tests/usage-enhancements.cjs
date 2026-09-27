@@ -426,10 +426,11 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
     assert.ok(sticky.scrolled>0);assert.ok(Math.abs(sticky.delta)<5,'header stays at scroll container top');
     await page.locator('#refillHistory').screenshot({path:'test-results/sticky-refills.png'});
     await page.evaluate(()=>{homeFilters={};currentPassageId='h2';loadPassageIntoUI();switchToTab('planTab');});
-    await page.locator('.app-header').screenshot({path:'test-results/passage-navigation.png'});
+    await page.locator('.plan-page-heading').screenshot({path:'test-results/passage-navigation.png'});
     await page.setViewportSize({width:390,height:850});
-    await page.locator('.app-header').screenshot({path:'test-results/passage-navigation-phone.png'});
+    await page.locator('.plan-page-heading').screenshot({path:'test-results/passage-navigation-phone.png'});
     assert.equal(await page.evaluate(()=>!!document.querySelector('#planTab > .passage-navigation,#logTab > .passage-navigation')),false);
+    await page.evaluate(()=>switchToTab('logTab'));await page.locator('.log-header').screenshot({path:'test-results/log-navigation-phone.png'});
     await page.evaluate(()=>switchToTab('homeTab'));assert.equal(await page.evaluate(()=>document.querySelector('.passage-navigation').hidden),true);
   }
   assert.deepEqual(errors,[],'browser JavaScript errors');
