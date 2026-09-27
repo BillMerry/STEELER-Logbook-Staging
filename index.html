@@ -54,11 +54,12 @@
             <span class="sr-only">Search passages</span>
             <input id="homePassageSearch" type="search" placeholder="Search passages..." autocomplete="off">
           </label>
-          <button type="button" id="homePassageFilterBtn" class="btn btn-secondary btn-small st-button st-button-tertiary">Filter</button>
+          <button type="button" id="homePassageFilterBtn" aria-expanded="false" aria-controls="homeFilters" class="btn btn-secondary btn-small st-button st-button-tertiary">Filter</button>
           <button type="button" id="homePassageSortBtn" class="btn btn-secondary btn-small st-button st-button-tertiary">Date</button>
         </div>
       </section>
 
+      <section id="homeFilters" class="home-filter-panel" aria-label="Filter passages" hidden></section>
       <section class="home-passages">
         <div class="st-section-heading">
           <h2>Passages</h2>
