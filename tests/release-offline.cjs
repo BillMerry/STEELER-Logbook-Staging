@@ -18,14 +18,18 @@ const server=http.createServer((req,res)=>{
   await page.goto('http://127.0.0.1:8766');
   await page.waitForFunction(()=>typeof APP_VERSION!=='undefined' && APP_VERSION==='1.3.5');
   // Local development deliberately disables automatic registration; install explicitly for this PWA test.
+  const initialReload = page.waitForEvent('domcontentloaded');
   await page.evaluate(()=>navigator.serviceWorker.register('service-worker.js'));
+  await initialReload;
   await page.waitForFunction(async()=>!!(await navigator.serviceWorker.getRegistration())?.active);
   await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
   await page.evaluate(()=>{
    passages=[{id:'release-check',plan:{date:'2026-09-01',origin:'Test origin',destination:'Test destination'},entries:[]}];savePassages();
   });
   previous=false;
+  const upgradeReload = page.waitForEvent('domcontentloaded');
   await page.evaluate(async()=>{const reg=await navigator.serviceWorker.getRegistration();await reg.update();}).catch(()=>{});
+  await upgradeReload;
   await page.waitForFunction(async()=> (await caches.keys()).includes('steeler-logbook-v1.3.6'));
   await page.reload();
   await page.waitForFunction(()=>APP_VERSION==='1.3.6');
