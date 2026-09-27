@@ -402,9 +402,12 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
     await page.evaluate(()=>{homeFilters={};refreshHomePassageList();switchToTab('homeTab');document.getElementById('homeFilters').hidden=false;});
     await page.screenshot({path:'test-results/home-filters.png'});
     await page.evaluate(()=>{const records=Array.from({length:45},(_,i)=>({id:'long'+i,plan:{date:'2025-01-01',dailySummaries:[]},entries:[{id:'le'+i,time:`2025-01-${String(i%28+1).padStart(2,'0')}T12:00`,refuel:{litres:100,tankFull:true}}]}));document.getElementById('refillHistory').innerHTML=renderRefillHistory(records);switchToTab('settingsTab');document.getElementById('fuelManagementPanel').hidden=false;document.getElementById('refillHistoryCard').open=true;});
+    await page.setViewportSize({width:1024,height:900});
     const sticky=await page.evaluate(()=>{const box=document.querySelector('#refillHistory .analytics-history-scroll');box.scrollTop=200;const th=box.querySelector('th');return {scrolled:box.scrollTop,delta:th.getBoundingClientRect().top-box.getBoundingClientRect().top};});
     assert.ok(sticky.scrolled>0);assert.ok(Math.abs(sticky.delta)<5,'header stays at scroll container top');
     await page.locator('#refillHistory').screenshot({path:'test-results/sticky-refills.png'});
+    await page.evaluate(()=>{homeFilters={};currentPassageId='h2';loadPassageIntoUI();switchToTab('planTab');});
+    await page.locator('#planTab .passage-navigation').screenshot({path:'test-results/passage-navigation.png'});
   }
   assert.deepEqual(errors,[],'browser JavaScript errors');
   await browser.close();

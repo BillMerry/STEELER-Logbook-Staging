@@ -3842,3 +3842,4 @@ body[data-theme="night"] .analytics-table thead th, body[data-theme="night"] .an
 .passage-navigation button { flex-shrink:0; }
 .history-target { outline:2px solid #b77d24; outline-offset:-2px; }
 @media(max-width:600px) { .passage-navigation { gap:5px; padding:6px; } .passage-navigation button { padding:8px; } .passage-navigation-label { font-size:.75rem; } }
+.home-filter-panel select { min-height:44px; padding:8px; font:inherit; color:var(--st-text); background:var(--st-surface); border:1px solid var(--st-border); border-radius:6px; }
