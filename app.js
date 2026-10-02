@@ -13,7 +13,8 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const WEATHER_ABBR_ENABLED_KEY = "steeler_weather_abbreviations_enabled_v1";
 
-const APP_VERSION = "1.3.6-rc2";
+const APP_VERSION = "1.4.0-rc1";
+let enrichmentMigrationSuspended = false;
 const fuelTimestampCache = new WeakMap();
 const LOCAL_DATA_SCHEMA_VERSION = 1;
 const DATA_BACKUP_FORMAT = "steeler-data-backup";
@@ -775,6 +776,7 @@ function applySyncRecord(record){
     if (idx >= 0) passages[idx] = mergeReceivedPassageWithLocal(data, passages[idx]);
     else passages.unshift(data);
     normalisePassagesForSync(passages);
+    resetPassageUndo();
     saveLocalStorageItem(STORAGE_KEY, JSON.stringify(passages), "passages");
     return true;
   }
@@ -1524,6 +1526,21 @@ async function uploadFullDataCloudCopy(connection, previousCloud, syncedAt){
 }
 
 async function applyFullDataCloudCopy(cloud, syncedAt){
+  // Verify the original cloud package before applying this version's local migration.
+  enrichmentMigrationSuspended = true;
+  let result;
+  try { result = await applyFullDataCloudCopyVerified(cloud, syncedAt); }
+  finally { enrichmentMigrationSuspended = false; }
+  if (normalisePassagesForSync(passages)) {
+    savePassages();
+    resetPassageUndo();
+    loadPassageIntoUI();
+    refreshHomePassageList();
+  }
+  return result;
+}
+
+async function applyFullDataCloudCopyVerified(cloud, syncedAt){
   const backup = cloud?.backup || getFullDataBackupFromRecord(cloud?.record);
   if (!backup || backup.format !== DATA_BACKUP_FORMAT || !backup.data || !Array.isArray(backup.data.passages)) {
     throw new Error("Cloud copy is not a valid STEELER data backup.");
@@ -4293,6 +4310,7 @@ function normalisePassageSyncFields(passage, deviceId){
   passage.entries.forEach((entry) => {
     if (normaliseLogEntrySyncFields(entry, passage, passage.createdAt, deviceId)) changed = true;
   });
+  if (!enrichmentMigrationSuspended && STEELER.enrichment.migrate(passage)) { changed = true; markPassageDirty(passage, nowIso(), "enrichment-migration"); }
   return changed;
 }
 
@@ -4307,6 +4325,7 @@ function normalisePassagesForSync(passagesList){
 }
 
 function loadPassages() {
+  resetPassageUndo();
   passages = loadLocalStorageJsonItem(
     STORAGE_KEY,
     "passages",
@@ -4319,7 +4338,11 @@ function loadPassages() {
 function savePassages() {
   try {
     normalisePassagesForSync(passages);
-    saveLocalStorageItem(STORAGE_KEY, JSON.stringify(passages), "passages");
+    const saved = JSON.stringify(passages);
+    const beforeSaved = storage.getItem(STORAGE_KEY);
+    const persisted = saveLocalStorageItem(STORAGE_KEY, saved, "passages");
+    if (persisted) recordPassageUndo(beforeSaved, saved);
+    return persisted;
   } catch (e) {
     console.error("Failed to save passages", e);
     warnStorageSaveFailed("passages", e);
@@ -6379,6 +6402,8 @@ function attachSwipeToCard(card, passageId) {
 
 function getPassageDashboardStatus(passage) {
   const hasEngineStart = activeLogEntries(passage).some(e => inferEntryType(e) === "engine-start");
+  const hasMovement = activeLogEntries(passage).some(e=>["slip","dock"].includes(inferEntryType(e)));
+  if (!hasMovement && (hasEngineStart || activeLogEntries(passage).some(e=>inferEntryType(e)==="shutdown"))) return "ERU";
   if (passage.finish?.shutdownLogged) return "Complete";
   if (hasEngineStart) return "Under Way";
   return "Planned";
@@ -6499,7 +6524,10 @@ function passageMatchesHomeSearch(passage) {
     getPassageDashboardStatus(passage),
     normalisePassageCategories(passage).join(" "),
     passage.plan?.skipper || "",
-    passage.plan?.crew || ""
+    passage.plan?.crew || "",
+    passage.captainsNarrative?.text || "",
+    (passage.tags || []).join(" "),
+    (passage.plan?.dailySummaries || []).filter(d=>!d.deleted).map(d=>d.notes||"").join(" ")
   ].join(" ").toLowerCase();
   return haystack.includes(q);
 }
@@ -6507,7 +6535,7 @@ function passageMatchesHomeSearch(passage) {
 function getPassageDashboardMetrics(passage) {
   const status = getPassageDashboardStatus(passage);
   const legIdx = getCurrentLegIndex(passage);
-  const summary = status === "Complete"
+  const summary = (status === "Complete" || status === "ERU")
     ? computePassageLogSummary(passage)
     : computeLegLogSummary(passage, legIdx);
   const distance = summary.gLog || summary.nmG || "–";
@@ -7423,6 +7451,7 @@ function createPassage() {
 }
 
 function loadPlanIntoForm(p) {
+  loadNarrativeEditor(p);
   p.plan.timeZone = getPassageTimeZone(p);
   planDate.value = p.plan.date || "";
   if (planTimeZone) planTimeZone.value = p.plan.timeZone;
@@ -9998,6 +10027,11 @@ function updatePlanSummaryPanel() {
           <p>${currents ? linkKnownPortNamesInText(currents) : "<em>–</em>"}</p>
         </div>
 
+        <div class="block plan-link" data-goto="captainsNarrative">
+          <p class="section-title">CAPTAIN’S NARRATIVE ${p.captainsNarrative?.status==='draft'?' · DRAFT':''}</p>
+          <p>${escapeHtml(p.captainsNarrative?.text||'').replace(/\n/g,'<br>') || '<em>–</em>'}</p>
+          <p class="narrative-tags">${(p.tags||[]).map(t=>`<span>${escapeHtml(t)}</span>`).join(' ')}</p>
+        </div>
         <div class="block">
           <p class="section-title">DAILY SUMMARY</p>
           ${dailySummaryHtml}
@@ -11956,14 +11990,12 @@ function computeLegMetricsFromEntries(p, legIdx) {
 
   // Under way minutes: Slip -> Dock/Shutdown, or Slip -> now while still under way.
   let durationMinutes = null;
-  const slipEntry = sorted.find(e => typeof e.notes === 'string' && e.notes.toLowerCase().startsWith('slipped lines'));
+  const slipEntry = sorted.find(e => inferEntryType(e) === 'slip');
   let endEntry = null;
   if (slipEntry && slipEntry.time) {
     const slipIdx = sorted.indexOf(slipEntry);
     endEntry = sorted.slice(slipIdx + 1).find(e => {
-      if (!e.time || typeof e.notes !== 'string') return false;
-      const note = e.notes.toLowerCase();
-      return note.startsWith('alongside') || note.startsWith('docked') || note.startsWith('shutdown');
+      return e.time && ['dock','shutdown'].includes(inferEntryType(e));
     });
   }
   const tStart = slipEntry?.time ? logEntrySortDate(p, slipEntry) : null;
@@ -11971,14 +12003,6 @@ function computeLegMetricsFromEntries(p, legIdx) {
   if (tStart && tEnd && !isNaN(tStart) && !isNaN(tEnd)) {
     const ms = tEnd - tStart;
     if (!isNaN(ms) && ms > 0) durationMinutes = Math.round(ms / 60000);
-  } else {
-    const times = sorted.map(e => logEntrySortDate(p, e)).filter(d => !isNaN(d));
-    if (times.length >= 2) {
-      const min = times.reduce((a, b) => (a < b ? a : b));
-      const max = times.reduce((a, b) => (a > b ? a : b));
-      const ms = max - min;
-      if (!isNaN(ms) && ms > 0) durationMinutes = Math.round(ms / 60000);
-    }
   }
 
   return {
@@ -12015,18 +12039,18 @@ function computePassageLogSummary(p) {
 
   let ehText = "–";
   if (planEhStart && finishEhEnd) {
-    ehText = `${planEhStart}→${finishEhEnd}`;
+    ehText = validatedEngineHoursText(planEhStart, finishEhEnd);
   } else {
     let ehStart = null, ehEnd = null;
     for (let i = 0; i < sorted.length; i++) {
       const v = parseFloat(sorted[i].engineHours);
-      if (!isNaN(v)) { ehStart = v; break; }
+      if (!isNaN(v)) { ehStart = sorted[i].engineHours; break; }
     }
     for (let i = sorted.length - 1; i >= 0; i--) {
       const v = parseFloat(sorted[i].engineHours);
-      if (!isNaN(v)) { ehEnd = v; break; }
+      if (!isNaN(v)) { ehEnd = sorted[i].engineHours; break; }
     }
-    ehText = (ehStart !== null && ehEnd !== null) ? `${ehStart}→${ehEnd}` : "–";
+    ehText = (ehStart !== null && ehEnd !== null) ? validatedEngineHoursText(ehStart, ehEnd) : "–";
   }
 
   // Totals across legs (fuel used, NM(G), under way time)
@@ -12082,7 +12106,7 @@ function computeLegLogSummary(p, legIdx) {
     : (prevEndSnap.engineHoursEnd ?? "–");
   const ehEnd = endSnap.engineHoursEnd ?? "–";
 
-  const ehText = (ehStart !== "–" && ehEnd !== "–" && ehStart !== "" && ehEnd !== "") ? `${ehStart}→${ehEnd}` : "–";
+  const ehText = (ehStart !== "–" && ehEnd !== "–" && ehStart !== "" && ehEnd !== "") ? validatedEngineHoursText(ehStart, ehEnd) : "–";
 
   return { ehText, fuelUsed, fuelStart: fuelStart || "–", fuelEnd: fuelEnd || "–", nmG, durationText };
 }
@@ -12136,6 +12160,7 @@ function loadPassageIntoUI() {
   const p = getCurrentPassage();
   if (!p) {
     planForm?.reset();
+    loadNarrativeEditor(null);
     logEntriesContainer.innerHTML = "";
     logEmptyMessage.style.display = "block";
     planSummaryPanel.innerHTML = "<p>No passage selected.</p>";
@@ -12163,8 +12188,10 @@ homeNewPassageBtn.addEventListener("click", () => {
     const ok = confirm("Start a new passage? (Existing ones will remain in history.)");
     if (!ok) return;
   }
+  const previous = getCurrentPassage();
   createPassage();
   switchToTab("planTab");
+  offerPreviousNarrative(previous);
 });
 
 homeSyncNowBtn?.addEventListener("click", runFullDataCloudSync);

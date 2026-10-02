@@ -1,6 +1,6 @@
 # STEELER Logbook Architecture
 
-Current candidate: **1.3.5-rc1**. See [candidate changes](RELEASE_1.3.5-rc1.md) and [recovery review](DELETION_REVIEW.md) for the current sync and deletion behavior; older version descriptions below are historical.
+Current candidate: **1.4.0-rc1**. See [candidate changes](RELEASE_1.4.0-rc1.md) and [recovery review](DELETION_REVIEW.md) for the current sync and deletion behavior; older version descriptions below are historical.
 
 This document records the v1.3.3 release-candidate architecture, including the sync-foundation architecture, Detailed Passage Plan template management, standardised port entry, EC SMS waypoint selection, guarded cloud-copy restore behaviour, passage-specific SMS recipient memory, opt-in auto-sync and browser-first AIS search links.
 
@@ -109,3 +109,11 @@ These areas are still tightly coupled to application state, DOM event binding, m
 - DPP hazards, ports of refuge and crew welfare fields are leg-specific within the existing multi-leg DPP model.
 - DPP waypoint rows use STW plus optional tide/current effect to derive SOG. SOG drives ETA/time calculations; fuel burn uses the STW fuel curve over the derived elapsed time.
 - Multi-leg EC start/end SMS wording reflects transit stops and per-leg passage completion.
+
+## 1.4.0 staging enrichment
+
+`js/enrichment.js` contains pure migration, guarded batch matching/apply and minimal AI context extraction. `js/enrichment-ui.js` owns the editor, preview dialogs, device-local connection and bounded session undo. `app.js` invokes migration through existing normalisation and snapshots successful passage saves. Sources remain on the passage; no external archive is required.
+
+`narrative-worker/` is an independent, authenticated Cloudflare Worker with no data bindings. It uses the Responses API Structured Outputs schema for narrative and tags, bounded request/context sizes and timeouts. Model/API key/access token are configured on the server. Existing sync-worker is unchanged. Reference: https://developers.openai.com/api/docs/guides/structured-outputs
+
+Cloud receive verifies the unchanged incoming package with enrichment migration suspended, then migrates locally and marks the result pending for the next sync. This avoids a false hash mismatch for older enriched backups.

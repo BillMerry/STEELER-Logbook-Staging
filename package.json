@@ -3,7 +3,8 @@
   "private": true,
   "scripts": {
     "test": "node tests/usage-enhancements.cjs",
-    "test:dom": "DOM_TEST=1 node tests/usage-enhancements.cjs"
+    "test:dom": "DOM_TEST=1 node tests/usage-enhancements.cjs",
+    "test:enrichment": "node tests/enrichment.cjs && node tests/narrative-worker.cjs"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

@@ -155,6 +155,7 @@ function exportCurrentPassageToCsv() {
   lines.push(quote(p.plan.comms));
   lines.push("");
 
+  lines.push("Captain’s Narrative", quote(p.captainsNarrative?.text || ""), "Tags", quote((p.tags || []).join(", ")), "");
   lines.push("Daily Summary");
   lines.push("Date,Overnight on board,Mooring fee,Notes");
   (p.plan.dailySummaries || []).forEach(ds => {
