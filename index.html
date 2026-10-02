@@ -14,7 +14,9 @@
   <meta name="apple-mobile-web-app-title" content="STEELER Testbed">
 </head>
 <body class="st-app-shell">
-  <header class="app-header st-page-header">
+  <header class="app-header st-page-header testbed-header">
+    <span class="testbed-label">TESTBED</span>
+    <div class="undo-actions"><button type="button" id="undoPassageBtn" class="btn btn-small" disabled aria-label="Undo last saved passage action">↶ Undo</button><button type="button" id="redoPassageBtn" class="btn btn-small" disabled aria-label="Redo last undone passage action">↷ Redo</button></div>
     <img class="app-header-logo" src="icons/steeler-192.png" alt="" aria-hidden="true">
     <div class="header-content">
       <div class="header-top">
@@ -279,6 +281,16 @@
             <div id="dailySummariesContainer" class="grid-container ds-grid"></div>
           </section>
 
+          <section class="st-plan-card" id="narrativeCard">
+            <div class="st-plan-card-header"><h3>Captain’s Narrative</h3><span id="narrativeStatus" class="hint"></span></div>
+            <label for="captainsNarrative">The passage and the stay</label>
+            <textarea id="captainsNarrative" rows="7" placeholder="The story of this trip, people, places and memorable moments…"></textarea>
+            <label for="passageTags">Tags</label><input id="passageTags" placeholder="People, places, wildlife, maintenance — separated by commas">
+            <div class="st-action-row"><button type="button" id="narrativeReviewed" class="btn btn-secondary">Mark reviewed</button><button type="button" id="narrativeGenerate" class="btn btn-secondary">Draft with AI</button></div>
+            <p id="narrativeMessage" class="hint" role="status"></p>
+            <details><summary>Sources and original notes</summary><div id="narrativeSources"></div></details>
+          </section>
+
           <section class="st-plan-card planning-summary-card" id="planningSummaryCard">
             <div class="st-plan-card-header">
               <div>
@@ -433,6 +445,18 @@
               <input id="importFileInput" type="file" accept="application/json,.json" hidden>
             </div>
             <p class="hint">Backup/Restore includes all STEELER data on this device. Specialist exports remain available below.</p>
+            <details class="enrichment-settings"><summary>Narratives and enrichment batches</summary>
+              <p class="hint">Import narratives and tags into matching passages. Dates, readings and log entries are not replaced.</p>
+              <button type="button" id="enrichmentImportBtn" class="btn btn-secondary">Preview enrichment batch</button><input type="file" id="enrichmentFile" accept=".json,application/json" hidden>
+              <div id="enrichmentPreview" aria-live="polite"></div>
+              <h4>AI connection</h4><p class="hint">Drafting sends this passage’s notes and recorded context to the AI service. Saved drafts and manual editing work offline.</p>
+              <label>AI service URL<input id="narrativeServiceUrl" type="url" placeholder="https://your-narrative-service.workers.dev"></label>
+              <label>Service access token<input id="narrativeServiceToken" type="password" autocomplete="new-password"></label>
+              <p class="hint">Use the service access token here. The OpenAI API key stays on the server.</p>
+              <button type="button" id="narrativeConfigSave" class="btn btn-secondary">Save AI connection</button>
+              <label><input id="narrativeOffer" type="checkbox" checked> Offer to draft the previous passage when starting the next</label>
+              <p id="narrativeConnectionStatus" role="status" class="hint"></p>
+            </details>
             <div id="syncStatusSummary" class="sync-status-summary" aria-live="polite"></div>
           </div>
         </div>
@@ -611,6 +635,8 @@
   <script src="js/weather-fetch.js"></script>
   <script src="js/export-print.js"></script>
   <script src="js/live-data.js"></script>
+  <script src="js/enrichment.js"></script>
+  <script src="js/enrichment-ui.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

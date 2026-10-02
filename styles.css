@@ -3844,3 +3844,22 @@ body[data-theme="night"] .analytics-table thead th, body[data-theme="night"] .an
 .history-target { outline:2px solid #b77d24; outline-offset:-2px; }
 
 .home-filter-panel select { min-height:44px; padding:8px; font:inherit; color:var(--st-text); background:var(--st-surface); border:1px solid var(--st-border); border-radius:6px; }
+
+/* Testbed identity remains visibly different in both themes. */
+.testbed-header{background:#603579!important;color:#fff!important;position:relative}
+.testbed-label{font-weight:700;font-size:.75rem;letter-spacing:.08em;padding:.3rem;border:1px solid #d8b5ef;border-radius:.3rem}
+.undo-actions{display:flex;gap:.25rem;flex-wrap:wrap}.undo-actions button{color:#fff;background:#422052;border:1px solid #d8b5ef;min-height:36px}
+#narrativeCard textarea,#narrativeCard input{width:100%;box-sizing:border-box}#narrativeCard label{display:block;margin-top:.7rem}
+.narrative-tags span{display:inline-block;padding:.2rem .5rem;border:1px solid currentColor;border-radius:1rem;margin:.15rem}
+.enrichment-settings{margin-top:1rem}.enrichment-settings label{display:block;margin:.6rem 0}.enrichment-settings input:not([type=checkbox]){width:100%}
+.enrichment-preview-row{padding:.7rem 0;border-bottom:1px solid #8885}.enrichment-preview-row pre,#narrativeSources pre{white-space:pre-wrap;overflow-wrap:anywhere;font-family:inherit}
+@media(max-width:650px){.undo-actions{margin-left:auto}.testbed-label{font-size:.65rem}}
+.narrative-draft-dialog{width:min(700px,90vw);max-height:85vh;overflow:auto;background:var(--bg,#fff);color:var(--text,#111);border-radius:12px}
+.narrative-draft-dialog textarea,.narrative-draft-dialog input{width:100%;box-sizing:border-box;margin:.6rem 0}.narrative-draft-dialog button{margin:.4rem}
+@media(max-width:650px){
+  .testbed-header{flex-wrap:wrap}
+  .testbed-header .header-content{flex:1 1 100%;min-width:0}
+  .testbed-header .app-header-logo{display:none}
+}
+#narrativeCard{grid-column:1 / -1;min-width:0}
+.testbed-header h1{color:#fff!important}

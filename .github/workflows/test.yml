@@ -14,10 +14,14 @@ jobs:
       - run: npm ci
       - run: node tests/check-assets.cjs
       - run: npm run test:dom
-      - run: npx playwright install --with-deps chromium
+      - run: npm run test:enrichment
+      - run: npx playwright install --with-deps chromium webkit
       - run: |
           python3 -m http.server 8765 --bind 127.0.0.1 &
           npm test
+          node tests/enrichment-browser.cjs
+          BROWSER_ENGINE=webkit npm test
+          BROWSER_ENGINE=webkit node tests/enrichment-browser.cjs
       - uses: actions/upload-artifact@v4
         with:
           name: oob-preview

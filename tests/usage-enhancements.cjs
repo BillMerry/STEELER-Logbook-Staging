@@ -1,6 +1,6 @@
 // Run against a local Testbed server: TEST_URL=http://127.0.0.1:8765 node tests/usage-enhancements.cjs
 const assert = require('node:assert/strict');
-const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('@playwright/test').chromium;
+const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('@playwright/test')[process.env.BROWSER_ENGINE||'chromium'];
 (async () => {
   const browser = await chromium.launch(process.env.BROWSER_CHANNEL ? {channel:process.env.BROWSER_CHANNEL} : {});
   const errors = [];
@@ -10,7 +10,7 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(process.env.TEST_URL || 'http://127.0.0.1:8765');
   await page.waitForFunction(() => typeof renderPassageAnalytics === 'function');
-  assert.equal(await page.evaluate(() => APP_VERSION), '1.3.6-rc2');
+  assert.equal(await page.evaluate(() => APP_VERSION), '1.4.0-rc1');
   assert.deepEqual(await page.evaluate(()=>['refillHistoryCard','overnightStatsCard','passageAnalyticsCard'].map(id=>document.getElementById(id).open)),[false,false,false]);
   const oob = await page.evaluate(async () => {
     const day = date => ({date, overnightOnBoard:true, fee:'',notes:''});
