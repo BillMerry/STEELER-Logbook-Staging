@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const WEATHER_ABBR_ENABLED_KEY = "steeler_weather_abbreviations_enabled_v1";
 
-const APP_VERSION = "1.4.0-rc1";
+const APP_VERSION = "1.4.0-rc2";
 let enrichmentMigrationSuspended = false;
 const fuelTimestampCache = new WeakMap();
 const LOCAL_DATA_SCHEMA_VERSION = 1;
@@ -7103,7 +7103,12 @@ function updateLogStatusStrip() {
     : hasShutdown ? "Leg Complete" : hasDock ? "Docked" : hasSlip ? "Under Way" : hasEngineStart ? "Engine Started" : "Planned";
 
   const legLabel = legCount > 1 ? `Leg ${legIdx + 1} of ${legCount}` : "Current Passage";
-  const routeText = [route.origin, route.destination].filter(Boolean).join(" → ") || getRouteNames(p).join(" → ") || "Route not set";
+  const routeHtml = Array.from({length:legCount},(_,i)=>{
+    const names=getRouteLegNames(p,i);
+    const text=escapeHtml([names.origin,names.destination].filter(Boolean).join(" → ")||"Route not set");
+    return i===legIdx?`<strong aria-current="step">${text}</strong>`:`<span>${text}</span>`;
+  }).join('');
+  const totalSummary=computePassageLogSummary(p);
   const passageDate = p.plan?.date || p.createdAt?.slice(0, 10) || "Date not set";
   const crewText = [
     p.plan?.skipper ? `Skipper: ${p.plan.skipper}` : "",
@@ -7114,8 +7119,8 @@ function updateLogStatusStrip() {
   logStatusStrip.hidden = false;
   logStatusStrip.innerHTML = `
     <button type="button" class="log-status-route log-status-link" data-status-nav="dpp">
-      <span class="log-status-label">Current Passage / Leg</span>
-      <strong>${escapeHtml(routeText)}</strong>
+      <span class="log-status-label">Current Passage</span>
+      <span class="log-route-legs">${routeHtml}</span>
       <span>${escapeHtml(legLabel)}</span>
     </button>
     <button type="button" class="log-status-state log-status-link" data-status-nav="home-status">
@@ -7124,8 +7129,8 @@ function updateLogStatusStrip() {
     </button>
     <button type="button" class="st-metric-chip log-status-link" data-status-nav="plan-date"><span>Date</span><strong>${escapeHtml(passageDate)}</strong></button>
     <button type="button" class="st-metric-chip log-status-link log-status-crew" data-status-nav="plan-crew"><span>Crew</span><strong>${escapeHtml(crewText)}</strong></button>
-    <button type="button" class="st-metric-chip log-status-link" data-status-nav="latest-log"><span>Under Way</span><strong>${escapeHtml(legSummary.durationText || "–")}</strong></button>
-    <button type="button" class="st-metric-chip log-status-link" data-status-nav="latest-log"><span>Entries</span><strong>${legEntries.length}</strong></button>
+    <button type="button" class="st-metric-chip log-status-link" data-status-nav="latest-log"><span>Under Way</span><span>Total: ${escapeHtml(totalSummary.durationText || "–")}</span><strong>Leg: ${escapeHtml(legSummary.durationText || "–")}</strong></button>
+    <button type="button" class="st-metric-chip log-status-link" data-status-nav="latest-log"><span>Entries</span><span>Total: ${entries.length}</span><strong>Leg: ${legEntries.length}</strong></button>
   `;
   logStatusStrip.querySelectorAll("[data-status-nav]").forEach((btn) => {
     btn.addEventListener("click", () => handleStatusStripNavigation(btn.dataset.statusNav));
@@ -10027,15 +10032,16 @@ function updatePlanSummaryPanel() {
           <p>${currents ? linkKnownPortNamesInText(currents) : "<em>–</em>"}</p>
         </div>
 
+        <div class="block">
+          <p class="section-title">DAILY SUMMARY</p>
+          ${dailySummaryHtml}
+        </div>
         <div class="block plan-link" data-goto="captainsNarrative">
           <p class="section-title">CAPTAIN’S NARRATIVE ${p.captainsNarrative?.status==='draft'?' · DRAFT':''}</p>
           <p>${escapeHtml(p.captainsNarrative?.text||'').replace(/\n/g,'<br>') || '<em>–</em>'}</p>
           <p class="narrative-tags">${(p.tags||[]).map(t=>`<span>${escapeHtml(t)}</span>`).join(' ')}</p>
         </div>
-        <div class="block">
-          <p class="section-title">DAILY SUMMARY</p>
-          ${dailySummaryHtml}
-        </div>
+
       </div>
 
       <div class="col plan-summary-col plan-summary-col-right">

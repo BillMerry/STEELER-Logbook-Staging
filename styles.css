@@ -3863,3 +3863,21 @@ body[data-theme="night"] .analytics-table thead th, body[data-theme="night"] .an
 }
 #narrativeCard{grid-column:1 / -1;min-width:0}
 .testbed-header h1{color:#fff!important}
+/* 1.4.0-rc2: logo first, actions beside navigation, ordered passage cards. */
+.header-navigation{display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap}
+.header-navigation .tabs{flex:1;margin-top:.4rem;min-width:0}
+.header-navigation .undo-actions{flex:none;margin-left:0}
+.plan-overview-card{order:10}.plan-crew-card{order:11}.plan-route-card{order:20}
+.planning-summary-card{order:30}.plan-tides-card{order:40}.plan-environment-card{order:50}
+.plan-daily-card{order:60}#narrativeCard{order:70}
+.log-route-legs{display:flex;flex-direction:column;gap:.15rem;font-weight:400}
+.log-route-legs span{font-weight:400}.log-route-legs strong{font-weight:800}
+@media(max-width:650px){
+  .testbed-header{flex-wrap:nowrap;align-items:flex-start}
+  .testbed-header .app-header-logo{display:block;width:46px;height:auto;flex:none}
+  .testbed-header .header-content{flex:1;min-width:0}
+  .testbed-header h1{font-size:1.1rem}
+  .header-navigation .tabs{flex-basis:100%}
+  .header-navigation .undo-actions{margin-left:auto}
+}
+@media(min-width:700px){.plan-overview-card,.plan-crew-card{grid-column:span 6}}

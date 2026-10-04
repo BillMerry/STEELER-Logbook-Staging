@@ -1,46 +1,67 @@
-// UI glue for passage memories and session undo. Loaded before app.js; handlers run afterwards.
-const passageUndoState={undo:[],redo:[],applying:false,coalescing:false,limit:8,bytes:24*1024*1024};
+// Store only changed passages, and ignore sync/audit bookkeeping when deciding what is undoable.
+const passageUndoState={undo:[],redo:[],applying:false,coalescing:false,limit:40,bytes:24*1024*1024};
 function resetPassageUndo(){passageUndoState.undo=[];passageUndoState.redo=[];passageUndoState.coalescing=false;updateUndoButtons();}
 function updateUndoButtons(){
   const u=document.getElementById('undoPassageBtn'),r=document.getElementById('redoPassageBtn');
   if(u)u.disabled=!passageUndoState.undo.length;if(r)r.disabled=!passageUndoState.redo.length;
 }
+function undoComparable(value){
+  if(value?.deleted===true)return null;
+  if(Array.isArray(value))return value.filter(v=>v?.deleted!==true).map(undoComparable);
+  if(value&&typeof value==='object'){
+    const result={};
+    for(const key of Object.keys(value).sort()){
+      if(['syncDirty','syncStatus','dirtyAt','updatedAt','lastModifiedDeviceId','deletedAt','schemaVersion'].includes(key))continue;
+      if(key==='deleted'&&value[key]===false)continue;
+      result[key]=undoComparable(value[key]);
+    }
+    return result;
+  }
+  return value??null;
+}
+function sameUndoValue(a,b){return JSON.stringify(undoComparable(a))===JSON.stringify(undoComparable(b));}
 function recordPassageUndo(before,after){
-  if(passageUndoState.applying||!before||before===after)return;
+  if(passageUndoState.applying||suppressLocalSyncTracking||before===after)return;
+  const old=new Map(JSON.parse(before||'[]').map(p=>[p.id,p]));
+  const next=new Map(JSON.parse(after).map(p=>[p.id,p]));
+  const changes=[...new Set([...old.keys(),...next.keys()])].filter(id=>!sameUndoValue(old.get(id),next.get(id))).map(id=>({id,before:old.get(id)||null,after:next.get(id)||null}));
+  if(!changes.length)return;
   const previous=passageUndoState.undo.at(-1);
-  if(passageUndoState.coalescing && previous?.after===before) previous.after=after;
-  else passageUndoState.undo.push({before,after});
+  if(passageUndoState.coalescing&&previous){
+    for(const change of changes){const prior=previous.changes.find(c=>c.id===change.id);if(prior)prior.after=change.after;else previous.changes.push(change);}
+    previous.changes=previous.changes.filter(c=>!sameUndoValue(c.before,c.after));
+    if(!previous.changes.length)passageUndoState.undo.pop();
+  }else passageUndoState.undo.push({changes});
   passageUndoState.coalescing=true;queueMicrotask(()=>{passageUndoState.coalescing=false;});
   passageUndoState.redo=[];
-  while(passageUndoState.undo.length>passageUndoState.limit||passageUndoState.undo.reduce((n,s)=>n+s.before.length+s.after.length,0)>passageUndoState.bytes)passageUndoState.undo.shift();
+  while(passageUndoState.undo.length>passageUndoState.limit||(passageUndoState.undo.length>1&&JSON.stringify(passageUndoState.undo).length>passageUndoState.bytes))passageUndoState.undo.shift();
   updateUndoButtons();
 }
 function applyPassageUndo(redo=false){
   const source=redo?passageUndoState.redo:passageUndoState.undo,target=redo?passageUndoState.undo:passageUndoState.redo;
-  const item=source[source.length-1];if(!item)return;
-  const saved=storage.getItem(STORAGE_KEY);
-  if(saved!==item.after){resetPassageUndo();alert('The logbook has changed since this action. Undo history has been cleared.');return;}
-  const before=JSON.parse(saved),restored=JSON.parse(item.before),byId=new Map(before.map(p=>[p.id,p]));
-  // Undoing a newly created passage uses a tombstone so another device cannot resurrect it.
-  const restoredIds=new Set(restored.map(p=>p.id));
-  for(const p of before)if(!restoredIds.has(p.id))restored.push({...p,deleted:true,deletedAt:nowIso()});
+  const item=source.at(-1);if(!item)return;
+  const saved=JSON.parse(storage.getItem(STORAGE_KEY)||'[]'),byId=new Map(saved.map(p=>[p.id,p]));
+  if(item.changes.some(c=>!sameUndoValue(byId.get(c.id),c.after))){resetPassageUndo();alert('A passage has changed since this action. Undo history has been cleared.');return;}
+  const restored=JSON.parse(JSON.stringify(saved));const selectedBefore=currentPassageId;
   passageUndoState.applying=true;
   try{
-    for(const p of restored){
-      const old=byId.get(p.id);if(JSON.stringify(old)===JSON.stringify(p))continue;
+    for(const c of item.changes){
+      const old=byId.get(c.id),p=c.before?JSON.parse(JSON.stringify(c.before)):{...old,deleted:true,deletedAt:nowIso()};
+      // Preserve tombstones for entries introduced by the action being undone.
       const oldEntries=new Map((old?.entries||[]).map(e=>[e.id,e]));
       p.entries=p.entries||[];const ids=new Set(p.entries.map(e=>e.id));
       for(const e of old?.entries||[])if(!ids.has(e.id))p.entries.push({...e,deleted:true,deletedAt:nowIso()});
-      for(const e of p.entries)if(JSON.stringify(e)!==JSON.stringify(oldEntries.get(e.id)))markLogEntryDirty(e,p,{deleted:e.deleted===true});
+      for(const e of p.entries)if(!sameUndoValue(e,oldEntries.get(e.id)))markLogEntryDirty(e,p,{deleted:e.deleted===true});
       markPassageDirty(p,nowIso(),redo?'redo':'undo');
+      const idx=restored.findIndex(r=>r.id===p.id);if(idx<0)restored.push(p);else restored[idx]=p;
+      if(old?.deleted&&!p.deleted)currentPassageId=p.id;
     }
     passages=restored;
     if(!passages.some(p=>p.id===currentPassageId&&!p.deleted))currentPassageId=getFirstActivePassage()?.id||null;
-    if (!savePassages()) { passages = before; throw new Error("Undo could not be saved. Free device storage and retry."); }
-    source.pop();target.push({before:saved,after:storage.getItem(STORAGE_KEY)});
-    // Update the remaining stack's guard to the new audit metadata.
-    if(source.length)source[source.length-1].after=storage.getItem(STORAGE_KEY);
+    if(!savePassages()){passages=saved;currentPassageId=selectedBefore;throw new Error('Undo could not be saved. Free device storage and retry.');}
     loadPassageIntoUI();refreshHomePassageList();
+    const persisted=new Map(JSON.parse(storage.getItem(STORAGE_KEY)).map(p=>[p.id,p]));
+    source.pop();target.push({changes:item.changes.map(c=>({id:c.id,before:byId.get(c.id)||null,after:persisted.get(c.id)||null}))});
   }catch(e){alert(e.message);}
   finally{passageUndoState.applying=false;updateUndoButtons();}
 }
