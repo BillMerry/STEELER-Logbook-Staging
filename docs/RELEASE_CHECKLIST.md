@@ -131,3 +131,7 @@ git push origin vX.Y.Z
 ```
 
 Do not create a GitHub tag whose version disagrees with `APP_VERSION` or `CACHE_NAME`.
+
+## 1.4.0 undo and Safari checks
+
+Run `BROWSER_ENGINE=webkit node tests/undo-layout-browser.cjs` with the local test server. Test entry and passage editing/deletion with real UI handlers, then sync bookkeeping, Undo and Redo. Confirm restored passage selection, keyboard shortcuts, plan card order and all-leg Log metrics.
