@@ -776,3 +776,16 @@ The three analytics wrappers use native details/summary controls, initially clos
 Supersedes rc5/rc6 interval inference and overrides. `computeFuelManagementStats` accepts a passage source and emits calculated snapshots immediately before each refill is applied. Full history rows use that snapshot of the displayed Fuel Used counter, including the first full refill. Partial fills never reset the counter and retain their own purchase unit price. The existing tank calculation and cumulative per-leg baselines are unchanged. Snapshots are derived, not persisted; editing original readings recalculates history. Zero means the recorded counter is zero, not verified absence of consumption. Undated refills cannot receive a chronological snapshot.
 
 Legacy `fuelUsedSincePrevious` and `fuelUsedSinceFull` values remain stored and preserved on edits/backups, but are ignored by reporting and have no editable form field. Location is rendered as escaped plain text below the date. Full rows continue to aggregate intervening partial purchases; nights require a preceding full boundary.
+
+## 1.4.0 additive passage enrichment
+
+Passage root fields: `captainsNarrative: {text, status: "draft"|"reviewed", origin?, updatedAt?}`, `tags: string[]`, and `enrichmentSources: [{dailySummaryId?, date?, sources: string[], originalNotes: string}]`. Existing plan, finish, entries and numerical fields retain their shapes. Full backup/sync carries these additive fields; schema version remains 1. Recognised legacy enrichment is migrated idempotently, excluding deleted passages/summaries and preserving conflicting manual text. Only the exact resolved March 27 review sentence is removed.
+
+AI connection settings use device-local `steeler_narrative_connection_v1`, excluded from backups. Undo snapshots are memory-only and cleared when receiving external state or reloading. No explicit validation flag is added for engine meters: one decimal place in both stored strings is Bill’s current validation convention, including trailing `.0`.
+
+## 1.4.0-rc3
+
+`data.settings.narrativePreferences` optionally contains `{background, style, terminology}` strings. No default is silently persisted. It is included in full-data sync/backup; AI connection secrets remain outside that package. Imported observations have `id: "enriched:" + encodeURIComponent(sourceId)` and `enrichment: {sourceId, batchId, originalNotes}`. Display-note cleanup can add `enrichment.originalNotes` to older entries without altering readings. Compact import format and validation are documented in ENRICHMENT_BATCH_FORMAT.md.
+
+### Entry weather observations (1.4.0)
+Optional entry fields: `windDir` (N/NE/E/SE/S/SW/W/NW), `windBft` (integer 0–12 stored as a string), `seaState` (Douglas wind-sea code 0–9 stored as a string). Blank fields are absent; zero means observed calm. These are observations at the entry time, independent of planning forecasts or Engine Start environment. Included in backup/sync, CSV/print and AI drafting context.
