@@ -1,0 +1,18 @@
+const assert=require('node:assert/strict'),E=require('../js/enrichment.js');
+assert.equal(E.stripSources('  My  own spacing.  '),'  My  own spacing.  ');
+const clone=x=>JSON.parse(JSON.stringify(x));
+const p={id:'trip',plan:{date:'2025-06-01',timeZone:'Europe/Paris',from:'A',to:'B',engineHoursStart:'100.1'},finish:{engineHoursEnd:'102.3'},legEnds:[{engineHoursEnd:'102.3'}],entries:[{id:'old',leg:0,time:'2025-06-01T14:00',entryType:'dock',groundLog:'20',notes:'Alongside'}],captainsNarrative:{text:'My edited narrative',status:'reviewed'},tags:['mine']};
+const file={format:'steeler-enrichment-batch',version:1,batchId:'pilot-08',passages:[{id:'trip',date:'2025-06-01',narrative:'We crossed the bay.\n\nWe enjoyed our stay.',tags:['bay'],entries:[{sourceId:'book7/page1/row1',leg:0,time:'2025-06-01T12:00',lat:'50.1',lon:'-1.3',groundLog:'10',notes:'Dolphins. Source: Book 7, Deck Log test.pdf. Calm water.'}],possibleCorrections:['Check a handwritten end reading.']}]};
+const before=clone(p),row=E.preview(file,[p])[0];assert.equal(row.memoryStatus,'conflict');assert.equal(row.entryPreview[0].status,'new');
+E.apply(row,p,{memory:false,entryIds:[row.entryPreview[0].entry.id]});assert.deepEqual(p.plan,before.plan);assert.deepEqual(p.finish,before.finish);assert.deepEqual(p.legEnds,before.legEnds);assert.deepEqual(p.entries[0],before.entries[0]);assert.deepEqual(p.captainsNarrative,before.captainsNarrative);assert.equal(p.entries[1].lat,'50.1');assert.equal(p.entries[1].notes,'Dolphins. Calm water.');assert.match(p.entries[1].enrichment.originalNotes,/Book 7/);
+p.entries[1].notes='Bill edited this';assert.equal(E.preview(file,[p])[0].entryPreview[0].status,'present');p.entries[1].deleted=true;assert.match(E.preview(file,[p])[0].entryPreview[0].reason,/deleted/);
+let other=clone(file);other.passages[0].entries[0].time='2025-06-01T12:00Z';assert.equal(E.preview(other,[before])[0].entryPreview[0].status,'conflict');
+other=clone(file);other.passages[0].entries[0].time='2025-06-01T15:00';other.passages[0].entries[0].groundLog='22';assert.match(E.preview(other,[before])[0].entryPreview[0].reason,/final groundLog/);
+other=clone(file);other.passages[0].entries[0].entryType='dock';assert.equal(E.preview(other,[before])[0].entryPreview[0].status,'conflict');
+other=clone(file);other.passages[0].entries[0].leg=1;assert.equal(E.preview(other,[before])[0].entryPreview[0].status,'conflict');
+other=clone(file);other.passages[0].entries.push(other.passages[0].entries[0]);assert.throws(()=>E.preview(other,[before]),/Duplicate/);
+other=clone(file);other.passages[0].entries[0].time='2025-02-31T12:00';assert.throws(()=>E.preview(other,[before]),/Invalid/);
+other=clone(file);other.passages[0].entries[0].lat='200';assert.throws(()=>E.preview(other,[before]),/coordinate/);
+const stale=E.preview(file,[before])[0];before.plan.to='Another port';assert.throws(()=>E.apply(stale,before),/changed after preview/);
+assert.equal(E.preview(file,[{...p,deleted:true}])[0].entryPreview[0].status,'unavailable');
+console.log('PASS: compact entry batches preserve summaries/manual edits, retain provenance, block duplicates/deleted entries/timezone collisions/final-reading changes/duplicate movement events, validate inputs and reject stale previews');

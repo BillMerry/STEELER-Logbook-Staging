@@ -95,7 +95,7 @@ let narrativeBusy=false;
 async function generateNarrative(p){
   if(!p||p.deleted||narrativeBusy)return;
   const cfg=narrativeConfig();
-  if(!cfg.url||!cfg.token){alert('Set up the AI connection in Settings → Data & Backup → Narratives and enrichment batches.');return;}
+  if(!cfg.url||!cfg.token){alert('Set up the AI connection in Settings → Narratives & AI.');return;}
   if(!navigator.onLine){alert('You are offline. Saved narratives and manual editing still work; try drafting when connected.');return;}
   const before=JSON.stringify(STEELER.enrichment.memory(p));
   narrativeBusy=true;
@@ -103,7 +103,7 @@ async function generateNarrative(p){
   document.getElementById('narrativeMessage').textContent='Preparing draft…';
   try{
     const url=new URL(cfg.url);if(url.protocol!=='https:')throw new Error('The AI service must use HTTPS.');
-    const body=JSON.stringify({passage:STEELER.enrichment.aiContext(p)});
+    const body=JSON.stringify({passage:STEELER.enrichment.aiContext(p),preferences:narrativePreferences()});
     if(body.length>120000)throw new Error('This passage has too much context for one draft. Use a reviewed batch instead.');
     const res=await fetch(url.origin+url.pathname.replace(/\/$/,'')+'/v1/narrative',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+cfg.token},body,signal:AbortSignal.timeout(60000)});
     const data=await res.json();if(!res.ok)throw new Error(data.error||'The AI service could not create a draft.');
@@ -134,21 +134,37 @@ function offerPreviousNarrative(previous){
 }
 function renderEnrichmentPreview(rows){
   const host=document.getElementById('enrichmentPreview');host.replaceChildren();
-  const summary=document.createElement('p');summary.textContent=`${rows.filter(r=>r.status==='ready').length} ready, ${rows.filter(r=>r.status==='conflict').length} different narratives, ${rows.filter(r=>r.status==='unchanged').length} already present, ${rows.filter(r=>r.status==='unavailable').length} unavailable. Deleted passages are never restored.`;host.appendChild(summary);
+  const summary=document.createElement('p');summary.textContent='Preview only: choose narratives/tags and new log entries below. Existing entries, passage totals and deleted records are preserved. Possible corrections are review notes only.';host.appendChild(summary);
   const choices=[];
-  for(const row of rows.filter(r=>r.status==='ready'||r.status==='conflict')){
-    const div=document.createElement('div');div.className='enrichment-preview-row';const label=document.createElement('label'),check=document.createElement('input');check.type='checkbox';check.checked=row.status==='ready';label.append(check,document.createTextNode(` ${row.date} ${row.from} → ${row.to}${row.status==='conflict'?' — replace different narrative':''}`));
-    const details=document.createElement('details'),title=document.createElement('summary');title.textContent='Compare narrative and tags';details.appendChild(title);const text=document.createElement('pre');text.textContent='Current:\n'+(row.current?.narrative||'(none)')+'\n\nIncoming:\n'+row.narrative+'\n\nTags: '+row.tags.join(', ');details.appendChild(text);div.append(label,details);host.appendChild(div);choices.push({row,check});
+  for(const row of rows){
+    const div=document.createElement('div');div.className='enrichment-preview-row';
+    const heading=document.createElement('h4');heading.textContent=`${row.date} ${row.from} → ${row.to}`;div.appendChild(heading);
+    const memory=document.createElement('input');memory.type='checkbox';memory.checked=row.memoryStatus==='ready';memory.disabled=['unavailable','unchanged'].includes(row.memoryStatus);
+    const label=document.createElement('label');label.append(memory,document.createTextNode(row.memoryStatus==='conflict'?' Replace different narrative and merge tags':row.memoryStatus==='unavailable'?' Passage unavailable — nothing will be imported':row.memoryStatus==='unchanged'?' Narrative/tags already present':' Import narrative and tags'));div.appendChild(label);
+    const details=document.createElement('details'),title=document.createElement('summary');title.textContent='Compare narrative and tags';details.appendChild(title);const text=document.createElement('pre');text.textContent='Current:\n'+(row.current?.narrative||'(none)')+'\n\nIncoming:\n'+(row.narrative||'(none)')+'\n\nTags: '+row.tags.join(', ');details.appendChild(text);div.appendChild(details);
+    const entries=[];
+    for(const item of row.entryPreview){
+      const check=document.createElement('input');check.type='checkbox';check.checked=item.status==='new';check.disabled=item.status!=='new';
+      const el=document.createElement('label');el.append(check,document.createTextNode(`${item.entry.time} · leg ${item.entry.leg+1} · ${item.status==='new'?'New entry':item.reason}`));div.appendChild(el);
+      const preview=document.createElement('pre');preview.textContent=Object.entries(item.entry).filter(([key])=>!['id','enrichment','leg','time'].includes(key)).map(([key,value])=>`${key}: ${value}`).join('\n');div.appendChild(preview);entries.push({check,id:item.entry.id});
+    }
+    for(const correction of row.possibleCorrections){const note=document.createElement('p');note.className='hint';note.textContent='Possible correction — review only: '+correction;div.appendChild(note);}
+    host.appendChild(div);choices.push({row,memory,entries});
   }
-  if(!choices.length)return;
-  const apply=document.createElement('button');apply.type='button';apply.className='btn btn-primary';apply.textContent='Apply selected enrichment';apply.onclick=()=>{
-    const selected=choices.filter(c=>c.check.checked).map(c=>c.row);if(!selected.length)return;
-    if(!confirm(`Apply narrative/tag enrichment to ${selected.length} passages? A safety backup will download first. Selected different narratives will be replaced; readings and entries stay unchanged.`))return;
+  if(!choices.some(c=>!c.memory.disabled||c.entries.some(e=>!e.check.disabled)))return;
+  const apply=document.createElement('button');apply.type='button';apply.className='btn btn-primary';apply.textContent='Apply selected enrichment';
+  apply.onclick=()=>{
+    const selected=choices.map(c=>({...c,options:{memory:!c.memory.disabled&&c.memory.checked,entryIds:c.entries.filter(e=>!e.check.disabled&&e.check.checked).map(e=>e.id)}})).filter(c=>c.options.memory||c.options.entryIds.length);if(!selected.length)return;
+    if(!confirm(`Apply enrichment to ${selected.length} passages, including ${selected.reduce((n,c)=>n+c.options.entryIds.length,0)} new log entries? A safety backup will download first. Existing entries and passage totals will not be replaced.`))return;
     try{
-      const copy=JSON.parse(JSON.stringify(passages));for(const row of selected)STEELER.enrichment.apply(row,copy.find(p=>p.id===row.id));
-      exportBackup();
-      for(const row of selected){const p=passages.find(p=>p.id===row.id);STEELER.enrichment.apply(row,p);markPassageDirty(p,nowIso(),'enrichment-batch');}
-      savePassages();loadPassageIntoUI();refreshHomePassageList();host.textContent=`Applied to ${selected.length} passages. Undo is available.`;
+      // Flush the current form before checking stale previews, then validate all changes on a copy.
+      const backup=createDataBackupPayload();
+      const copy=JSON.parse(JSON.stringify(passages));
+      const additions=selected.map(c=>{const p=copy.find(p=>p.id===c.row.id);return {p,added:STEELER.enrichment.apply(c.row,p,c.options)};});
+      downloadJsonPayload(backup,'STEELER-Before-enrichment-backup');
+      for(const {p,added} of additions){for(const e of added)markLogEntryDirty(e,p);markPassageDirty(p,nowIso(),'enrichment-batch');}
+      const old=passages;passages=copy;if(!savePassages()){passages=old;throw new Error('The batch could not be saved. Nothing was applied.');}
+      loadPassageIntoUI();refreshHomePassageList();host.textContent=`Applied to ${selected.length} passages. Undo is available.`;
     }catch(e){alert(e.message);}
   };host.appendChild(apply);
 }
@@ -178,3 +194,22 @@ document.getElementById('narrativeConfigSave')?.addEventListener('click',()=>{
     localStorage.setItem(NARRATIVE_CONFIG_KEY,JSON.stringify({url,token,offer:document.getElementById('narrativeOffer').checked}));document.getElementById('narrativeConnectionStatus').textContent='Connection saved on this device.';
   }catch(e){alert(e.message);}
 });
+
+const NARRATIVE_PREFS_KEY='steeler_narrative_preferences_v1';
+const suggestedNarrativePreferences={
+  background:'My name is Bill and my boat is STEELER. The logbook is both a passage record and a personal account of our time aboard. People and boats mentioned in our records include Frank and Sandi aboard ST34 Skylark, and Martin and Janet aboard ST34 Inca. Include them only when the passage records establish that they were present. STEELER received lithium battery upgrades in October 2025. Her fuel gauge can remain full for several readings before dropping and then settling; do not infer unusual consumption from that alone.',
+  style:'Write in natural British English, using I or we as supported by the entry. Keep the tone informal and personal; never call me “the owner”. Use flowing prose in short paragraphs separated by a blank line. Bring together the passage and the whole stay, using the Daily Summaries for visits, meals, people and memorable events. Mention weather and tides where relevant, distinguishing experienced conditions from forecasts. Keep short records concise. Do not invent feelings, encounters or events, and preserve uncertainty.',
+  terminology:'STW means speed through water; GPS log readings are distance over ground. In paired paper-log distance readings the upper is usually through water and the lower GPS, but do not reinterpret existing structured readings. RDV means rendezvous/encounter in my notes. ERU refers to an engine run without a passage. Use the recorded passage timezone. Do not infer dates of maintenance or participants from background knowledge. No preferred example narrative has been selected yet.'
+};
+function narrativePreferences(){try{const p=JSON.parse(localStorage.getItem(NARRATIVE_PREFS_KEY)||'null');return p&&typeof p==='object'?{background:String(p.background||''),style:String(p.style||''),terminology:String(p.terminology||'')}:null;}catch{return null;}}
+function loadNarrativePreferences(){
+  const saved=narrativePreferences(),p=saved||suggestedNarrativePreferences;
+  for(const key of ['background','style','terminology'])document.getElementById('narrativePref_'+key).value=p[key];
+  document.getElementById('narrativePrefsStatus').textContent=saved?'Saved preferences are included with each AI draft.':'Suggested starting text — review and save before it is used by the AI.';
+}
+document.getElementById('saveNarrativePreferences').addEventListener('click',()=>{
+  const p={};for(const key of ['background','style','terminology'])p[key]=document.getElementById('narrativePref_'+key).value.trim();
+  if(Object.values(p).some(v=>v.length>6000)){alert('Keep each preferences section below 6,000 characters.');return;}
+  if(saveLocalStorageItem(NARRATIVE_PREFS_KEY,JSON.stringify(p),'narrative preferences'))document.getElementById('narrativePrefsStatus').textContent='Saved. These preferences will accompany future AI drafts and are included in backup and sync.';
+});
+loadNarrativePreferences();

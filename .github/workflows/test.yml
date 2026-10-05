@@ -23,6 +23,7 @@ jobs:
           BROWSER_ENGINE=webkit npm test
           BROWSER_ENGINE=webkit node tests/enrichment-browser.cjs
           BROWSER_ENGINE=webkit node tests/undo-layout-browser.cjs
+          BROWSER_ENGINE=webkit node tests/batch-browser.cjs
       - uses: actions/upload-artifact@v4
         with:
           name: oob-preview

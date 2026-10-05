@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const WEATHER_ABBR_ENABLED_KEY = "steeler_weather_abbreviations_enabled_v1";
 
-const APP_VERSION = "1.4.0-rc2";
+const APP_VERSION = "1.4.0-rc3";
 let enrichmentMigrationSuspended = false;
 const fuelTimestampCache = new WeakMap();
 const LOCAL_DATA_SCHEMA_VERSION = 1;
@@ -33,7 +33,8 @@ const COMPLETE_DATA_SYNC_KEYS = new Set([
   DPP_WAYPOINTS_KEY,
   FUEL_MANAGEMENT_KEY,
   LOG_SPLIT_RATIO_KEY,
-  WEATHER_ABBR_ENABLED_KEY
+  WEATHER_ABBR_ENABLED_KEY,
+  NARRATIVE_PREFS_KEY
 ]);
 const DEFAULT_PASSAGE_TIME_ZONE = "Europe/London";
 const PASSAGE_TIME_ZONES = {
@@ -5776,7 +5777,8 @@ function createDataBackupPayload(options = {}){
       fuelManagement: loadFuelManagementSettings(),
       settings: {
         logSplitRatio: storage.getItem(LOG_SPLIT_RATIO_KEY) || "",
-        weatherAbbreviationsEnabled: weatherAbbreviationsEnabled()
+        weatherAbbreviationsEnabled: weatherAbbreviationsEnabled(),
+        ...(narrativePreferences()?{narrativePreferences:narrativePreferences()}:{} )
       },
       localSyncStatus: getLocalSyncSummary()
     }
@@ -5912,6 +5914,9 @@ function restoreDataBackupObject(obj, options = {}){
   if (obj.data.settings && Object.prototype.hasOwnProperty.call(obj.data.settings, "weatherAbbreviationsEnabled")) {
     saveLocalStorageItem(WEATHER_ABBR_ENABLED_KEY, obj.data.settings.weatherAbbreviationsEnabled === false ? "0" : "1", "weather abbreviations setting");
   }
+  if(obj.data.settings?.narrativePreferences)saveLocalStorageItem(NARRATIVE_PREFS_KEY,JSON.stringify(obj.data.settings.narrativePreferences),"narrative preferences");
+  else storage.removeItem(NARRATIVE_PREFS_KEY);
+  loadNarrativePreferences();
   applyTheme(obj.data.theme || "day");
   refreshAfterDataRestore({ importDppTemplateWaypoints: false });
   if (!options.silent) alert(options.successMessage || "Full STEELER data backup restored successfully.");
@@ -7103,10 +7108,12 @@ function updateLogStatusStrip() {
     : hasShutdown ? "Leg Complete" : hasDock ? "Docked" : hasSlip ? "Under Way" : hasEngineStart ? "Engine Started" : "Planned";
 
   const legLabel = legCount > 1 ? `Leg ${legIdx + 1} of ${legCount}` : "Current Passage";
-  const routeHtml = Array.from({length:legCount},(_,i)=>{
-    const names=getRouteLegNames(p,i);
-    const text=escapeHtml([names.origin,names.destination].filter(Boolean).join(" → ")||"Route not set");
-    return i===legIdx?`<strong aria-current="step">${text}</strong>`:`<span>${text}</span>`;
+  const names=getRouteNames(p);
+  const routeHtml=names.length<2?escapeHtml(names[0]||'Route not set'):names.map((name,i)=>{
+    const text=escapeHtml(name),arrow=i?' → ':'';
+    if(i===legIdx)return arrow+'<strong aria-current="step">'+text;
+    if(i===legIdx+1)return arrow+text+'</strong>';
+    return arrow+text;
   }).join('');
   const totalSummary=computePassageLogSummary(p);
   const passageDate = p.plan?.date || p.createdAt?.slice(0, 10) || "Date not set";
@@ -7129,8 +7136,8 @@ function updateLogStatusStrip() {
     </button>
     <button type="button" class="st-metric-chip log-status-link" data-status-nav="plan-date"><span>Date</span><strong>${escapeHtml(passageDate)}</strong></button>
     <button type="button" class="st-metric-chip log-status-link log-status-crew" data-status-nav="plan-crew"><span>Crew</span><strong>${escapeHtml(crewText)}</strong></button>
-    <button type="button" class="st-metric-chip log-status-link" data-status-nav="latest-log"><span>Under Way</span><span>Total: ${escapeHtml(totalSummary.durationText || "–")}</span><strong>Leg: ${escapeHtml(legSummary.durationText || "–")}</strong></button>
-    <button type="button" class="st-metric-chip log-status-link" data-status-nav="latest-log"><span>Entries</span><span>Total: ${entries.length}</span><strong>Leg: ${legEntries.length}</strong></button>
+    <button type="button" class="st-metric-chip log-status-link" data-status-nav="latest-log"><span>Under Way</span><span class="log-total-leg" aria-label="Total time / current leg time">${escapeHtml((totalSummary.durationText || "–").replace(/\s/g,""))} / <strong>${escapeHtml((legSummary.durationText || "–").replace(/\s/g,""))}</strong></span></button>
+    <button type="button" class="st-metric-chip log-status-link" data-status-nav="latest-log"><span>Entries</span><span class="log-total-leg" aria-label="Total entries / current leg entries">${entries.length} / <strong>${legEntries.length}</strong></span></button>
   `;
   logStatusStrip.querySelectorAll("[data-status-nav]").forEach((btn) => {
     btn.addEventListener("click", () => handleStatusStripNavigation(btn.dataset.statusNav));
