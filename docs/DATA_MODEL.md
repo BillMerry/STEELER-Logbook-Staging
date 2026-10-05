@@ -786,3 +786,6 @@ AI connection settings use device-local `steeler_narrative_connection_v1`, exclu
 ## 1.4.0-rc3
 
 `data.settings.narrativePreferences` optionally contains `{background, style, terminology}` strings. No default is silently persisted. It is included in full-data sync/backup; AI connection secrets remain outside that package. Imported observations have `id: "enriched:" + encodeURIComponent(sourceId)` and `enrichment: {sourceId, batchId, originalNotes}`. Display-note cleanup can add `enrichment.originalNotes` to older entries without altering readings. Compact import format and validation are documented in ENRICHMENT_BATCH_FORMAT.md.
+
+### Entry weather observations (1.4.0)
+Optional entry fields: `windDir` (N/NE/E/SE/S/SW/W/NW), `windBft` (integer 0–12 stored as a string), `seaState` (Douglas wind-sea code 0–9 stored as a string). Blank fields are absent; zero means observed calm. These are observations at the entry time, independent of planning forecasts or Engine Start environment. Included in backup/sync, CSV/print and AI drafting context.

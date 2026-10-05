@@ -168,12 +168,12 @@ function exportCurrentPassageToCsv() {
   lines.push("");
 
   lines.push("Log Entries");
-  lines.push(["Time","Lat","Lon","COG/Heading","SOG (kn)","RPM","Eng T/P","WLog (NM)","GLog (NM)","Fuel used","Notes"].map(quote).join(","));
+  lines.push(["Time","Lat","Lon","COG/Heading","SOG (kn)","RPM","Eng T/P","WLog (NM)","GLog (NM)","Fuel used","Notes","Wind direction","Beaufort force","Sea state (Douglas)"].map(quote).join(","));
 
   (p.entries || []).filter(e => e && e.deleted !== true).slice().sort(compareLogEntriesForPassage(p)).forEach(e => {
     lines.push([
       e.time ? e.time.replace("T", " ") : "",
-      e.lat, e.lon, e.course, e.speed, e.rpm, e.engTP, e.waterLog, e.groundLog, e.fuelUsed, e.notes
+      e.lat, e.lon, e.course, e.speed, e.rpm, e.engTP, e.waterLog, e.groundLog, e.fuelUsed, e.notes, e.windDir, e.windBft, e.seaState
     ].map(quote).join(","));
   });
 
@@ -263,7 +263,7 @@ function exportCurrentPassageToPdf() {
       <td>${esc(e.waterLog || "")}</td>
       <td>${esc(e.groundLog || "")}</td>
       <td>${esc(e.fuelUsed || "")}</td>
-      <td>${esc(e.notes || "")}</td>
+      <td>${esc([e.notes, logEntryConditions(e)].filter(Boolean).join("\n"))}</td>
     </tr>`;
   }).join("");
 

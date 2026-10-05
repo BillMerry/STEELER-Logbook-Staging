@@ -3886,3 +3886,5 @@ body[data-theme="night"] .analytics-table thead th, body[data-theme="night"] .an
 .log-total-leg strong{font-weight:800}
 .narrative-preferences label{display:block;margin:.8rem 0}
 .narrative-preferences textarea{display:block;width:100%;box-sizing:border-box;margin-top:.4rem}
+
+.manual-log-weather { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important; }

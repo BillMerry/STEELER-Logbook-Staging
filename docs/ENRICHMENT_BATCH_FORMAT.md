@@ -38,3 +38,5 @@ Optional entry fields: `entryType` (manual, engine-start, slip, dock, shutdown),
 Repeated source IDs are treated as already present, preserving later manual edits and deletions. A different source ID at an existing time/leg is held for review, as is a duplicate movement event or a later reading that would change the existing final reading. Resolve these separately using current app data; do not change identifiers to bypass duplicate checks. Full backup JSON is supported for narrative/tag enrichment only and does not bulk-import its operational entries.
 
 Preview date/route are labels; matching uses `id`. Apply only after reviewing the current record. `possibleCorrections` contains text notes for manual review, never patches. The batch file must be under 25 MB. Imported entries retain internal `enrichment` metadata with `sourceId`, `batchId` and original notes. Displayed text omits recognised source-book references.
+
+Optional entry observations: `windDir` (N/NE/E/SE/S/SW/W/NW), `windBft` (0–12), `seaState` (Douglas 0–9). Leave uncertain readings in notes.
