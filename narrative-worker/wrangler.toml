@@ -1,5 +1,6 @@
 name = "steeler-narrative-staging"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
-# Set OPENAI_MODEL as a Worker variable after choosing an available Structured Outputs model.
+[vars]
+OPENAI_MODEL = "gpt-4.1-mini"
 # Secrets: OPENAI_API_KEY and NARRATIVE_TOKEN. This worker has no logbook database binding.

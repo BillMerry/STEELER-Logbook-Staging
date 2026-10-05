@@ -3881,3 +3881,8 @@ body[data-theme="night"] .analytics-table thead th, body[data-theme="night"] .an
   .header-navigation .undo-actions{margin-left:auto}
 }
 @media(min-width:700px){.plan-overview-card,.plan-crew-card{grid-column:span 6}}
+.log-route-legs{display:block;font-weight:400}
+.log-total-leg{white-space:nowrap;font-weight:400!important}
+.log-total-leg strong{font-weight:800}
+.narrative-preferences label{display:block;margin:.8rem 0}
+.narrative-preferences textarea{display:block;width:100%;box-sizing:border-box;margin-top:.4rem}

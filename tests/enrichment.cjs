@@ -28,6 +28,14 @@ preview=E.preview(file,[local]);local.captainsNarrative.text='Edited during prev
    return {duration:m.durationMinutes,summary:s.durationText,eh:s.ehText,legEh:l.ehText,status,underway:computeLegMetricsFromEntries(underway,0).durationMinutes,whole:validatedEngineHoursText('100','101'),zero:validatedEngineHoursText('100.0','100.0'),marked,backup:backup.data.passages[0].captainsNarrative.text,undone,redone,search,persisted};
  });
  assert.equal(result.duration,null);assert.equal(result.summary,'–');assert.equal(result.eh,'0.5 h');assert.equal(result.legEh,'0.5 h');assert.equal(result.status,'ERU');assert.equal(result.underway,30);assert.equal(result.whole,'100→101');assert.equal(result.zero,'0.0 h');assert.equal(result.marked,'reviewed');assert.ok(result.undone);assert.equal(result.redone,'An engine run alongside.');assert.equal(result.backup,result.redone);assert.equal(result.persisted,result.redone);assert.ok(result.search);
+ const preferences=await page.evaluate(async()=>{
+   const initial=narrativePreferences();document.getElementById('narrativePref_background').value='Bill and STEELER';document.getElementById('saveNarrativePreferences').click();
+   const backup=JSON.parse(JSON.stringify(createDataBackupPayload()));
+   localStorage.setItem(NARRATIVE_PREFS_KEY,JSON.stringify({background:'Changed locally',style:'',terminology:''}));
+   await applyFullDataCloudCopy({backup,record:{payload:{backup}}},nowIso());
+   return {initial,backup:backup.data.settings.narrativePreferences.background,restored:narrativePreferences().background,field:document.getElementById('narrativePref_background').value};
+ });
+ assert.equal(preferences.initial,null);assert.equal(preferences.backup,'Bill and STEELER');assert.equal(preferences.restored,preferences.backup);assert.equal(preferences.field,preferences.backup);
  const cloudMigration=await page.evaluate(async()=>{
    // A legacy cloud copy must verify before migration changes its notes.
    const backup=JSON.parse(JSON.stringify(createDataBackupPayload()));

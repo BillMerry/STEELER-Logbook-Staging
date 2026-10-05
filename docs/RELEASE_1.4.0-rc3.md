@@ -1,0 +1,13 @@
+# 1.4.0-rc3 — Personalised narratives and detailed enrichment batches
+
+Settings → Narratives & AI contains editable background, writing preferences, and terminology/examples. Suggested text is based on confirmed discussions with Bill. It is not sent until Save and use preferences is selected. Saved preferences accompany each draft and travel in full backup/sync; service credentials remain device-local. Drafts use short natural paragraphs and distinguish background knowledge from evidence of people/events on a particular passage.
+
+Current Passage shows a continuous route with the current leg bold and no repeated transit ports. Under Way and Entries use compact total / **current leg** figures. Existing source-book citations are removed from normal enriched entry notes and migrated Daily Summaries, with originals retained internally. No source pages or provenance are discarded.
+
+Preview enrichment batch accepts dedicated small batches and retains compatibility with full backups. Full backup files still import memories only; dedicated batches can add individual timed log entries, readings and decimal coordinates. Each new entry has a stable source identifier. Users select memories and entries independently; conflicting narratives are unchecked by default. Existing entries (including edited or deleted imports) are never replaced. Same-time/leg collisions, duplicate movement events, invalid leg assignments and readings that would change an existing final summary reading are held for manual review. Possible corrections are shown separately and never applied automatically.
+
+Passage matching remains ID-based. Existing plan, finish and leg-end fields are preserved. A safety backup downloads before applying. A preview becomes invalid if its passage context, memory or entries change before application. Selected changes validate on a copy before saving as one undoable operation. Batch observation times use the passage timezone unless explicitly offset.
+
+Validation includes compact-batch unit checks for numeric preservation, duplicate and tombstone handling, timezone collisions, invalid input, stale previews and source retention; WebKit tests of real file preview/apply/download, selective entry import, undo/redo, profile review and layout; profile backup/cloud receive tests; existing migration/worker/editor/undo tests. See ENRICHMENT_BATCH_FORMAT.md for the production batch contract.
+
+A real staging AI smoke test uses fictional two-day passage notes and a background-only named friendship to check paragraph generation and avoidance of unsupported people. No user passage data is changed by this check. Worker deployments retain existing secrets.

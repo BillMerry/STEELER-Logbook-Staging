@@ -52,9 +52,9 @@ const browserType=require('@playwright/test')[process.env.BROWSER_ENGINE||'chrom
   await page.evaluate(()=>switchToTab('logTab'));
   await page.locator('#logStatusStrip').screenshot({path:'test-results/log-status-rc2.png'});
   const status=await page.locator('#logStatusStrip').textContent();assert.match(status,/Current Passage/);assert.doesNotMatch(status,/Passage \/ Leg/);
-  assert.match(status,/Lymington → Yarmouth/);assert.match(status,/Yarmouth → Cowes/);
+  assert.match(status,/Lymington → Yarmouth → Cowes/);assert.equal((status.match(/Yarmouth/g)||[]).length,1);
   assert.equal(await page.locator('.log-route-legs strong').textContent(),'Yarmouth → Cowes');
-  assert.match(status,/Total: 2h 30m/);assert.match(status,/Leg: 1h 30m/);assert.match(status,/Total: 5/);assert.match(status,/Leg: 2/);
+  assert.match(status,/2h30m \/ 1h30m/);assert.match(status,/5 \/ 2/);assert.doesNotMatch(status,/Total:|Leg:/);
   const titles=await page.locator('#planSummaryPanel .section-title').allTextContents();assert.ok(titles.indexOf('DAILY SUMMARY')<titles.findIndex(s=>s.includes('CAPTAIN’S NARRATIVE')));
   assert.equal(await page.locator('.testbed-label').count(),0);
   for(const width of [1024,768,390]){
