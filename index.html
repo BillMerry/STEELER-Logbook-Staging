@@ -445,19 +445,20 @@
               <button id="importBackupBtn" class="btn btn-secondary">Restore</button>
               <input id="importFileInput" type="file" accept="application/json,.json" hidden>
             </div>
-            <p class="hint">Backup/Restore includes all STEELER data on this device. Specialist exports remain available below.</p>
-            <details class="enrichment-settings"><summary>Narratives and enrichment batches</summary>
-              <p class="hint">Preview a small enrichment batch to add narratives, tags and individual log entries. Existing entries and passage totals are preserved. Full backup files import narrative enrichment only.</p>
-              <button type="button" id="enrichmentImportBtn" class="btn btn-secondary">Preview enrichment batch</button><input type="file" id="enrichmentFile" accept=".json,application/json" hidden>
-              <div id="enrichmentPreview" aria-live="polite"></div>
-            </details>
+            <p class="hint">Backup/Restore includes all STEELER data on this device. Enrichment batches are managed in Narratives &amp; AI.</p>
+
             <div id="syncStatusSummary" class="sync-status-summary" aria-live="polite"></div>
           </div>
         </div>
 
         <div id="settingsNarrativesCard" class="settings-card st-card" data-settings-card>
-          <div class="settings-card-header"><div class="settings-card-main"><span class="settings-card-icon" aria-hidden="true">AI</span><div><h3>Narratives &amp; AI</h3><p>Personalise your Captain’s Narrative and manage the AI connection.</p></div></div><button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>›</button></div>
+          <div class="settings-card-header"><div class="settings-card-main"><span class="settings-card-icon" aria-hidden="true">AI</span><div><h3>Narratives &amp; AI</h3><p>Personalise narratives, import enrichment batches and manage the AI connection.</p></div></div><button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>›</button></div>
           <div class="settings-card-panel" data-settings-panel hidden>
+            <details class="enrichment-settings"><summary>Narratives and enrichment batches</summary>
+              <p class="hint">Preview a small enrichment batch to add narratives, tags and individual log entries. Existing entries and passage totals are preserved. Full backup files import narrative enrichment only.</p>
+              <button type="button" id="enrichmentImportBtn" class="btn btn-secondary">Preview enrichment batch</button><input type="file" id="enrichmentFile" accept=".json,application/json" hidden>
+              <div id="enrichmentPreview" aria-live="polite"></div>
+            </details>
             <section class="settings-panel-card narrative-preferences">
               <h4>About us and narrative preferences</h4>
               <p class="hint">Review this suggested profile before saving. Saved preferences accompany each AI request and are included in backup and sync.</p>

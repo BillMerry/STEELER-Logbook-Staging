@@ -3848,7 +3848,8 @@ body[data-theme="night"] .analytics-table thead th, body[data-theme="night"] .an
 /* Testbed identity remains visibly different in both themes. */
 .testbed-header{background:#603579!important;color:#fff!important;position:relative}
 .testbed-label{font-weight:700;font-size:.75rem;letter-spacing:.08em;padding:.3rem;border:1px solid #d8b5ef;border-radius:.3rem}
-.undo-actions{display:flex;gap:.25rem;flex-wrap:wrap}.undo-actions button{color:#fff;background:#422052;border:1px solid #d8b5ef;min-height:36px}
+.undo-actions{display:flex;gap:.25rem;flex-wrap:wrap}.undo-actions button{color:var(--st-text);background:var(--st-surface-muted);border:1px solid var(--st-border);min-height:36px}
+.testbed-header .undo-actions button{color:#fff;background:#422052;border-color:#d8b5ef}
 #narrativeCard textarea,#narrativeCard input{width:100%;box-sizing:border-box}#narrativeCard label{display:block;margin-top:.7rem}
 .narrative-tags span{display:inline-block;padding:.2rem .5rem;border:1px solid currentColor;border-radius:1rem;margin:.15rem}
 .enrichment-settings{margin-top:1rem}.enrichment-settings label{display:block;margin:.6rem 0}.enrichment-settings input:not([type=checkbox]){width:100%}
