@@ -3,6 +3,8 @@ const fs=require('node:fs');
 const E=require('../js/enrichment.js');
 const clone=v=>JSON.parse(JSON.stringify(v));
 const legacy={id:'p',plan:{date:'2025-04-01',dailySummaries:[{id:'d',date:'2025-04-01',notes:'Lunch with friends.\n\nDeck-log enrichment — Batch 01\nCaptain’s Narrative: We went for lunch.\nSuggested tags: friends; Lunch.\nSource: Book 6 / April.pdf.\nBill added a note afterwards.'}]},entries:[{id:'e',engineHoursEnd:'123.4',waterLog:'9.2'}],finish:{engineHoursEnd:'123.4'}};
+const conditions=E.aiContext({entries:[{windDir:'SW',windBft:'0',seaState:'0'}]}).observations[0].environment;
+assert.deepEqual(conditions,{windDir:'SW',windBft:'0',seaStateDouglas:'0'});
 const saved=clone(legacy);assert.equal(E.migrate(legacy),true);assert.equal(legacy.captainsNarrative.text,'We went for lunch.');assert.deepEqual(legacy.tags,['friends','Lunch']);assert.match(legacy.plan.dailySummaries[0].notes,/Lunch with friends/);assert.match(legacy.plan.dailySummaries[0].notes,/Bill added a note afterwards/);assert.equal(legacy.enrichmentSources[0].originalNotes,saved.plan.dailySummaries[0].notes);assert.deepEqual(legacy.entries,saved.entries);assert.equal(E.migrate(legacy),false);
 const deleted={...clone(saved),deleted:true};assert.equal(E.migrate(deleted),false);assert.deepEqual(deleted.plan,saved.plan);
 const edited=clone(saved);edited.captainsNarrative={text:'My edited version',status:'reviewed'};assert.equal(E.migrate(edited),false);assert.match(edited.plan.dailySummaries[0].notes,/Captain’s Narrative/);

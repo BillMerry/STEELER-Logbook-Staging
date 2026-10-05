@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const WEATHER_ABBR_ENABLED_KEY = "steeler_weather_abbreviations_enabled_v1";
 
-const APP_VERSION = "1.4.0-rc3";
+const APP_VERSION = "1.4.0-rc4";
 let enrichmentMigrationSuspended = false;
 const fuelTimestampCache = new WeakMap();
 const LOCAL_DATA_SCHEMA_VERSION = 1;
@@ -10341,6 +10341,15 @@ function dialogField(label, id, value, opts = {}) {
   return `<label class="entry-dialog-field${cls}"><span>${escapeHtml(label)}</span><input id="${id}" type="${type}"${inputMode}${step}${min}${max} value="${escapeHtml(value || '')}"></label>`;
 }
 
+// Douglas wind-sea codes (WMO 3700); independent of wind force.
+const DOUGLAS_SEA_STATES = ['Calm (glassy)', 'Calm (rippled)', 'Smooth (wavelets)', 'Slight', 'Moderate', 'Rough', 'Very rough', 'High', 'Very high', 'Phenomenal'];
+function logEntryConditions(entry) {
+  const parts = [];
+  if (entry.windDir || String(entry.windBft ?? '') !== '') parts.push(`Wind ${entry.windDir || ''}${String(entry.windBft ?? '') !== '' ? ' F' + entry.windBft : ''}`.trim());
+  if (String(entry.seaState ?? '') !== '') parts.push(`Sea ${entry.seaState} — ${DOUGLAS_SEA_STATES[Number(entry.seaState)] || ''}`);
+  return parts.join(' · ');
+}
+
 async function openManualEntryDialog(entry, { isNew = false, passage = null } = {}) {
   return await new Promise((resolve) => {
     const existingPos = ((entry.lat || '').trim() && (entry.lon || '').trim())
@@ -10448,6 +10457,15 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
             <div></div>
           </div>
 
+          <div class="manual-log-title">Observed conditions (optional)</div>
+          <div class="manual-log-row manual-log-weather">
+            ${dialogField('Wind direction', 'dlgWindDir', entry.windDir ?? '', {tag:'select', options:['N','NE','E','SE','S','SW','W','NW']})}
+            ${dialogField('Beaufort force', 'dlgWindBft', String(entry.windBft ?? ''), {type:'number',inputMode:'numeric',step:'1',min:0,max:12})}
+            <label class="entry-dialog-field"><span>Sea state (Douglas)</span>
+              <select id="dlgSeaState"><option value=""></option>${DOUGLAS_SEA_STATES.map((label, code) => `<option value="${code}" ${String(entry.seaState ?? '') === String(code) ? 'selected' : ''}>${code} — ${label}</option>`).join('')}</select>
+            </label>
+          </div>
+
           <div class="manual-log-row manual-log-options manual-log-wp-row">
             <label class="entry-dialog-check">
               <input id="dlgWpReached" type="checkbox" ${isWpEntry ? "checked" : ""} ${waypointOptions.length ? "" : "disabled"}>
@@ -10508,13 +10526,16 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
           'dlgEngPressure',
           'dlgCourse',
           'dlgSpeed',
-          'dlgStw',
+          'dlgStw', 'dlgWindDir', 'dlgWindBft', 'dlgSeaState',
           'dlgNotes',
           'dlgWpSelect',
           'dlgRefuelLitres',
           'dlgRefuelCost',
           'dlgRefuelLocation'
         ]);
+        if (vals.dlgWindBft !== '' && (!Number.isInteger(Number(vals.dlgWindBft)) || Number(vals.dlgWindBft) < 0 || Number(vals.dlgWindBft) > 12)) {
+          alert('Enter a whole Beaufort force from 0 to 12, or leave it blank.'); return false;
+        }
         if (document.getElementById("dlgRefuel")?.checked) {
           if (!(fuelNonnegative(vals.dlgRefuelLitres) > 0)) {
             alert("Enter the positive number of litres filled."); return false;
@@ -10554,6 +10575,10 @@ async function openManualEntryDialog(entry, { isNew = false, passage = null } = 
         entry.course = vals.dlgCourse;
         entry.speed = vals.dlgSpeed;  // SOG
         entry.stw = vals.dlgStw;
+        for (const [field, value] of Object.entries({windDir:vals.dlgWindDir, windBft:vals.dlgWindBft, seaState:vals.dlgSeaState})) {
+          if (value !== '') entry[field] = value;
+          else delete entry[field];
+        }
 
         let notes = vals.dlgNotes || "";
         notes = notes
@@ -11839,7 +11864,8 @@ function renderLogEntries() {
 
     const notesText = document.createElement('div');
     notesText.className = 'log-notes-display';
-    notesText.innerHTML = entry.notes ? linkKnownPortNamesInText(entry.notes) : '—';
+    const displayedNotes = [entry.notes, logEntryConditions(entry)].filter(Boolean).join('\n');
+    notesText.innerHTML = displayedNotes ? linkKnownPortNamesInText(displayedNotes) : '—';
     activateNoteLinks(notesText);
     tdNotes.appendChild(notesText);
 

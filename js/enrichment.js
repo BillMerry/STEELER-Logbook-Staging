@@ -48,7 +48,7 @@
     const clean=original.replace(/\bSources?:\s*(?:Book|Deck[ -]log|Logbook)[^\n]*?\.pdf\b\.?/gi,'').replace(/^Sources?:[^\n]*(?:\bbook\b|\blog\b|\.pdf)[^\n]*$/gmi,'');
     return clean===original?original:clean.replace(/[ \t]{2,}/g,' ').replace(/\n{3,}/g,'\n\n').trim();
   }
-  const entryFields=['time','leg','entryType','notes','lat','lon','course','cog','speed','rpm','engTP','waterLog','groundLog','fuelUsed','engineHours','engineHoursStart','engineHoursEnd','fuelStartPercentR','fuelStartPercentC','fuelEndPercentR','fuelEndPercentC','pob'];
+  const entryFields=['time','leg','entryType','notes','lat','lon','course','cog','speed','rpm','engTP','waterLog','groundLog','fuelUsed','engineHours','engineHoursStart','engineHoursEnd','fuelStartPercentR','fuelStartPercentC','fuelEndPercentR','fuelEndPercentC','pob','windDir','windBft','seaState'];
   function cleanEntry(raw){
     if(!raw||typeof raw.sourceId!=='string'||!raw.sourceId.trim()||raw.sourceId.length>300)throw new Error('Each batch log entry needs a stable sourceId.');
     if(typeof raw.time!=='string'||!/^\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d)?(?:Z|[+-]\d\d:\d\d)?$/.test(raw.time)||!Number.isFinite(Date.parse(raw.time)))throw new Error('Each batch log entry needs a complete, valid date and time.');
@@ -58,6 +58,8 @@
     for(const field of entryFields){if(raw[field]!=null&&!['string','number'].includes(typeof raw[field]))throw new Error('Invalid entry field: '+field);}
     for(const [field,limit] of [['lat',90],['lon',180]])if(raw[field]!=null&&raw[field]!==''&&(!Number.isFinite(Number(raw[field]))||Math.abs(Number(raw[field]))>limit))throw new Error('Invalid '+field+' coordinate; use decimal degrees.');
     for(const field of ['course','cog','speed','rpm','waterLog','groundLog','fuelUsed','engineHours','engineHoursStart','engineHoursEnd','fuelStartPercentR','fuelStartPercentC','fuelEndPercentR','fuelEndPercentC','pob'])if(raw[field]!=null&&raw[field]!==''&&!Number.isFinite(Number(raw[field])))throw new Error('Uncertain '+field+' reading: keep it in notes for review.');
+    for(const [field,max] of [['windBft',12],['seaState',9]]) if(raw[field]!=null && raw[field]!=='' && (!Number.isInteger(Number(raw[field])) || Number(raw[field])<0 || Number(raw[field])>max)) throw new Error('Invalid '+field+' scale value.');
+    if(raw.windDir && !['N','NE','E','SE','S','SW','W','NW'].includes(raw.windDir)) throw new Error('Invalid wind direction.');
     const e={};for(const field of entryFields)if(raw[field]!=null)e[field]=raw[field];
     e.entryType=e.entryType||'manual';e.notes=stripSources(e.notes);
     e.id='enriched:'+encodeURIComponent(raw.sourceId);
@@ -131,7 +133,7 @@
   function aiContext(p){
     return {date:p.plan?.date,timeZone:p.plan?.timeZone,route:{from:p.plan?.from,via:p.plan?.transitPorts,to:p.plan?.to},crew:p.plan?.crew,
       dailySummaries:(p.plan?.dailySummaries||[]).filter(d=>!d.deleted).map(d=>({date:d.date,notes:d.notes})),
-      observations:(p.entries||[]).filter(e=>!e.deleted).map(e=>({time:e.time,leg:e.leg,notes:e.notes,environment:e.engineStartEnv})),
+      observations:(p.entries||[]).filter(e=>!e.deleted).map(e=>({time:e.time,leg:e.leg,notes:e.notes,environment:{...e.engineStartEnv, ...(e.windDir != null ? {windDir:e.windDir} : {}), ...(e.windBft != null ? {windBft:e.windBft} : {}), ...(e.seaState != null ? {seaStateDouglas:e.seaState} : {})}})),
       recordedDeparture:p.plan?.engineStartEnv,planningOnly:{weather:p.plan?.weather,tides:p.plan?.tideStations,currents:p.plan?.currents},completionNotes:p.finish?.notes};
   }
   const api={tags,extract,migrate,memory,preview,apply,aiContext,stripSources};
