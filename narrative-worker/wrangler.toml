@@ -1,0 +1,6 @@
+name = "steeler-narrative-staging"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+[vars]
+OPENAI_MODEL = "gpt-4.1-mini"
+# Secrets: OPENAI_API_KEY and NARRATIVE_TOKEN. This worker has no logbook database binding.

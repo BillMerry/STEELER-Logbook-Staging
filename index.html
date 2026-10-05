@@ -33,12 +33,15 @@
         </div>
       </div>
 
+      <div class="header-navigation">
       <nav class="tabs st-tabs">
         <button class="tab-btn active st-tab st-tab-active" data-tab="homeTab">Home</button>
         <button class="tab-btn st-tab" data-tab="planTab">Plan</button>
         <button class="tab-btn st-tab" data-tab="logTab">Log</button>
         <button class="tab-btn st-tab" data-tab="settingsTab">Settings</button>
       </nav>
+      <div class="undo-actions"><button type="button" id="undoPassageBtn" class="btn btn-small" disabled aria-label="Undo last saved passage action">↶ Undo</button><button type="button" id="redoPassageBtn" class="btn btn-small" disabled aria-label="Redo last undone passage action">↷ Redo</button></div>
+      </div>
     </div>
   </header>
 
@@ -123,6 +126,35 @@
             </div>
           </section>
 
+          <section class="st-plan-card plan-crew-card" id="planCrewCard">
+            <div class="st-plan-card-header">
+              <div>
+                <p class="st-card-kicker">Crew &amp; Vessel</p>
+                <h3>People and vessel details</h3>
+              </div>
+            </div>
+            <div class="plan-field-grid two-col">
+              <label>
+                Vessel
+                <input type="text" id="planVessel" value="STEELER" />
+              </label>
+              <label>
+                Skipper
+                <input type="text" id="planSkipper" placeholder="e.g. Bill" />
+              </label>
+
+              <label class="grid-span-2">
+                Crew
+                <input type="text" id="planCrew" placeholder="Names (optional)" />
+              </label>
+              <label class="grid-span-2">
+                Passage Categories
+                <input type="text" id="planCategories" autocomplete="off" placeholder="France/Channel Islands 2026, Delivery, Solo" />
+                <div id="planCategoriesSuggest" class="port-suggest hidden" aria-label="Existing passage categories"></div>
+              </label>
+            </div>
+          </section>
+
           <section class="st-plan-card plan-route-card" id="planRouteCard">
             <div class="st-plan-card-header">
               <div>
@@ -187,33 +219,17 @@
             </div>
           </section>
 
-          <section class="st-plan-card plan-crew-card" id="planCrewCard">
+          <section class="st-plan-card planning-summary-card" id="planningSummaryCard">
             <div class="st-plan-card-header">
               <div>
-                <p class="st-card-kicker">Crew &amp; Vessel</p>
-                <h3>People and vessel details</h3>
+                <p class="st-card-kicker">Planning Summary</p>
+                <h3>Route totals and detailed plan</h3>
+              </div>
+              <div class="st-plan-card-actions">
+                <button type="button" id="planOpenDppBtn" class="btn btn-secondary btn-small">Open Detailed Passage Plan</button>
               </div>
             </div>
-            <div class="plan-field-grid two-col">
-              <label>
-                Vessel
-                <input type="text" id="planVessel" value="STEELER" />
-              </label>
-              <label>
-                Skipper
-                <input type="text" id="planSkipper" placeholder="e.g. Bill" />
-              </label>
-
-              <label class="grid-span-2">
-                Crew
-                <input type="text" id="planCrew" placeholder="Names (optional)" />
-              </label>
-              <label class="grid-span-2">
-                Passage Categories
-                <input type="text" id="planCategories" autocomplete="off" placeholder="France/Channel Islands 2026, Delivery, Solo" />
-                <div id="planCategoriesSuggest" class="port-suggest hidden" aria-label="Existing passage categories"></div>
-              </label>
-            </div>
+            <div id="planPageSummaryStrip" class="st-metric-strip plan-page-summary-strip" aria-live="polite"></div>
           </section>
 
           <section class="st-plan-card plan-tides-card" id="planTidesCard">
@@ -279,17 +295,14 @@
             <div id="dailySummariesContainer" class="grid-container ds-grid"></div>
           </section>
 
-          <section class="st-plan-card planning-summary-card" id="planningSummaryCard">
-            <div class="st-plan-card-header">
-              <div>
-                <p class="st-card-kicker">Planning Summary</p>
-                <h3>Route totals and detailed plan</h3>
-              </div>
-              <div class="st-plan-card-actions">
-                <button type="button" id="planOpenDppBtn" class="btn btn-secondary btn-small">Open Detailed Passage Plan</button>
-              </div>
-            </div>
-            <div id="planPageSummaryStrip" class="st-metric-strip plan-page-summary-strip" aria-live="polite"></div>
+          <section class="st-plan-card" id="narrativeCard">
+            <div class="st-plan-card-header"><h3>Captain’s Narrative</h3><span id="narrativeStatus" class="hint"></span></div>
+            <label for="captainsNarrative">The passage and the stay</label>
+            <textarea id="captainsNarrative" rows="7" placeholder="The story of this trip, people, places and memorable moments…"></textarea>
+            <label for="passageTags">Tags</label><input id="passageTags" placeholder="People, places, wildlife, maintenance — separated by commas">
+            <div class="st-action-row"><button type="button" id="narrativeReviewed" class="btn btn-secondary">Mark reviewed</button><button type="button" id="narrativeGenerate" class="btn btn-secondary">Draft with AI</button></div>
+            <p id="narrativeMessage" class="hint" role="status"></p>
+            <details><summary>Original enrichment notes</summary><div id="narrativeSources"></div></details>
           </section>
         </div>
 
@@ -433,7 +446,35 @@
               <input id="importFileInput" type="file" accept="application/json,.json" hidden>
             </div>
             <p class="hint">Backup/Restore includes all STEELER data on this device. Specialist exports remain available below.</p>
+            <details class="enrichment-settings"><summary>Narratives and enrichment batches</summary>
+              <p class="hint">Preview a small enrichment batch to add narratives, tags and individual log entries. Existing entries and passage totals are preserved. Full backup files import narrative enrichment only.</p>
+              <button type="button" id="enrichmentImportBtn" class="btn btn-secondary">Preview enrichment batch</button><input type="file" id="enrichmentFile" accept=".json,application/json" hidden>
+              <div id="enrichmentPreview" aria-live="polite"></div>
+            </details>
             <div id="syncStatusSummary" class="sync-status-summary" aria-live="polite"></div>
+          </div>
+        </div>
+
+        <div id="settingsNarrativesCard" class="settings-card st-card" data-settings-card>
+          <div class="settings-card-header"><div class="settings-card-main"><span class="settings-card-icon" aria-hidden="true">AI</span><div><h3>Narratives &amp; AI</h3><p>Personalise your Captain’s Narrative and manage the AI connection.</p></div></div><button type="button" class="btn btn-secondary btn-small settings-toggle" data-settings-toggle>›</button></div>
+          <div class="settings-card-panel" data-settings-panel hidden>
+            <section class="settings-panel-card narrative-preferences">
+              <h4>About us and narrative preferences</h4>
+              <p class="hint">Review this suggested profile before saving. Saved preferences accompany each AI request and are included in backup and sync.</p>
+              <label>About us and STEELER<textarea id="narrativePref_background" rows="5" maxlength="6000"></textarea></label>
+              <label>Writing preferences<textarea id="narrativePref_style" rows="6" maxlength="6000"></textarea></label>
+              <label>Terminology and examples<textarea id="narrativePref_terminology" rows="6" maxlength="6000"></textarea></label>
+              <button type="button" id="saveNarrativePreferences" class="btn btn-primary">Save and use preferences</button><p id="narrativePrefsStatus" class="hint" role="status"></p>
+            </section>
+            <section class="settings-panel-card enrichment-settings">
+              <h4>AI connection</h4><p class="hint">Drafting sends this passage’s notes and recorded context to the AI service. Saved drafts and manual editing work offline.</p>
+              <label>AI service URL<input id="narrativeServiceUrl" type="url" placeholder="https://your-narrative-service.workers.dev"></label>
+              <label>Service access token<input id="narrativeServiceToken" type="password" autocomplete="new-password"></label>
+              <p class="hint">Use the service access token here. The OpenAI API key stays on the server.</p>
+              <button type="button" id="narrativeConfigSave" class="btn btn-secondary">Save AI connection</button>
+              <label><input id="narrativeOffer" type="checkbox" checked> Offer to draft the previous passage when starting the next</label>
+              <p id="narrativeConnectionStatus" role="status" class="hint"></p>
+            </section>
           </div>
         </div>
 
@@ -611,6 +652,8 @@
   <script src="js/weather-fetch.js"></script>
   <script src="js/export-print.js"></script>
   <script src="js/live-data.js"></script>
+  <script src="js/enrichment.js"></script>
+  <script src="js/enrichment-ui.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

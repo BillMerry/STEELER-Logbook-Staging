@@ -47,3 +47,7 @@ Each increment gets its own Testbed candidate, fixtures, regression checks and s
 ## Incremental replacement of spreadsheet recording
 
 Keep the spreadsheet running with manual entry while adding useful app fields incrementally. Generic summary CSV work is deferred. First step in 1.3.5-rc4: Daily Summary OOB and recorded-night/refill-interval metrics. Later: standalone daily activity, stationary engine runs, and main-worksheet fuel reconciliation (recorded use versus actual refill; Cummins/Raymarine gauge comparison). No automatic attribution of discrepancies or gauge calibration. Historical import follows agreed recording semantics.
+
+## 1.4.0 staging candidate
+
+Dedicated narrative/tags, legacy migration, guarded batch import, in-app AI preview and previous-stay offer, session Undo/Redo, ERU timing, validated engine hours run and purple testbed header are implemented. Before live promotion: Bill reviews representative historical passages, performs a real AI draft after configuring server credentials, and checks offline reopening on his iPad. Continue paper-log history enrichment in reviewed batches using a fresh backup each time.
