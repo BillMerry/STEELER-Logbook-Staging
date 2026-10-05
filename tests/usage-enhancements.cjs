@@ -10,7 +10,7 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(process.env.TEST_URL || (process.env.TEST_BASE_URL || 'http://127.0.0.1:8765'));
   await page.waitForFunction(() => typeof renderPassageAnalytics === 'function');
-  assert.equal(await page.evaluate(() => APP_VERSION), '1.4.0');
+  assert.equal(await page.evaluate(() => APP_VERSION), '1.4.1');
   assert.deepEqual(await page.evaluate(()=>['refillHistoryCard','overnightStatsCard','passageAnalyticsCard'].map(id=>document.getElementById(id).open)),[false,false,false]);
   const oob = await page.evaluate(async () => {
     const day = date => ({date, overnightOnBoard:true, fee:'',notes:''});

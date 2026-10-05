@@ -7,7 +7,7 @@ const engine=require('@playwright/test')[process.env.BROWSER_ENGINE||'chromium']
   const page=await context.newPage(),errors=[],alerts=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',async d=>{if(d.type()==='alert')alerts.push(d.message());await d.accept();});
   await page.goto((process.env.TEST_BASE_URL || 'http://127.0.0.1:8765/'));
   await page.evaluate(()=>{passages=[{id:'trip',plan:{date:'2025-06-01',timeZone:'UTC',from:'A',to:'B',engineHoursStart:'100.1',dailySummaries:[]},finish:{engineHoursEnd:'102.3'},entries:[{id:'dock',time:'2025-06-01T12:00',leg:0,entryType:'dock',notes:'Alongside',groundLog:'20'}],captainsNarrative:{text:'My wording',status:'reviewed'},tags:[]}];currentPassageId='trip';savePassages();loadPassageIntoUI();createDataBackupPayload();resetPassageUndo();switchToTab('settingsTab');});
-  await page.locator('#settingsDataBackupCard [data-settings-toggle]').click();
+  await page.locator('#settingsNarrativesCard [data-settings-toggle]').click();
   const file={format:'steeler-enrichment-batch',version:1,batchId:'08',passages:[{id:'trip',date:'2025-06-01',from:'A',to:'B',narrative:'Incoming alternative',tags:['bay'],entries:[{sourceId:'book7-page1-row1',time:'2025-06-01T11:00',leg:0,notes:'Dolphins. Source: Book 7, Deck Log sample.pdf.',lat:'50.1',lon:'-1.3',groundLog:'10'}],possibleCorrections:['Possible end reading discrepancy; review separately.']}]};
   await page.locator('.enrichment-settings > summary').click();
   await page.locator('#enrichmentFile').setInputFiles({name:'batch-08.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(file))});
@@ -21,7 +21,7 @@ const engine=require('@playwright/test')[process.env.BROWSER_ENGINE||'chromium']
   await page.locator('#redoPassageBtn').click();assert.equal(await page.evaluate(()=>activeLogEntries(passages[0]).length),2);
   await page.evaluate(()=>{renderEnrichmentPreview(STEELER.enrichment.preview({format:'steeler-enrichment-batch',version:1,batchId:'09',passages:[{id:'trip',entries:[{sourceId:'second',time:'2025-06-01T11:30',leg:0,notes:'Sea calm'}]}]},passages));passages[0].entries[0].notes='An intervening edit';savePassages();});
   await page.getByRole('button',{name:'Apply selected enrichment',exact:true}).click();assert.match(alerts.pop(),/changed after preview/);assert.equal(await page.evaluate(()=>activeLogEntries(passages[0]).length),2);
-  await page.locator('#settingsDataBackupCard [data-settings-toggle]').click();await page.locator('#settingsNarrativesCard [data-settings-toggle]').click();
+  await page.locator('#settingsNarrativesCard [data-settings-toggle]').click();await page.locator('#settingsNarrativesCard [data-settings-toggle]').click();
   assert.equal(await page.evaluate(()=>narrativePreferences()),null);
   await page.locator('#saveNarrativePreferences').click();assert.match(await page.evaluate(()=>narrativePreferences().style),/paragraphs/);
   for(const width of [1024,390]){await page.setViewportSize({width,height:900});await page.locator('#narrativePref_style').scrollIntoViewIfNeeded();assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await page.locator('.narrative-preferences').screenshot({path:`test-results/preferences-${width}.png`});}
