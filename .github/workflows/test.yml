@@ -1,4 +1,4 @@
-name: Test Testbed candidate
+name: Test release
 on: [push, pull_request]
 permissions:
   contents: read
@@ -7,6 +7,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -24,7 +26,9 @@ jobs:
           BROWSER_ENGINE=webkit node tests/enrichment-browser.cjs
           BROWSER_ENGINE=webkit node tests/undo-layout-browser.cjs
           BROWSER_ENGINE=webkit node tests/batch-browser.cjs
+          node tests/import-storage-browser.cjs
           BROWSER_ENGINE=webkit node tests/entry-weather-browser.cjs
+          BROWSER_ENGINE=chromium node tests/release-offline.cjs
       - uses: actions/upload-artifact@v4
         with:
           name: oob-preview

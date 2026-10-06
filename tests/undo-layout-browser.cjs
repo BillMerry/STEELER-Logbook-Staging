@@ -4,10 +4,10 @@ const browserType=require('@playwright/test')[process.env.BROWSER_ENGINE||'chrom
  const browser=await browserType.launch(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:{});
  try{
   const context=await browser.newContext({viewport:{width:1024,height:900}});
-  await context.route('**/*',r=>r.request().url().startsWith('http://127.0.0.1:8765/')?r.continue():r.abort());
+  await context.route('**/*',r=>r.request().url().startsWith((process.env.TEST_BASE_URL || 'http://127.0.0.1:8765/'))?r.continue():r.abort());
   const page=await context.newPage();const errors=[],alerts=[];
   page.on('pageerror',e=>errors.push(e.message));page.on('dialog',async d=>{if(d.type()==='alert')alerts.push(d.message());await d.accept();});
-  await page.goto('http://127.0.0.1:8765/');
+  await page.goto((process.env.TEST_BASE_URL || 'http://127.0.0.1:8765/'));
   await page.evaluate(()=>{
    const entry=(id,leg,time,type,notes)=>({id,leg,time:'2026-01-04T'+time,entryType:type,notes});
    passages=[{id:'trip',plan:{date:'2026-01-04',timeZone:'UTC',from:'Lymington',to:'Cowes',transitPorts:[{name:'Yarmouth'}],crew:'Bill',dailySummaries:[{id:'day',date:'2026-01-04',notes:'A peaceful stop.',fee:'',overnightOnBoard:false}]},entries:[entry('slip0',0,'09:00','slip','Slipped lines'),entry('dock0',0,'10:00','dock','Alongside'),entry('shutdown0',0,'10:05','shutdown','Shutdown'),entry('slip1',1,'11:00','slip','Slipped lines'),entry('dock1',1,'12:30','dock','Alongside')],captainsNarrative:{text:'We enjoyed the trip.',status:'reviewed'},tags:['Solent']},{id:'other',plan:{date:'2026-01-03',from:'A',to:'B',dailySummaries:[]},entries:[]}];

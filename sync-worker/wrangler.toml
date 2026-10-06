@@ -4,8 +4,8 @@ compatibility_date = "2025-01-01"
 
 [[d1_databases]]
 binding = "SYNC_DB"
-database_name = "steeler_logbook_sync_staging"
-database_id = "e71fb407-9072-45f8-bdc0-500936e54470"
+database_name = "steeler_logbook_sync"
+database_id = "deb8d655-2315-4c48-a112-1c07dd70c5c2"
 
 [vars]
 SYNC_OWNER_ID = "steeler"

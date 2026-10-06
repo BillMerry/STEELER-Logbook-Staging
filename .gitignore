@@ -1,8 +1,7 @@
 .DS_Store
 
 node_modules/
+
 node_modules
 test-results/
-narrative-worker/.wrangler/
-.dev.vars
-.env
+.wrangler/

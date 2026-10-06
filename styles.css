@@ -2939,6 +2939,7 @@ body[data-theme="night"] .settings-card-icon{
 }
 
 .log-status-route{
+  color:var(--st-text);
   display:grid;
   gap:0.12rem;
 }
@@ -3848,7 +3849,8 @@ body[data-theme="night"] .analytics-table thead th, body[data-theme="night"] .an
 /* Testbed identity remains visibly different in both themes. */
 .testbed-header{background:#603579!important;color:#fff!important;position:relative}
 .testbed-label{font-weight:700;font-size:.75rem;letter-spacing:.08em;padding:.3rem;border:1px solid #d8b5ef;border-radius:.3rem}
-.undo-actions{display:flex;gap:.25rem;flex-wrap:wrap}.undo-actions button{color:#fff;background:#422052;border:1px solid #d8b5ef;min-height:36px}
+.undo-actions{display:flex;gap:.25rem;flex-wrap:wrap}.undo-actions button{color:var(--st-text);background:var(--st-surface-muted);border:1px solid var(--st-border);min-height:36px}
+.testbed-header .undo-actions button{color:#fff;background:#422052;border-color:#d8b5ef}
 #narrativeCard textarea,#narrativeCard input{width:100%;box-sizing:border-box}#narrativeCard label{display:block;margin-top:.7rem}
 .narrative-tags span{display:inline-block;padding:.2rem .5rem;border:1px solid currentColor;border-radius:1rem;margin:.15rem}
 .enrichment-settings{margin-top:1rem}.enrichment-settings label{display:block;margin:.6rem 0}.enrichment-settings input:not([type=checkbox]){width:100%}
@@ -3857,9 +3859,9 @@ body[data-theme="night"] .analytics-table thead th, body[data-theme="night"] .an
 .narrative-draft-dialog{width:min(700px,90vw);max-height:85vh;overflow:auto;background:var(--bg,#fff);color:var(--text,#111);border-radius:12px}
 .narrative-draft-dialog textarea,.narrative-draft-dialog input{width:100%;box-sizing:border-box;margin:.6rem 0}.narrative-draft-dialog button{margin:.4rem}
 @media(max-width:650px){
-  .testbed-header{flex-wrap:wrap}
-  .testbed-header .header-content{flex:1 1 100%;min-width:0}
-  .testbed-header .app-header-logo{display:none}
+  .app-header{flex-wrap:wrap}
+  .app-header .header-content{flex:1 1 100%;min-width:0}
+  .app-header .app-header-logo{display:none}
 }
 #narrativeCard{grid-column:1 / -1;min-width:0}
 .testbed-header h1{color:#fff!important}
@@ -3873,10 +3875,10 @@ body[data-theme="night"] .analytics-table thead th, body[data-theme="night"] .an
 .log-route-legs{display:flex;flex-direction:column;gap:.15rem;font-weight:400}
 .log-route-legs span{font-weight:400}.log-route-legs strong{font-weight:800}
 @media(max-width:650px){
-  .testbed-header{flex-wrap:nowrap;align-items:flex-start}
-  .testbed-header .app-header-logo{display:block;width:46px;height:auto;flex:none}
-  .testbed-header .header-content{flex:1;min-width:0}
-  .testbed-header h1{font-size:1.1rem}
+  .app-header{flex-wrap:nowrap;align-items:flex-start}
+  .app-header .app-header-logo{display:block;width:46px;height:auto;flex:none}
+  .app-header .header-content{flex:1;min-width:0}
+  .app-header h1{font-size:1.1rem}
   .header-navigation .tabs{flex-basis:100%}
   .header-navigation .undo-actions{margin-left:auto}
 }

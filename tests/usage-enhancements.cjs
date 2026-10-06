@@ -5,12 +5,20 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
   const browser = await chromium.launch(process.env.BROWSER_CHANNEL ? {channel:process.env.BROWSER_CHANNEL} : {});
   const errors = [];
   const context = await browser.newContext({ viewport: { width: 1024, height: 768 } });
-  await context.route('**/*', route => route.request().url().startsWith('http://127.0.0.1:8765/') ? route.continue() : route.abort());
+  await context.route('**/*', route => route.request().url().startsWith((process.env.TEST_BASE_URL || 'http://127.0.0.1:8765/')) ? route.continue() : route.abort());
   const page = await context.newPage();
   page.on('pageerror', e => errors.push(e.message));
-  await page.goto(process.env.TEST_URL || 'http://127.0.0.1:8765');
+  await page.goto(process.env.TEST_URL || (process.env.TEST_BASE_URL || 'http://127.0.0.1:8765'));
   await page.waitForFunction(() => typeof renderPassageAnalytics === 'function');
-  assert.equal(await page.evaluate(() => APP_VERSION), '1.4.0-rc4');
+  assert.equal(await page.evaluate(() => APP_VERSION), '1.4.3-rc1');
+  const syncDisplay = await page.evaluate(() => {
+    saveLocalSyncStatus({lastObservedFullSyncAt:'2026-10-06T07:22:00Z',lastObservedFullSyncDeviceId:'old-device',lastObservedFullSyncDeviceName:'Old device'});
+    saveFullDataCloudStatus('synced',{record:{recordId:FULL_DATA_SYNC_RECORD_ID,serverRevision:9,clientUpdatedAt:'2026-10-06T07:30:00Z',lastChangedDeviceId:'new-device',lastChangedDeviceName:'New device',payload:{packageHash:'test',appVersion:APP_VERSION}}});
+    const status=loadLocalSyncStatus();
+    return {sameTime:status.lastObservedFullSyncAt===status.lastFullSyncAt,device:status.lastObservedFullSyncDeviceName};
+  });
+  assert.deepEqual(syncDisplay,{sameTime:true,device:'New device'});
+
   assert.deepEqual(await page.evaluate(()=>['refillHistoryCard','overnightStatsCard','passageAnalyticsCard'].map(id=>document.getElementById(id).open)),[false,false,false]);
   const oob = await page.evaluate(async () => {
     const day = date => ({date, overnightOnBoard:true, fee:'',notes:''});
@@ -344,7 +352,7 @@ const chromium = process.env.DOM_TEST ? require('./dom-harness.cjs') : require('
   ]) {
     const syncPage=await context.newPage();
     syncPage.on('pageerror',e=>errors.push(e.message));
-    await syncPage.goto('http://127.0.0.1:8765');
+    await syncPage.goto((process.env.TEST_BASE_URL || 'http://127.0.0.1:8765'));
     const result=await syncPage.evaluate(async scenario => {
       const actions=[];
       getSavedSyncConnection=()=>({});

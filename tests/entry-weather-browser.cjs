@@ -3,9 +3,9 @@ const assert = require('node:assert/strict');
  const browser=await require('@playwright/test')[process.env.BROWSER_ENGINE||'webkit'].launch();
  try {
   const context=await browser.newContext({viewport:{width:1024,height:900}});
-  await context.route('**/*',r=>r.request().url().startsWith('http://127.0.0.1:8765/')?r.continue():r.abort());
+  await context.route('**/*',r=>r.request().url().startsWith((process.env.TEST_BASE_URL || 'http://127.0.0.1:8765/'))?r.continue():r.abort());
   const page=await context.newPage(); const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
-  await page.goto('http://127.0.0.1:8765/');
+  await page.goto((process.env.TEST_BASE_URL || 'http://127.0.0.1:8765/'));
   await page.evaluate(()=>{passages=[{id:'weather',plan:{date:'2026-10-05',timeZone:'Europe/London',from:'Lymington',to:'Cowes',dailySummaries:[]},entries:[{id:'observation',time:'2026-10-05T12:00',leg:0,notes:'Passing the mark.',waterLog:'2.5',groundLog:'3.0'}]}];currentPassageId='weather';savePassages();loadPassageIntoUI();resetPassageUndo();switchToTab('logTab');});
   const open=()=>page.evaluate(()=>{void openManualEntryDialog(getCurrentPassage().entries[0],{passage:getCurrentPassage()});});
   await open();assert.equal(await page.locator('#dlgWindBft').inputValue(),'');assert.equal(await page.locator('#dlgSeaState option').count(),11);

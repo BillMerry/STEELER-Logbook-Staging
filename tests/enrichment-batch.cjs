@@ -16,3 +16,13 @@ other=clone(file);other.passages[0].entries[0].lat='200';assert.throws(()=>E.pre
 const stale=E.preview(file,[before])[0];before.plan.to='Another port';assert.throws(()=>E.apply(stale,before),/changed after preview/);
 assert.equal(E.preview(file,[{...p,deleted:true}])[0].entryPreview[0].status,'unavailable');
 console.log('PASS: compact entry batches preserve summaries/manual edits, retain provenance, block duplicates/deleted entries/timezone collisions/final-reading changes/duplicate movement events, validate inputs and reject stale previews');
+
+const factsOnly={format:'steeler-enrichment-batch',version:1,batchId:'facts-only',passages:[{id:'trip',enrichmentSources:[{date:'2025-06-01',originalNotes:'SW3, slight sea. Dolphins near the entrance.'}]}]};
+const factsPassage=clone(p),factsPreview=E.preview(factsOnly,[factsPassage])[0];
+assert.equal(factsPreview.memoryStatus,'ready');E.apply(factsPreview,factsPassage,{memory:true,entryIds:[]});
+assert.deepEqual(factsPassage.captainsNarrative,p.captainsNarrative);
+assert.equal(E.preview(factsOnly,[factsPassage])[0].memoryStatus,'unchanged');
+assert.equal(E.aiContext(factsPassage).historicalSourceNotes[0].transcription,factsOnly.passages[0].enrichmentSources[0].originalNotes);
+console.log('PASS: notes-only batches preserve edited narratives, reach AI context and do not duplicate on reimport');
+
+assert.equal(E.aiContext({...p,entries:[{lat:'50.1',groundLog:'10'}]}).observations[0].position.lat,'50.1');assert.equal(E.aiContext({...p,entries:[{lat:'50.1',groundLog:'10'}]}).observations[0].readings.groundLog,'10');

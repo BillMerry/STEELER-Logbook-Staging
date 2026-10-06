@@ -2,7 +2,7 @@
 
 This folder contains the isolated Cloudflare Worker prototype for the v1.2.0 data sync stream.
 
-The browser app calls this Worker manually from Settings for staging checks, manual sync preview, one-way cloud backup uploads, read-only backup listing, selected backup JSON download, and guarded cloud-backup restore. It is still deliberately conservative: there is no automatic sync or merge path yet.
+The browser app calls this Worker from Settings for cloud checks, manual sync preview, auto-sync, read-only backup listing, selected backup JSON download, and guarded cloud-backup restore.
 
 Shared Worker URL:
 
@@ -37,7 +37,7 @@ The token should be stored as a Worker secret named `SYNC_API_TOKEN`.
 
 ## Setup Notes
 
-1. Create a D1 database for staging.
+1. Create a D1 database for live.
 2. Replace `database_id` in `wrangler.toml`.
 3. Set the token:
 
@@ -59,4 +59,4 @@ The token should be stored as a Worker secret named `SYNC_API_TOKEN`.
 
 ## Important
 
-This prototype is connected only for manual staging checks, manual sync preview, one-way backup upload, backup listing, backup JSON download, and guarded cloud-backup restore. Do not treat the Worker as a production sync authority until the next stages add client-side sync push/pull, conflict handling, and multi-device testing.
+This Worker stores complete STEELER data packages and recent recovery backups. The app decides whether to upload this device's full package or ask the user to choose between this device and the cloud copy.
