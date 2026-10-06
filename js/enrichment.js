@@ -80,7 +80,7 @@
       if(p.possibleCorrections!=null&&(!Array.isArray(p.possibleCorrections)||!p.possibleCorrections.every(v=>typeof v==='string')))throw new Error('Possible corrections must be review notes.');
       const ids=new Set();const entries=compact?(p.entries||[]).map(raw=>{const e=cleanEntry(raw);if(ids.has(e.id))throw new Error('Duplicate sourceId within a passage.');ids.add(e.id);e.enrichment.batchId=file.batchId;return e;}):[];
       return {id:p.id,date:compact?p.date||'':p.plan?.date||'',from:compact?p.from||'':p.plan?.from||'',to:compact?p.to||'':p.plan?.to||'',narrative:compact?stripSources(p.narrative):memory(p).narrative,tags:tags(p.tags||[]),sources:Array.isArray(p.enrichmentSources)?p.enrichmentSources:[],entries,possibleCorrections:p.possibleCorrections||[]};
-    }).filter(p=>p.narrative||p.tags.length||p.entries.length||p.possibleCorrections.length);
+    }).filter(p=>p.narrative||p.tags.length||p.entries.length||p.sources.length||p.possibleCorrections.length);
   }
   function entryClock(t,zone='Europe/London'){
     const value=String(t||'');
@@ -96,7 +96,8 @@
     return candidates(file).map(c=>{
       const p=byId.get(c.id),current=p&&!p.deleted?memory(p):null;
       const mergedTags=tags([...(current?.tags||[]),...c.tags]);
-      const memoryStatus=!current?'unavailable':current.narrative&&c.narrative&&current.narrative!==c.narrative?'conflict':current.narrative===(c.narrative||current.narrative)&&JSON.stringify(current.tags)===JSON.stringify(mergedTags)?'unchanged':'ready';
+      let memoryStatus=!current?'unavailable':current.narrative&&c.narrative&&current.narrative!==c.narrative?'conflict':current.narrative===(c.narrative||current.narrative)&&JSON.stringify(current.tags)===JSON.stringify(mergedTags)?'unchanged':'ready';
+      if(memoryStatus==='unchanged' && c.sources.some(s=>!(p.enrichmentSources||[]).some(old=>JSON.stringify(old)===JSON.stringify(s))))memoryStatus='ready';
       const legs=Math.max(1,(p?.plan?.transitPorts||[]).filter(t=>String(t?.name??t??'').trim()).length+(p?.plan?.to?1:0));
       const entries=c.entries.map((e,i)=>{
         const existing=(p?.entries||[]).find(old=>old.id===e.id||old.enrichment?.sourceId===e.enrichment.sourceId);
@@ -133,7 +134,8 @@
   function aiContext(p){
     return {date:p.plan?.date,timeZone:p.plan?.timeZone,route:{from:p.plan?.from,via:p.plan?.transitPorts,to:p.plan?.to},crew:p.plan?.crew,
       dailySummaries:(p.plan?.dailySummaries||[]).filter(d=>!d.deleted).map(d=>({date:d.date,notes:d.notes})),
-      observations:(p.entries||[]).filter(e=>!e.deleted).map(e=>({time:e.time,leg:e.leg,notes:e.notes,environment:{...e.engineStartEnv, ...(e.windDir != null ? {windDir:e.windDir} : {}), ...(e.windBft != null ? {windBft:e.windBft} : {}), ...(e.seaState != null ? {seaStateDouglas:e.seaState} : {})}})),
+      observations:(p.entries||[]).filter(e=>!e.deleted).map(e=>({time:e.time,leg:e.leg,notes:e.notes,entryType:e.entryType,position:{lat:e.lat,lon:e.lon},readings:{course:e.course,cog:e.cog,speed:e.speed,rpm:e.rpm,engTP:e.engTP,waterLog:e.waterLog,groundLog:e.groundLog,fuelUsed:e.fuelUsed,engineHours:e.engineHours,engineHoursStart:e.engineHoursStart,engineHoursEnd:e.engineHoursEnd,fuelStartPercentR:e.fuelStartPercentR,fuelStartPercentC:e.fuelStartPercentC,fuelEndPercentR:e.fuelEndPercentR,fuelEndPercentC:e.fuelEndPercentC,pob:e.pob},environment:{...e.engineStartEnv, ...(e.windDir != null ? {windDir:e.windDir} : {}), ...(e.windBft != null ? {windBft:e.windBft} : {}), ...(e.seaState != null ? {seaStateDouglas:e.seaState} : {})}})),
+      historicalSourceNotes:(p.enrichmentSources||[]).map(s=>({date:s.date,transcription:s.originalNotes})),
       recordedDeparture:p.plan?.engineStartEnv,planningOnly:{weather:p.plan?.weather,tides:p.plan?.tideStations,currents:p.plan?.currents},completionNotes:p.finish?.notes};
   }
   const api={tags,extract,migrate,memory,preview,apply,aiContext,stripSources};

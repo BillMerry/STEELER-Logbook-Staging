@@ -140,8 +140,8 @@ function renderEnrichmentPreview(rows){
     const div=document.createElement('div');div.className='enrichment-preview-row';
     const heading=document.createElement('h4');heading.textContent=`${row.date} ${row.from} → ${row.to}`;div.appendChild(heading);
     const memory=document.createElement('input');memory.type='checkbox';memory.checked=row.memoryStatus==='ready';memory.disabled=['unavailable','unchanged'].includes(row.memoryStatus);
-    const label=document.createElement('label');label.append(memory,document.createTextNode(row.memoryStatus==='conflict'?' Replace different narrative and merge tags':row.memoryStatus==='unavailable'?' Passage unavailable — nothing will be imported':row.memoryStatus==='unchanged'?' Narrative/tags already present':' Import narrative and tags'));div.appendChild(label);
-    const details=document.createElement('details'),title=document.createElement('summary');title.textContent='Compare narrative and tags';details.appendChild(title);const text=document.createElement('pre');text.textContent='Current:\n'+(row.current?.narrative||'(none)')+'\n\nIncoming:\n'+(row.narrative||'(none)')+'\n\nTags: '+row.tags.join(', ');details.appendChild(text);div.appendChild(details);
+    const label=document.createElement('label');label.append(memory,document.createTextNode(row.memoryStatus==='conflict'?' Replace different narrative and merge tags':row.memoryStatus==='unavailable'?' Passage unavailable — nothing will be imported':row.memoryStatus==='unchanged'?' Narrative, tags and paper notes already present':' Import narrative, tags and paper notes'));div.appendChild(label);
+    const details=document.createElement('details'),title=document.createElement('summary');title.textContent='Compare narrative, tags and paper notes';details.appendChild(title);const text=document.createElement('pre');text.textContent='Current:\n'+(row.current?.narrative||'(none)')+'\n\nIncoming:\n'+(row.narrative||'(none)')+'\n\nTags: '+row.tags.join(', ')+(row.sources.length?'\n\nPaper notes:\n'+row.sources.map(s=>s.originalNotes||'').join('\n\n'):'');details.appendChild(text);div.appendChild(details);
     const entries=[];
     for(const item of row.entryPreview){
       const check=document.createElement('input');check.type='checkbox';check.checked=item.status==='new';check.disabled=item.status!=='new';
@@ -157,13 +157,13 @@ function renderEnrichmentPreview(rows){
     const selected=choices.map(c=>({...c,options:{memory:!c.memory.disabled&&c.memory.checked,entryIds:c.entries.filter(e=>!e.check.disabled&&e.check.checked).map(e=>e.id)}})).filter(c=>c.options.memory||c.options.entryIds.length);if(!selected.length)return;
     if(!confirm(`Apply enrichment to ${selected.length} passages, including ${selected.reduce((n,c)=>n+c.options.entryIds.length,0)} new log entries? A safety backup will download first. Existing entries and passage totals will not be replaced.`))return;
     try{
-      // Flush the current form before checking stale previews, then validate all changes on a copy.
-      const backup=createDataBackupPayload();
+      // Settings imports must not save hidden or stale Plan form fields.
+      const backup=createDataBackupPayload({flush:false,normalize:false});
       const copy=JSON.parse(JSON.stringify(passages));
       const additions=selected.map(c=>{const p=copy.find(p=>p.id===c.row.id);return {p,added:STEELER.enrichment.apply(c.row,p,c.options)};});
       downloadJsonPayload(backup,'STEELER-Before-enrichment-backup');
       for(const {p,added} of additions){for(const e of added)markLogEntryDirty(e,p);markPassageDirty(p,nowIso(),'enrichment-batch');}
-      const old=passages;passages=copy;if(!savePassages()){passages=old;throw new Error('The batch could not be saved. Nothing was applied.');}
+      const old=passages;passages=copy;if(!savePassages()){passages=old;loadPassageIntoUI();refreshHomePassageList();throw new Error('The batch could not be saved. Existing records have been retained; no enrichment was applied.');}
       loadPassageIntoUI();refreshHomePassageList();host.textContent=`Applied to ${selected.length} passages. Undo is available.`;
     }catch(e){alert(e.message);}
   };host.appendChild(apply);

@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const WEATHER_ABBR_ENABLED_KEY = "steeler_weather_abbreviations_enabled_v1";
 
-const APP_VERSION = "1.4.2";
+const APP_VERSION = "1.4.3-rc1";
 let enrichmentMigrationSuspended = false;
 const fuelTimestampCache = new WeakMap();
 const LOCAL_DATA_SCHEMA_VERSION = 1;
@@ -92,10 +92,14 @@ const STORAGE_SAFETY_CONFIG = {
 
 const storage = {
   getItem(key){
-    return localStorage.getItem(key);
+    const raw=localStorage.getItem(key);
+    try { return STEELER.storageCodec.decode(raw); }
+    catch (error) { console.error('Local storage integrity check failed', key, error); return raw; }
+
   },
   setItem(key, value){
-    localStorage.setItem(key, value);
+    const isData=!!STORAGE_SAFETY_CONFIG[key] || Object.values(STORAGE_SAFETY_CONFIG).some(c=>c.mirrorKey===key);
+    localStorage.setItem(key, isData ? STEELER.storageCodec.encode(value) : value);
   },
   removeItem(key){
     localStorage.removeItem(key);
@@ -2911,9 +2915,23 @@ function saveLocalStorageItem(key, value, label){
       parseStorageJson(value);
       mirrorLocalStorageRaw(key, storage.getItem(key), label);
     }
-    storage.setItem(key, value);
+    try {
+      storage.setItem(key, value);
+    } catch (error) {
+      if (error?.name !== 'QuotaExceededError') throw error;
+      // Only discard redundant mirrors when their valid primary copy is still intact.
+      // Never remove canonical records or a distinct recovery copy.
+      for (const [primaryKey, safety] of Object.entries(STORAGE_SAFETY_CONFIG)) {
+        const primary = storage.getItem(primaryKey);
+        if (!primary || storage.getItem(safety.mirrorKey) !== primary) continue;
+        try { JSON.parse(primary); } catch { continue; }
+        storage.removeItem(safety.mirrorKey);
+        storage.removeItem(safety.mirrorMetaKey);
+      }
+      storage.setItem(key, value);
+    }
     if (COMPLETE_DATA_SYNC_KEYS.has(key) && previousValue !== value) {
-      recordCompleteDataPackageChange(`${label || key}-change`);
+      try { recordCompleteDataPackageChange(`${label || key}-change`); } catch(error) { console.warn("Sync status could not be updated after successful save", error); }
     }
     return true;
   }catch(e){
@@ -4346,7 +4364,7 @@ function savePassages() {
     const saved = JSON.stringify(passages);
     const beforeSaved = storage.getItem(STORAGE_KEY);
     const persisted = saveLocalStorageItem(STORAGE_KEY, saved, "passages");
-    if (persisted) recordPassageUndo(beforeSaved, saved);
+    if (persisted) { try { recordPassageUndo(beforeSaved, saved); } catch(error) { resetPassageUndo(); console.warn("Undo history unavailable after successful save", error); } }
     return persisted;
   } catch (e) {
     console.error("Failed to save passages", e);
@@ -5720,6 +5738,7 @@ function closeModal(){
 function flushCurrentPlanFormToPassage(reason = "plan-form-sync"){
   const p = getCurrentPassage();
   if (!p || !p.plan || !planForm) return false;
+  if (!document.getElementById("planTab")?.classList.contains("active") || planForm.dataset.passageId !== p.id) return false;
   const beforePlanJson = stableComparableJson(p.plan || {});
   const previousPlanDate = String(p.plan?.date || "").trim();
 
@@ -5760,7 +5779,7 @@ function flushCurrentPlanFormToPassage(reason = "plan-form-sync"){
 
 function createDataBackupPayload(options = {}){
   if (options.flush !== false) flushCurrentPlanFormToPassage("backup-package-create");
-  normalisePassagesForSync(passages);
+  if(options.normalize !== false) normalisePassagesForSync(passages);
   const payload = {
     format: DATA_BACKUP_FORMAT,
     version: 1,
@@ -7467,6 +7486,7 @@ function createPassage() {
 }
 
 function loadPlanIntoForm(p) {
+  planForm.dataset.passageId = p.id;
   loadNarrativeEditor(p);
   p.plan.timeZone = getPassageTimeZone(p);
   planDate.value = p.plan.date || "";

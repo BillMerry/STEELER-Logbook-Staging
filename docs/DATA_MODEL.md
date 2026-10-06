@@ -789,3 +789,7 @@ AI connection settings use device-local `steeler_narrative_connection_v1`, exclu
 
 ### Entry weather observations (1.4.0)
 Optional entry fields: `windDir` (N/NE/E/SE/S/SW/W/NW), `windBft` (integer 0–12 stored as a string), `seaState` (Douglas wind-sea code 0–9 stored as a string). Blank fields are absent; zero means observed calm. These are observations at the entry time, independent of planning forecasts or Engine Start environment. Included in backup/sync, CSV/print and AI drafting context.
+
+## Browser storage encoding (1.4.3)
+
+Canonical JSON stores listed in STORAGE_SAFETY_CONFIG and their recovery mirrors may use a `STEELER-LZ1:<length>:<FNV32 checksum>:<LZString UTF16 payload>` envelope. The storage adapter decodes before JSON parsing and checks length/checksum; encoding verifies an exact round trip before writing. Values smaller than 4096 characters, or not reduced by compression, remain plain. Legacy JSON is accepted. Invalid envelopes are exposed to the existing parse/recovery flow rather than silently treated as empty data. Backups and sync remain plain JSON. Older builds require a plain backup to roll back safely.

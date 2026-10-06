@@ -26,6 +26,7 @@ jobs:
           BROWSER_ENGINE=webkit node tests/enrichment-browser.cjs
           BROWSER_ENGINE=webkit node tests/undo-layout-browser.cjs
           BROWSER_ENGINE=webkit node tests/batch-browser.cjs
+          node tests/import-storage-browser.cjs
           BROWSER_ENGINE=webkit node tests/entry-weather-browser.cjs
           BROWSER_ENGINE=chromium node tests/release-offline.cjs
       - uses: actions/upload-artifact@v4
