@@ -30,13 +30,13 @@ const server=http.createServer((req,res)=>{
   const upgradeReload = page.waitForEvent('domcontentloaded');
   await page.evaluate(async()=>{const reg=await navigator.serviceWorker.getRegistration();await reg.update();}).catch(()=>{});
   await upgradeReload;
-  await page.waitForFunction(async()=> (await caches.keys()).includes('steeler-logbook-v1.4.1'));
+  await page.waitForFunction(async()=> (await caches.keys()).includes('steeler-logbook-v1.4.2'));
   await page.reload();
-  await page.waitForFunction(()=>APP_VERSION==='1.4.1');
+  await page.waitForFunction(()=>APP_VERSION==='1.4.2');
   assert.equal(await page.evaluate(()=>passages[0].id),'release-check');
   await context.setOffline(true);
   await page.reload();
-  await page.waitForFunction(()=>APP_VERSION==='1.4.1');
+  await page.waitForFunction(()=>APP_VERSION==='1.4.2');
   await page.evaluate(()=>{
    passages[0].entries.push({id:'offline-check',time:'2026-09-01T12:00',fuelUsed:'12',notes:'Saved offline',windDir:'SW',windBft:'0',seaState:'0'});
    passages[0].plan.dailySummaries=[{date:'2026-09-01',overnightOnBoard:true}];savePassages();
@@ -51,6 +51,6 @@ const server=http.createServer((req,res)=>{
   assert.equal(await page.evaluate(()=>passages[0].entries[0].id),'offline-check');
   assert.equal(await page.evaluate(()=>passages[0].entries[0].seaState),'0');
   assert.equal(await page.title(),'STEELER Logbook');
-  console.log('PASS: 1.3.6 → 1.4.1 worker update, retained passage, offline reload/write/reload/backup, reconnect and live title');
+  console.log('PASS: 1.3.6 → 1.4.2 worker update, retained passage, offline reload/write/reload/backup, reconnect and live title');
  } finally {await browser.close();server.close();}
 })().catch(error=>{console.error(error);server.close();process.exitCode=1;});
