@@ -2939,6 +2939,7 @@ body[data-theme="night"] .settings-card-icon{
 }
 
 .log-status-route{
+  color:var(--st-text);
   display:grid;
   gap:0.12rem;
 }
