@@ -2787,6 +2787,10 @@ function renderStorageWarning(){
   banner.textContent=storageReadBlocks.size
     ? 'Passage data could not be read. Saving and cloud upload are blocked to protect the stored copy. Do not clear app data; arrange recovery first.'
     : 'Some changes have NOT been saved on this device. Keep this app open and download a backup now. Do not rely on closing and reopening the app to retain these changes.';
+  if(storageFailures.size&&!storageReadBlocks.size){
+    const button=document.createElement('button');button.type='button';button.textContent='Download backup now';button.style.marginLeft='12px';
+    button.onclick=()=>downloadJsonPayload(createDataBackupPayload({flush:false,normalize:false}),'STEELER-Unsaved-recovery-backup');banner.appendChild(button);
+  }
 }
 window.addEventListener('beforeunload',event=>{if(storageFailures.size){event.preventDefault();event.returnValue='';}});
 function warnStorageSaveFailed(label, error){
@@ -2917,7 +2921,8 @@ function loadLocalStorageJsonItem(key, label, fallback, validate){
   if (!raw) return fallback;
   try{
     const value = parseStorageJson(raw, validate);
-    mirrorLocalStorageRaw(key, raw, label);
+    const safety=getStorageSafetyConfig(key,label);
+    if(safety&&!storage.getItem(safety.mirrorKey))mirrorLocalStorageRaw(key, raw, label);
     return value;
   }catch(e){
     return handleStorageReadFailure({ key, label, raw, error: e, fallback, validate });
@@ -2928,6 +2933,11 @@ function saveLocalStorageItem(key, value, label){
   if(storageReadBlocks.has(key)){renderStorageWarning();return false;}
   try{
     const previousValue = storage.getItem(key);
+    if(previousValue===String(value)){
+      storageFailures.delete(label);storageSaveWarningsShown.delete(label);
+      if(document.getElementById("storageWarning"))renderStorageWarning();
+      return true;
+    }
     const cfg = getStorageSafetyConfig(key, label);
     if (cfg) {
       parseStorageJson(value);
@@ -2948,6 +2958,7 @@ function saveLocalStorageItem(key, value, label){
       }
       storage.setItem(key, value);
     }
+    if(storage.getItem(key)!==String(value))throw new Error("Saved data did not match the data written.");
     storageFailures.delete(label);storageSaveWarningsShown.delete(label);
     if(document.getElementById("storageWarning"))renderStorageWarning();
     if (COMPLETE_DATA_SYNC_KEYS.has(key) && previousValue !== value) {
@@ -11042,6 +11053,14 @@ async function openEngineStartEntryDialog(p, legIdx, entry = null) {
   });
 }
 
+function showPassageBackupOffer(p, saved){
+  let offer=document.getElementById('passageBackupOffer');
+  if(!offer){offer=document.createElement('div');offer.id='passageBackupOffer';offer.className='card';offer.setAttribute('role','status');document.getElementById('logTab').prepend(offer);}
+  offer.dataset.passageId=p.id;offer.hidden=false;
+  offer.textContent=saved?'Passage finished and saved on this device. Keep a separate safety backup. ':'Passage finished, but its changes have NOT been saved. Download a recovery backup now. ';
+  const button=document.createElement('button');button.type='button';button.textContent='Download backup';
+  button.onclick=()=>downloadJsonPayload(createDataBackupPayload({flush:false,normalize:false}),'STEELER-After-passage-backup');offer.appendChild(button);
+}
 async function openShutdownEntryDialog(p, legIdx, isFinalLeg, entry = null) {
   p.legEnds = Array.isArray(p.legEnds) ? p.legEnds : [];
   const prev = entry ? parseShutdownFromNotes(entry) : (p.legEnds[legIdx] || {});
@@ -11106,7 +11125,8 @@ async function openShutdownEntryDialog(p, legIdx, isFinalLeg, entry = null) {
           markLogEntryDirty(newEntry, p);
           p.entries.unshift(newEntry);
         }
-								savePassages(); requestScrollToNewestLogEntry(); renderLogEntries(); refreshHomePassageList(); updatePassageHeader(); updateLogSummary();
+								const shutdownSaved=savePassages(); requestScrollToNewestLogEntry(); renderLogEntries(); refreshHomePassageList(); updatePassageHeader(); updateLogSummary();
+        if(isFinalLeg&&!entry)showPassageBackupOffer(p,shutdownSaved);
 								
 								try{
 																if (confirm("Notify Emergency Contact of safe arrival?")){
@@ -12261,6 +12281,7 @@ addEntryBtn.addEventListener("click", () => addLogEntry());
 // --- Load passage into UI -----------------------------------------
 
 function loadPassageIntoUI() {
+  const backupOffer=document.getElementById("passageBackupOffer");if(backupOffer)backupOffer.hidden=backupOffer.dataset.passageId!==currentPassageId;
   const p = getCurrentPassage();
   if (!p) {
     planForm?.reset();

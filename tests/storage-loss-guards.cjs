@@ -25,5 +25,25 @@ const assert=require('node:assert/strict');
   passages=[{id:'testbed',plan:{date:'2026-09-01'},entries:[]}];savePassages();
   return {loaded,liveUnchanged:localStorage.getItem(STORAGE_KEY)===live,testbed:JSON.parse(storage.getItem(STORAGE_KEY))[0].id,sync:storage.getItem(SYNC_CONFIG_KEY),ai:narrativeConfig()};
  });assert.deepEqual(isolated,{loaded:0,liveUnchanged:true,testbed:'testbed',sync:null,ai:{}});
+ const durability=await p.evaluate(()=>{
+  const before=storage.getItem(STORAGE_KEY);
+  passages[0].plan.notes='New revision';savePassages();
+  const mirror=storage.getItem(STORAGE_SAFETY_CONFIG[STORAGE_KEY].mirrorKey);
+  loadPassages();savePassages();
+  const retained=storage.getItem(STORAGE_SAFETY_CONFIG[STORAGE_KEY].mirrorKey)===mirror&&mirror===before;
+  const original=storage.setItem.bind(storage);storage.setItem=(k,v)=>{if(k!==STORAGE_KEY)original(k,v);};
+  passages[0].plan.notes='Silently dropped write';const result=savePassages();storage.setItem=original;
+  return {retained,result,backupButton:!!document.querySelector('#storageWarning button')};
+ });assert.deepEqual(durability,{retained:true,result:false,backupButton:true});
+ const shutdown=await p.evaluate(async()=>{
+  passages=[{id:'trip',plan:{date:'2026-10-06',from:'Lymington',to:'Lymington',transitPorts:[{name:'Newtown Creek'}]},entries:[]}];currentPassageId='trip';savePassages();loadPassageIntoUI();
+  let modal;showModal=opts=>{modal=opts;};getDialogFieldValues=()=>({shTime:'17:15',shEh:'1250.5',shFuelR:'40',shFuelC:'40',shWLog:'12',shGLog:'13',shFuelUsed:'20',shNotes:'Alongside'});
+  const first=openShutdownEntryDialog(passages[0],0,false);modal.onOk();await first;
+  const absent=!document.getElementById('passageBackupOffer');
+  const last=openShutdownEntryDialog(passages[0],1,true);modal.onOk();await last;
+  let exported;downloadJsonPayload=(data)=>{exported=data;};document.querySelector('#passageBackupOffer button').click();
+  return {absent,message:document.getElementById('passageBackupOffer').textContent,entries:exported.data.passages[0].entries.length,finished:exported.data.passages[0].finish.shutdownLogged};
+ });assert.ok(shutdown.absent);assert.match(shutdown.message,/saved on this device/);assert.equal(shutdown.entries,2);assert.ok(shutdown.finished);
+ console.log('PASS: read-back rejects silent failure, recovery revision survives reload/no-op saves, and only final shutdown offers a complete backup');
  console.log('PASS: failed restores retain saved records and show persistent warning; unreadable data blocks writes/uploads until explicit restore; Testbed isolates records, sync and AI settings');
 }finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});
