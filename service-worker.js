@@ -1,6 +1,7 @@
 // Bump this whenever assets change, to avoid stale PWA caches.
 // Keep in sync with APP_VERSION in app.js for release diagnostics.
-const CACHE_NAME = "steeler-logbook-v1.4.3-rc1";
+const CACHE_PREFIX = /\/STEELER-Logbook-Staging(?:\/|$)/i.test(self.location.pathname) ? "steeler-testbed-v" : "steeler-logbook-v";
+const CACHE_NAME = CACHE_PREFIX + "1.4.3-rc2";
 
 const ASSETS = [
   "./",
@@ -43,7 +44,7 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.map((k) => (k !== CACHE_NAME ? caches.delete(k) : null)))
+      Promise.all(keys.map((k) => (k.startsWith(CACHE_PREFIX) && k !== CACHE_NAME ? caches.delete(k) : null)))
     )
   );
   self.clients.claim();

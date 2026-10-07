@@ -793,3 +793,7 @@ Optional entry fields: `windDir` (N/NE/E/SE/S/SW/W/NW), `windBft` (integer 0–1
 ## Browser storage encoding (1.4.3)
 
 Canonical JSON stores listed in STORAGE_SAFETY_CONFIG and their recovery mirrors may use a `STEELER-LZ1:<length>:<FNV32 checksum>:<LZString UTF16 payload>` envelope. The storage adapter decodes before JSON parsing and checks length/checksum; encoding verifies an exact round trip before writing. Values smaller than 4096 characters, or not reduced by compression, remain plain. Legacy JSON is accepted. Invalid envelopes are exposed to the existing parse/recovery flow rather than silently treated as empty data. Backups and sync remain plain JSON. Older builds require a plain backup to roll back safely.
+
+## Testbed isolation (1.4.3-rc2)
+
+On `/STEELER-Logbook-Staging/`, the adapter prefixes all storage keys with `steeler_testbed:`. Live keeps its legacy keys. AI settings/preferences also use the adapter. Testbed never implicitly migrates or copies Live stores or sync credentials. A user-selected ordinary JSON backup restores into the active namespace. Storage quota remains shared at browser-origin level despite separate keys; separate hosting origins remain preferable for full quota isolation.
