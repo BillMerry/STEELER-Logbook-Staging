@@ -11,11 +11,12 @@ exports.launch = async () => {
       route: async()=>{},
       newPage: async()=>{
         let dom;
+        let pageUrl="http://127.0.0.1:8765";
         const listeners=[];
         const load=(saved={})=>{
           dom?.window.close();
           const html=fs.readFileSync(path.join(root,'index.html'),'utf8');
-          dom=new JSDOM(html,{url:'http://127.0.0.1:8765',runScripts:'outside-only',pretendToBeVisual:true});
+          dom=new JSDOM(html,{url:pageUrl,runScripts:'outside-only',pretendToBeVisual:true});
           const w=dom.window;
           w.matchMedia=()=>({matches:false,addEventListener(){},addListener(){}});
           w.scrollTo=()=>{};
@@ -28,7 +29,7 @@ exports.launch = async () => {
           const scripts=[...w.document.querySelectorAll('script[src]')].map(el=>el.getAttribute('src'));
           for(const src of scripts) vm.runInContext(fs.readFileSync(path.join(root,src),'utf8'),dom.getInternalVMContext(),{filename:src});
         };
-        const page={on:(event,fn)=>{if(event==='pageerror')listeners.push(fn)},goto:async()=>load(),waitForFunction:async()=>{},evaluate:async(fn,arg)=>JSON.parse(JSON.stringify(await vm.runInContext(`(${fn.toString()})(${JSON.stringify(arg) ?? 'undefined'})`,dom.getInternalVMContext())) ?? 'null'),reload:async()=>{const saved={...dom.window.localStorage};load(saved)},close:async()=>dom?.window.close()};
+        const page={on:(event,fn)=>{if(event==='pageerror')listeners.push(fn)},goto:async(url)=>{if(url)pageUrl=url;load()},waitForFunction:async()=>{},evaluate:async(fn,arg)=>JSON.parse(JSON.stringify(await vm.runInContext(`(${fn.toString()})(${JSON.stringify(arg) ?? 'undefined'})`,dom.getInternalVMContext())) ?? 'null'),reload:async()=>{const saved={...dom.window.localStorage};load(saved)},close:async()=>dom?.window.close()};
         pages.push(page);return page;
       }
     }),

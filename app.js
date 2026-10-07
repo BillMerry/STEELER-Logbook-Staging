@@ -13,7 +13,7 @@ const SYNC_STATUS_KEY = "steeler_sync_status_v1";
 const SYNC_CONFIG_KEY = "steeler_sync_config_v1";
 const WEATHER_ABBR_ENABLED_KEY = "steeler_weather_abbreviations_enabled_v1";
 
-const APP_VERSION = "1.4.3-rc1";
+const APP_VERSION = "1.4.3-rc2";
 let enrichmentMigrationSuspended = false;
 const fuelTimestampCache = new WeakMap();
 const LOCAL_DATA_SCHEMA_VERSION = 1;
@@ -90,19 +90,24 @@ const STORAGE_SAFETY_CONFIG = {
   }
 };
 
+const storageNamespace = /\/STEELER-Logbook-Staging(?:\/|$)/i.test(location.pathname) ? "steeler_testbed:" : "";
+const appCachePrefix = storageNamespace ? "steeler-testbed-v" : "steeler-logbook-v";
+const appScope = new URL("./", location.href).href;
+const storageFailures = new Set();
+const storageReadBlocks = new Set();
 const storage = {
   getItem(key){
-    const raw=localStorage.getItem(key);
+    const raw=localStorage.getItem(storageNamespace + key);
     try { return STEELER.storageCodec.decode(raw); }
     catch (error) { console.error('Local storage integrity check failed', key, error); return raw; }
 
   },
   setItem(key, value){
     const isData=!!STORAGE_SAFETY_CONFIG[key] || Object.values(STORAGE_SAFETY_CONFIG).some(c=>c.mirrorKey===key);
-    localStorage.setItem(key, isData ? STEELER.storageCodec.encode(value) : value);
+    localStorage.setItem(storageNamespace + key, isData ? STEELER.storageCodec.encode(value) : value);
   },
   removeItem(key){
-    localStorage.removeItem(key);
+    localStorage.removeItem(storageNamespace + key);
   }
 };
 
@@ -2775,7 +2780,17 @@ function downloadJsonPayload(payload, filenamePrefix){
   URL.revokeObjectURL(url);
 }
 
+function renderStorageWarning(){
+  let banner=document.getElementById('storageWarning');
+  if(!banner){banner=document.createElement('div');banner.id='storageWarning';banner.setAttribute('role','alert');banner.style.cssText='position:sticky;top:0;z-index:10000;background:#fff0cf;color:#592d00;padding:16px;border:2px solid #a45a00';document.body.prepend(banner);}
+  banner.hidden=!storageFailures.size&&!storageReadBlocks.size;
+  banner.textContent=storageReadBlocks.size
+    ? 'Passage data could not be read. Saving and cloud upload are blocked to protect the stored copy. Do not clear app data; arrange recovery first.'
+    : 'Some changes have NOT been saved on this device. Keep this app open and download a backup now. Do not rely on closing and reopening the app to retain these changes.';
+}
+window.addEventListener('beforeunload',event=>{if(storageFailures.size){event.preventDefault();event.returnValue='';}});
 function warnStorageSaveFailed(label, error){
+  storageFailures.add(label);renderStorageWarning();
   console.warn(`Failed to save ${label}`, error);
   if (storageSaveWarningsShown.has(label)) return;
   storageSaveWarningsShown.add(label);
@@ -2859,6 +2874,7 @@ function exportRawStorageData({ key, label, raw, error }){
 }
 
 function handleStorageReadFailure({ key, label, raw, error, fallback, validate }){
+  if(key===STORAGE_KEY){storageReadBlocks.add(key);renderStorageWarning();}
   const cfg = getStorageSafetyConfig(key, label);
   const displayLabel = cfg?.label || label || key;
   console.error(`Failed to load ${displayLabel}`, error);
@@ -2880,6 +2896,7 @@ function handleStorageReadFailure({ key, label, raw, error, fallback, validate }
           const recovered = parseStorageJson(mirrorRaw, validate);
           if (confirm(`A last-known-good copy of ${displayLabel} is available. Restore it now?`)) {
             storage.setItem(key, mirrorRaw);
+            storageReadBlocks.delete(key);renderStorageWarning();
             alert(`${displayLabel} restored from the last-known-good copy.`);
             return recovered;
           }
@@ -2908,6 +2925,7 @@ function loadLocalStorageJsonItem(key, label, fallback, validate){
 }
 
 function saveLocalStorageItem(key, value, label){
+  if(storageReadBlocks.has(key)){renderStorageWarning();return false;}
   try{
     const previousValue = storage.getItem(key);
     const cfg = getStorageSafetyConfig(key, label);
@@ -2930,6 +2948,8 @@ function saveLocalStorageItem(key, value, label){
       }
       storage.setItem(key, value);
     }
+    storageFailures.delete(label);storageSaveWarningsShown.delete(label);
+    if(document.getElementById("storageWarning"))renderStorageWarning();
     if (COMPLETE_DATA_SYNC_KEYS.has(key) && previousValue !== value) {
       try { recordCompleteDataPackageChange(`${label || key}-change`); } catch(error) { console.warn("Sync status could not be updated after successful save", error); }
     }
@@ -3333,13 +3353,13 @@ function saveSafetyInfoFromSettingsFields(){
 
     if ("serviceWorker" in navigator){
       navigator.serviceWorker.getRegistrations()
-        .then(regs => Promise.all(regs.map(r => r.unregister())).catch(()=>[]))
-        .then(() => ("caches" in window) ? caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k)))) : null)
+        .then(regs => Promise.all(regs.filter(r=>r.scope===appScope).map(r => r.unregister())).catch(()=>[]))
+        .then(() => ("caches" in window) ? caches.keys().then(keys => Promise.all(keys.filter(k=>k.startsWith(appCachePrefix)).map(k => caches.delete(k)))) : null)
         .then(doReload)
         .catch(doReload);
     } else {
       if ("caches" in window){
-        caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k)))).then(doReload).catch(doReload);
+        caches.keys().then(keys => Promise.all(keys.filter(k=>k.startsWith(appCachePrefix)).map(k => caches.delete(k)))).then(doReload).catch(doReload);
       } else {
         doReload();
       }
@@ -5778,6 +5798,7 @@ function flushCurrentPlanFormToPassage(reason = "plan-form-sync"){
 }
 
 function createDataBackupPayload(options = {}){
+  if(storageReadBlocks.has(STORAGE_KEY))throw new Error("Passage data needs recovery before a backup or cloud package can be created.");
   if (options.flush !== false) flushCurrentPlanFormToPassage("backup-package-create");
   if(options.normalize !== false) normalisePassagesForSync(passages);
   const payload = {
@@ -5908,9 +5929,18 @@ function restoreDataBackupObject(obj, options = {}){
     if (!ok) return false;
   }
 
-  passages = obj.data.passages;
+  const previousPassages=passages;
+  const wasBlocked=storageReadBlocks.delete(STORAGE_KEY);
+  passages = JSON.parse(JSON.stringify(obj.data.passages));
   normalisePassagesForSync(passages);
-  saveLocalStorageItem(STORAGE_KEY, JSON.stringify(passages), "passages");
+  if(!saveLocalStorageItem(STORAGE_KEY, JSON.stringify(passages), "passages")){
+    passages=previousPassages;
+    if(wasBlocked)storageReadBlocks.add(STORAGE_KEY);
+    renderStorageWarning();
+    alert("Restore could not save the passage data. The existing records have been retained; keep the backup file and do not continue entering new passages until storage is working.");
+    return false;
+  }
+  renderStorageWarning();
 
   const portsPayload = obj.data.knownPorts || {};
   knownPorts = Array.isArray(portsPayload.all) ? portsPayload.all : [];
@@ -5942,6 +5972,7 @@ function restoreDataBackupObject(obj, options = {}){
   loadNarrativePreferences();
   applyTheme(obj.data.theme || "day");
   refreshAfterDataRestore({ importDppTemplateWaypoints: false });
+  if(storageFailures.size){alert("Restore did not save all data successfully. Keep your backup file; do not assume this device holds a complete restored copy.");return false;}
   if (!options.silent) alert(options.successMessage || "Full STEELER data backup restored successfully.");
   return true;
 }
@@ -5965,9 +5996,18 @@ function restoreLegacyLogbookBackupObject(obj){
   );
   if (!ok) return false;
 
-  passages = obj.data.passages;
+  const previousPassages=passages;
+  const wasBlocked=storageReadBlocks.delete(STORAGE_KEY);
+  passages = JSON.parse(JSON.stringify(obj.data.passages));
   normalisePassagesForSync(passages);
-  saveLocalStorageItem(STORAGE_KEY, JSON.stringify(passages), "passages");
+  if(!saveLocalStorageItem(STORAGE_KEY, JSON.stringify(passages), "passages")){
+    passages=previousPassages;
+    if(wasBlocked)storageReadBlocks.add(STORAGE_KEY);
+    renderStorageWarning();
+    alert("Restore could not save the passage data. The existing records have been retained; keep the backup file and do not continue entering new passages until storage is working.");
+    return false;
+  }
+  renderStorageWarning();
   if (obj.data.safetyInfo) {
     try {
       saveLocalStorageItem(SAFETY_INFO_KEY, JSON.stringify(obj.data.safetyInfo), "Safety / Emergency Info");
@@ -5980,6 +6020,7 @@ function restoreLegacyLogbookBackupObject(obj){
   if (hasDppWaypoints) saveDppWaypointStore(obj.data.dppWaypoints);
   applyTheme(obj.data.theme || "day");
   refreshAfterDataRestore();
+  if(storageFailures.size){alert("Restore did not save all data successfully. Keep your backup file.");return false;}
   alert("Backup restored successfully. Ports were left unchanged.");
   return true;
 }
@@ -12293,11 +12334,11 @@ async function resetPwaCache({ silent=false } = {}) {
   try {
     if ("serviceWorker" in navigator) {
       const regs = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(regs.map(r => r.unregister()));
+      await Promise.all(regs.filter(r=>r.scope===appScope).map(r => r.unregister()));
     }
     if (window.caches && caches.keys) {
       const keys = await caches.keys();
-      await Promise.all(keys.map(k => caches.delete(k)));
+      await Promise.all(keys.filter(k=>k.startsWith(appCachePrefix)).map(k => caches.delete(k)));
     }
   } catch (err) {
     console.warn("resetPwaCache failed:", err);

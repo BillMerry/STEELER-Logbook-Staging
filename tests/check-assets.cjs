@@ -7,7 +7,7 @@ for(const file of ['app.js','service-worker.js',...fs.readdirSync('js').filter(f
 const app=fs.readFileSync('app.js','utf8');
 const sw=fs.readFileSync('service-worker.js','utf8');
 const version=app.match(/const APP_VERSION = "([^"]+)"/)[1];
-assert.ok(sw.includes(`steeler-logbook-v${version}`));
+assert.ok(sw.includes(`CACHE_PREFIX + "${version}"`));
 const html=fs.readFileSync('index.html','utf8');
 for(const [,src] of html.matchAll(/<script[^>]*src="([^"]+)"/g)) assert.ok(sw.includes(src),`uncached module: ${src}`);
 for(const [,asset] of sw.matchAll(/"\.\/([^"\n]+)"/g)) assert.ok(fs.existsSync(asset),`missing asset: ${asset}`);

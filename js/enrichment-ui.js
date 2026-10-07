@@ -90,7 +90,7 @@ function saveNarrativeEditor(reviewed=false){
   updatePlanSummaryPanel();refreshHomePassageList();
 }
 const NARRATIVE_CONFIG_KEY='steeler_narrative_connection_v1';
-function narrativeConfig(){try{return JSON.parse(localStorage.getItem(NARRATIVE_CONFIG_KEY)||'{}');}catch{return {};}}
+function narrativeConfig(){try{return JSON.parse(storage.getItem(NARRATIVE_CONFIG_KEY)||'{}');}catch{return {};}}
 let narrativeBusy=false;
 async function generateNarrative(p){
   if(!p||p.deleted||narrativeBusy)return;
@@ -191,7 +191,7 @@ document.getElementById('narrativeConfigSave')?.addEventListener('click',()=>{
   const url=document.getElementById('narrativeServiceUrl').value.trim(),token=document.getElementById('narrativeServiceToken').value.trim();
   try{if(url&&new URL(url).protocol!=='https:')throw new Error('Use an HTTPS service URL.');
     if(/^sk-/.test(token))throw new Error('This is an OpenAI API key. Put it on the server, not in this field.');
-    localStorage.setItem(NARRATIVE_CONFIG_KEY,JSON.stringify({url,token,offer:document.getElementById('narrativeOffer').checked}));document.getElementById('narrativeConnectionStatus').textContent='Connection saved on this device.';
+    storage.setItem(NARRATIVE_CONFIG_KEY,JSON.stringify({url,token,offer:document.getElementById('narrativeOffer').checked}));document.getElementById('narrativeConnectionStatus').textContent='Connection saved on this device.';
   }catch(e){alert(e.message);}
 });
 
@@ -201,7 +201,7 @@ const suggestedNarrativePreferences={
   style:'Write in natural British English, using I or we as supported by the entry. Keep the tone informal and personal; never call me “the owner”. Use flowing prose in short paragraphs separated by a blank line. Bring together the passage and the whole stay, using the Daily Summaries for visits, meals, people and memorable events. Mention weather and tides where relevant, distinguishing experienced conditions from forecasts. Keep short records concise. Do not invent feelings, encounters or events, and preserve uncertainty.',
   terminology:'STW means speed through water; GPS log readings are distance over ground. In paired paper-log distance readings the upper is usually through water and the lower GPS, but do not reinterpret existing structured readings. RDV means rendezvous/encounter in my notes. ERU refers to an engine run without a passage. Use the recorded passage timezone. Do not infer dates of maintenance or participants from background knowledge. No preferred example narrative has been selected yet.'
 };
-function narrativePreferences(){try{const p=JSON.parse(localStorage.getItem(NARRATIVE_PREFS_KEY)||'null');return p&&typeof p==='object'?{background:String(p.background||''),style:String(p.style||''),terminology:String(p.terminology||'')}:null;}catch{return null;}}
+function narrativePreferences(){try{const p=JSON.parse(storage.getItem(NARRATIVE_PREFS_KEY)||'null');return p&&typeof p==='object'?{background:String(p.background||''),style:String(p.style||''),terminology:String(p.terminology||'')}:null;}catch{return null;}}
 function loadNarrativePreferences(){
   const saved=narrativePreferences(),p=saved||suggestedNarrativePreferences;
   for(const key of ['background','style','terminology'])document.getElementById('narrativePref_'+key).value=p[key];
